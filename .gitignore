@@ -58,3 +58,5 @@ dkms.conf
 */cmake_install.cmake
 */CMakeFiles/*
 
+# vim backup files
+.*.swp
