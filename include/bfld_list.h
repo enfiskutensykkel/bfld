@@ -1,108 +1,170 @@
-#ifndef __BFLD_LIST_H__
-#define __BFLD_LIST_H__
+#ifndef __LIST_H__
+#define __LIST_H__
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #include <stddef.h>
+#include <stdbool.h>
 
 
-struct bfld_list
+#ifndef container_of
+#define container_of(ptr, type, member) ({ \
+    const typeof(((type*) 0)->member) *__mptr = (ptr); \
+    (type*)((char*)__mptr - offsetof(type,member)); \
+    })
+#endif
+
+
+/*
+ * Linked list implementation.
+ */
+struct list_head
 {
-    struct bfld_list *next;
-    struct bfld_list *prev;
+    struct list_head *next;
+    struct list_head *prev;
 };
 
 
-#define _bfld_list_entry(type, ptr, field) \
-    ((struct bfld_list*) (((size_t) (ptr)) + offsetof(type, field)))
+/*
+ * Get a pointer to the struct containing a list_head (container_of).
+ */
+#define list_node(head_ptr, type, member) \
+    ((type*) ((char*) ((void*) head_ptr) - offsetof(type, member)))
 
 
-#define _bfld_list_struct(type, entry, field) \
-    ((type*) (((size_t) entry) - offsetof(type, field)))
+/*
+ * Inline list initializer.
+ */
+#define LIST_HEAD_INIT(name) \
+    { &(name), &(name) }
 
 
-#define bfld_list_init(head) \
-    do { \
-        (head)->next = (head); \
-        (head)->prev = (head); \
-    } while (0) 
+/*
+ * Initialize the linked list.
+ */
+static inline
+void list_head_init(struct list_head *head)
+{
+    head->next = head;
+    head->prev = head;
+}
 
 
-#define bfld_list_empty(head) \
-    ((head)->next == (head))
+/*
+ * Check if the list is empty.
+ */
+static inline
+bool list_empty(const struct list_head *head)
+{
+    return head->next == head;
+}
 
 
-#define bfld_list_remove_entry(entry) \
-    do { \
-        (entry)->prev->next = (entry)->next; \
-        (entry)->next->prev = (entry)->prev; \
-        (entry)->next = (entry); \
-        (entry)->prev = (entry); \
-    } while (0)
+static inline
+bool list_entry_is_head(const struct list_head *head, const struct list_head *entry)
+{
+    return entry == head;
+}
 
 
-#define bfld_list_push_back(head, entry) \
-    do { \
-        struct bfld_list* tail = (head)->prev; \
-        tail->next = (entry); \
-        (entry)->prev = tail; \
-        (head)->prev = (entry); \
-        (entry)->next = (head); \
-    } while (0)
+/*
+ * Remove entry from list.
+ */
+static inline
+void list_remove(struct list_head *entry)
+{
+    entry->prev->next = entry->next;
+    entry->next->prev = entry->prev;
+
+    // Make sure that the removed entry do not refer
+    // to any entries still in the list
+    list_head_init(entry); 
+}
 
 
-#define bfld_list_push_front(head, entry) \
-    do { \
-        struct bfld_list* first = (head)->next; \
-        first->prev = (entry); \
-        (entry)->next = first; \
-        (head)->next = (entry); \
-        (entry)->prev = (head); \
-    } while (0)
+/*
+ * Insert entry before the specified head.
+ * For example, adding elements to a queue.
+ */
+static inline
+void list_insert_before(struct list_head *head, struct list_head *new_entry)
+{
+    struct list_head *tail = head->prev;
+    tail->next = new_entry;
+    new_entry->prev = tail;
+    head->prev = new_entry;
+    new_entry->next = head;
+}
 
 
-#define bfld_list_front(head) \
-    ( (head)->next != (head) ? (head)->next : NULL )
+/*
+ * Insert entry after the specified head.
+ * For example, pushing to a stack.
+ */
+static inline
+void list_insert_after(struct list_head *head, struct list_head *new_entry)
+{
+    struct list_head *first = head->next;
+    first->prev = new_entry;
+    new_entry->next = first;
+    head->next = new_entry;
+    new_entry->prev = head;
+}
 
 
-#define bfld_list_back(head) \
-    ( (head)->prev != (head) ? (head)->prev : NULL )
+static inline
+void list_append(struct list_head *head, struct list_head *new_entry)
+{
+    list_insert_before(head, new_entry);
+}
 
 
-#define bfld_list_insert(head, node, field) \
-    bfld_list_push_back(head, _bfld_list_entry(typeof(*node), node, field))
+static inline
+void list_prepend(struct list_head *head, struct list_head *new_entry)
+{
+    list_insert_after(head, new_entry);
+}
 
 
-#define bfld_list_insert_front(head, node, field) \
-    bfld_list_push_front(head, _bfld_list_entry(typeof(*node), node, field))
+/*
+ * Get the element in front of the specified head.
+ */
+static inline
+struct list_head * list_prev_entry(const struct list_head *head)
+{
+    return head->prev != head ? head->prev : NULL;
+}
 
 
-#define bfld_list_remove(node, field) \
-    bfld_list_remove_entry(_bfld_list_entry(typeof(*node), node, field))
+/*
+ * Get the last entry after the specified head.
+ */
+static inline
+struct list_head * list_next_entry(const struct list_head *head)
+{
+    return head->next != head ? head->next : NULL;
+}
 
 
-#define bfld_list_first(type, head, field) \
-    (bfld_list_front(head) ? _bfld_list_struct(type, bfld_list_front(head), field) : NULL)
-
-
-#define bfld_list_last(type, head, field) \
-    (bfld_list_back(head) ? _bfld_list_struct(type, bfld_list_back(head), field) : NULL)
-
-
-#define bfld_list_next(head, node, field) \
-    (_bfld_list_entry(typeof(*node), node, field)->next != (head) ? _bfld_list_struct(typeof(*node), _bfld_list_entry(typeof(*node), node, field)->next, field) : NULL)
-
-
-#define bfld_list_prev(head, node, field) \
-    (_bfld_list_entry(typeof(*node), node, field)->next != (head) ? _bfld_list_struct(typeof(*node), _bfld_list_entry(typeof(*node), node, field)->prev, field) : NULL)
-
-
-#define bfld_list_foreach(type, name, head, field) \
-    for (type* __it = (void*) (head)->next, *__next = (type*) ((struct bfld_list*) __it)->next, *name = _bfld_list_struct(type, __it, field); \
+#define list_for_each_entry(iterator, head) \
+    for (struct list_head *__it = (head)->next, *__next = __it->next, *iterator = __it; \
             (void*) __it != (void*) (head); \
-            __it = __next, __next = (type*) ((struct bfld_list*) __next)->next, name = _bfld_list_struct(type, __it, field))
+            __it = __next, __next = (__next)->next, iterator = __it)
 
+
+#define list_next_node(current_node, type, member) \
+    ((current_node)->(member)->next != &(current_node)->next->(member) ? list_node((current_node)->next, type, member) : NULL)
+
+
+#define list_node_is_head(head, node, member) \
+    (list_entry_is_head(head, &(node)->member))
+
+
+#define list_for_each_node(iterator, head, type, member) \
+    for (type* __it = (void*) (head)->next, *__next = (type*) ((struct list_head*) __it)->next, *iterator = list_node((void*) __it, type, member); \
+            (void*) __it != (void*) (head); \
+            __it = __next, __next = (type*) ((struct list_head*) __next)->next, iterator = list_node((void*) __it, type, member))
 
 
 #ifdef __cplusplus

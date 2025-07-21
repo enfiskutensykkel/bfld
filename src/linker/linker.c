@@ -1,4 +1,4 @@
-#include "bfld_ar.h"
+#include "bfld_vm.h"
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,39 +41,34 @@ int main(int argc, char **argv)
         }
     }
 
-    if (optind >= argc) {
-        fprintf(stderr, "Missing argument FILE\n");
-        exit(1);
-    }
+//    if (optind >= argc) {
+//        fprintf(stderr, "Missing argument FILE\n");
+//        exit(1);
+//    }
 
     fprintf(stderr, "Using interpreter %s\n", interpreter);
     for (int i = optind; i < argc; ++i) {
         fprintf(stderr, "Parsing file: %s\n", argv[i]);
     }
 
-    FILE *bfi_file = fopen(interpreter, "r");
-    if (bfi_file == NULL) {
+    FILE *bfvm_file = fopen(interpreter, "r");
+    if (bfvm_file == NULL) {
         fprintf(stderr, "Could not open interpreter file %s: %s\n", 
                 interpreter, strerror(errno));
         exit(2);
     }
 
-    struct bfld_archive *archive;
-    int rc = bfld_read_archive(bfi_file, &archive);
+    struct bfld_vm *vm = NULL;
+
+    int rc = bfld_vm_load(bfvm_file, &vm);
     if (rc != 0) {
         fprintf(stderr, "Could not read interpreter file %s\n",
                 interpreter);
-        fclose(bfi_file);
+        fclose(bfvm_file);
         exit(2);
     }
 
-    bfld_list_foreach(struct bfld_archive_member, it, &archive->members, list_entry) {
-        fprintf(stderr, "%s %zu\n", it->name, it->size);
-        printf("%s", it->data);
-    }
-
-    bfld_free_archive(&archive);
-    
-    fclose(bfi_file);
+    bfld_vm_free(&vm);
+    fclose(bfvm_file);
     exit(0);
 }
