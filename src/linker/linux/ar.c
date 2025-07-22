@@ -1,15 +1,14 @@
 #include "ar.h"
+#include "../inputobj.h"
+#include "../io.h"
 #include "elf.h"
+#include <utils/list.h>
 #include <stdio.h>
-#include <fcntl.h>
-#include <unistd.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
 #include <arpa/inet.h>
 
 
@@ -39,11 +38,25 @@ static size_t get_member_size(const struct ar_header *hdr)
 }
 
 
-const void * lookup_global_symbol(const struct archive_file *ar, const char *name)
+static bool ar_check_magic(const void *contents)
 {
+    if (strncmp(contents, AR_MAGIC, AR_MAGIC_SIZE) != 0) {
+        return false;
+    }
+
+    return true;
+}
+
+
+const void * ar_lookup_gsym(const struct ifile *fp, const char *symname)
+{
+    if (!ar_check_magic(fp->ptr)) {
+        return NULL;
+    }
+
     size_t offset = AR_MAGIC_SIZE;
-    size_t size = ar->size;
-    const void *ptr = ar->ptr;
+    size_t size = fp->size;
+    const void *ptr = fp->ptr;
 
     while (offset < size) {
         const struct ar_header *hdr = (const void*) (((const char*) ptr) + offset);
@@ -55,9 +68,9 @@ const void * lookup_global_symbol(const struct archive_file *ar, const char *nam
             const char *symtab = (const char*) (offsets + num_entries + 1);
 
             for (uint32_t i = 0; i < num_entries; ++i) {
-                if (strcmp(symtab, name) == 0) {
+                if (strcmp(symtab, symname) == 0) {
                     uint32_t offset = ntohl(offsets[i + 1]);
-                    return (const void*) (((const char*) ar->ptr) + offset);
+                    return (const void*) (((const char*) fp->ptr) + offset);
                 }
 
                 symtab += strlen(symtab) + 1;
@@ -116,81 +129,11 @@ static int get_member_name(const struct ar_header *hdr, const char *long_names, 
 }
 
 
-int lookup_archive_member_name(char **name, const struct archive_member *armemb)
+static int read_members(const struct ifile *fp, struct list_head *objfiles)
 {
     size_t offset = AR_MAGIC_SIZE;
-    const struct archive_file *ar = armemb->ar;
-    size_t size = ar->size;
-    const void *ptr = ar->ptr;
-    
-    const char *long_names = NULL;
-    *name = NULL;
-
-    while (offset < size) {
-        const struct ar_header *hdr = (const void*) (((const char*) ptr) + offset);
-        size_t membsz = get_member_size(hdr);
-
-        if (strncmp(hdr->name, "//", 2) == 0) {
-            // Extended names references
-            long_names = (const char*) (hdr + 1);
-        } else if (armemb->ptr == (const void*) (hdr + 1)) {
-            return get_member_name(hdr, long_names, name);
-        }
-
-        offset += sizeof(*hdr) + membsz;
-    }
-
-    return ENODATA;
-}
-
-
-int open_archive(struct archive_file **ar, const char *path)
-{
-    *ar = NULL;
-
-    int fd = open(path, O_RDONLY);
-    if (fd == -1) {
-        fprintf(stderr, "Could not open file %s: %s\n", path, strerror(errno));
-        return EBADF;
-    }
-
-    // Get the file size so we can memory-map the entire thing
-    struct stat stat;
-    if (fstat(fd, &stat) == -1) {
-        close(fd);
-        fprintf(stderr, "Could not get file size for file %s: %s\n", path, strerror(errno));
-        return EBADF;
-    }
-    size_t size = stat.st_size;
-    
-    const void *ptr = mmap(NULL, size, PROT_READ, MAP_SHARED | MAP_POPULATE, fd, 0);
-    if (ptr == MAP_FAILED) {
-        close(fd);
-        fprintf(stderr, "Could not memory map file %s: %s\n", path, strerror(errno));
-        return EBADF;
-    }
-
-    // FIXME: Create "virtual" archive if ELF64 header
-
-    if (strncmp(ptr, AR_MAGIC, AR_MAGIC_SIZE) != 0) {
-        munmap((void*) ptr, size);
-        close(fd);
-        fprintf(stderr, "Corrupt static library %s: Invalid signature\n", path);
-        return EBADF;
-    }
-    size_t offset = AR_MAGIC_SIZE;
-
-    struct archive_file *archive = malloc(sizeof(struct archive_file));
-    if (archive == NULL) {
-        munmap((void*) ptr, size);
-        close(fd);
-        return ENOMEM;
-    }
-    archive->fd = fd;
-    archive->ptr = ptr;
-    archive->size = size;
-    archive->nmembs = 0;
-    list_head_init(&archive->membs);
+    const void *ptr = fp->ptr;
+    size_t size = fp->size;
 
     const char *long_names = NULL;
 
@@ -199,14 +142,14 @@ int open_archive(struct archive_file **ar, const char *path)
         size_t membsz = get_member_size(hdr);
 
         if (size - offset < sizeof(*hdr)) {
-            fprintf(stderr, "Corrupt static library %s: Unexpected end of file\n", path);
-            close_archive(&archive);
+            fprintf(stderr, "Unexpected end of file\n");
+            input_objfile_put_all(objfiles);
             return EBADF;
         }
 
         if (strncmp(hdr->end, AR_END, 2) != 0) {
-            fprintf(stderr, "Corrupt static library %s: Invalid member header\n", path);
-            close_archive(&archive);
+            fprintf(stderr, "Invalid archive member header\n");
+            input_objfile_put_all(objfiles);
             return EBADF;
         }
 
@@ -219,47 +162,58 @@ int open_archive(struct archive_file **ar, const char *path)
         } else if (strncmp(hdr->name, "//", 2) == 0) {
             // Extended names references
             long_names = (const char*) (hdr + 1);
-        } else if (check_elf_header((const Elf64_Ehdr*) (hdr + 1))) {
-            struct archive_member *memb = malloc(sizeof(struct archive_member));
-            if (memb == NULL) {
-                close_archive(&archive);
+
+        } else if (elf_check_magic((const Elf64_Ehdr*) (hdr + 1))) {
+
+            struct input_objfile *obj = input_objfile_alloc((const void*) (hdr+1), membsz);
+            if (obj == NULL) {
+                input_objfile_put_all(objfiles);
                 return ENOMEM;
             }
 
-            memb->ar = archive;
-            memb->size = membsz;
-            memb->offs = offset + sizeof(*hdr);
-            memb->ptr = (const void*) (hdr + 1);
+            int status = elf_load_objfile(obj);
+            if (status != 0) {
+                input_objfile_free(obj);
+                return status;
+            }
 
-            archive->nmembs++;
-            list_append_entry(&archive->membs, &memb->listh);
+            list_append_entry(objfiles, &obj->entry);
+
         } else {
             char *name = NULL;
             get_member_name(hdr, long_names, &name);
-            fprintf(stderr, "Ignoring non-ELF archive member %s in %s\n", 
-                    name, path);
+            fprintf(stderr, "Ignoring non-ELF archive member %s\n", name);
             free(name);
         }
 
         offset += sizeof(*hdr) + membsz;
     }
 
-    *ar = archive;
     return 0;
 }
 
 
-void close_archive(struct archive_file **ar)
+int input_objfile_get_all(const struct ifile *fp, struct list_head *objfiles)
 {
-    if (*ar != NULL) {
-        list_for_each_node(it, &(*ar)->membs, struct archive_member, listh) {
-            list_remove_entry(&it->listh);
-            free(it);
+    if (ar_check_magic(fp->ptr)) {
+        return read_members(fp, objfiles);
+
+    } else if (elf_check_magic(fp->ptr)) {
+        struct input_objfile *obj = input_objfile_alloc(fp->ptr, fp->size);
+        if (obj == NULL) {
+            return ENOMEM;
         }
 
-        munmap((void*) (*ar)->ptr, (*ar)->size);
-        close((*ar)->fd);
-        free(*ar);
-        *ar = NULL;
+        int status = elf_load_objfile(obj);
+        if (status != 0) {
+            input_objfile_free(obj);
+            return status;
+        }
+
+        list_append_entry(objfiles, &obj->entry);
+        return 0;
     }
+
+    fprintf(stderr, "Unrecognized file format\n");
+    return EBADF;
 }
