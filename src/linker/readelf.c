@@ -1,4 +1,4 @@
-#include "bfld_list.h"
+#include "list.h"
 #include "bfld_vm.h"
 #include <stdint.h>
 #include <stdbool.h>
@@ -9,20 +9,11 @@
 #include <elf.h>
 
 
-#define AR_MAGIC        "!<arch>\n"
-#define AR_MAGIC_SIZE   8
-#define AR_END          "`\n"
-
-
-struct ar_header
+struct ar_symbol
 {
-    char name[16];  // Member file name
-    char date[12];  // File modification timestamp
-    char uid[6];    // User ID in ASCII decimal
-    char gid[6];    // Group ID, in ASCII decimal
-    char mode[8];   // File mode, in ASCII octal
-    char size[10];  // File size, in ASCII decimal
-    char end[2];    // Always contains AR_END
+    struct list_head list_entry;
+    uint32_t offset;  // Offset in archive file to symbol definition
+    char name[];      // Name of the symbol
 };
 
 
@@ -73,7 +64,7 @@ static const Elf64_Shdr * get_section_header(const Elf64_Ehdr *ehdr, uint16_t id
 }
 
 
-static const char * lookup_string(const Elf64_Ehdr *ehdr, uint32_t offset)
+static const char * lookup_string(const Elf64_Ehdr *ehdr, uint64_t offset)
 {
     if (ehdr->e_shstrndx == SHN_UNDEF) {
         return NULL;
@@ -86,8 +77,73 @@ static const char * lookup_string(const Elf64_Ehdr *ehdr, uint32_t offset)
 }
 
 
-static bool parse_elf64(struct bfld_vm *vm, const char *name, const void *data)
+static bool parse_symtab(const Elf64_Ehdr *ehdr, const Elf64_Shdr *symtab)
 {
+    if (symtab->sh_type != SHT_SYMTAB) {
+        return false;
+    }
+
+    size_t nent = symtab->sh_size / symtab->sh_entsize;
+
+    const Elf64_Sym *entries = (const Elf64_Sym*) (((const char*) ehdr) + symtab->sh_offset);
+    const char *strtab = ((const char*) ehdr) \
+                         + get_section_header(ehdr, symtab->sh_link)->sh_offset;
+
+    for (size_t idx = 1; idx < nent; ++idx) {
+        const Elf64_Sym *sym = &entries[idx];
+
+        const char *bind = NULL;
+        switch (ELF64_ST_BIND(sym->st_info)) {
+            case STB_LOCAL:
+                bind = "local";
+                break;
+            case STB_GLOBAL:
+                bind = "global";
+                break;
+            case STB_WEAK:
+                bind = "weak";
+                break;
+            default:
+                bind = "UNKNOWN";
+                break;
+        }
+
+        const char *type = NULL;
+        switch (ELF64_ST_TYPE(sym->st_info)) {
+            case STT_OBJECT:
+                type = "object";
+                break;
+            case STT_FUNC:
+                type = "function";
+                break;
+            case STT_SECTION:
+                type = "section";
+                break;
+            case STT_FILE:
+                type = "file";
+                break;
+            case STT_NOTYPE:
+                type = "no-type";
+                break;
+            default:
+                type = "OTHER";
+                break;
+        }
+
+        const char *name = strtab + sym->st_name;
+        printf("symbol %s (type=%s bind=%s) has value %lx\n", name, type, bind, sym->st_value);
+    }
+
+    return true;
+}
+
+
+static bool parse_elf64(struct bfld_vm *vm, const void *data)
+{
+    if (data == NULL) {
+        return false;
+    }
+
     const Elf64_Ehdr *ehdr = (const Elf64_Ehdr*) data;
     if (!check_elf64_header(ehdr)) {
         return false;
@@ -95,8 +151,19 @@ static bool parse_elf64(struct bfld_vm *vm, const char *name, const void *data)
 
     for (uint16_t sh = 0; sh < ehdr->e_shnum; ++sh) {
         const Elf64_Shdr *shdr = get_section_header(ehdr, sh);
-
         
+        if (shdr->sh_type == SHT_SYMTAB) {
+            printf("section %s contains symbol table\n", lookup_string(ehdr, shdr->sh_name));
+            parse_symtab(ehdr, shdr);
+        }
+
+        if (shdr->sh_type == SHT_RELA || shdr->sh_type == SHT_REL) {
+            printf("section %s contains relocation table\n", lookup_string(ehdr, shdr->sh_name));
+        }
+
+        if (shdr->sh_type == SHT_DYNAMIC) {
+            printf("section %s contains dynamic linking info\n", lookup_string(ehdr, shdr->sh_name));
+        }
     }
 
     return true;
@@ -175,7 +242,7 @@ static int get_member_name(const struct ar_header *hdr,
 }
 
 
-static int read_symbol_lut_32(FILE *fp, const struct ar_header *hdr, struct bfld_vm *vm)
+static int read_symbol_lut_32(FILE *fp, const struct ar_header *hdr, struct list_head *symbols)
 {
     if (strncmp(hdr->name, "/ ", 2) != 0) {
         return EINVAL;
@@ -197,6 +264,7 @@ static int read_symbol_lut_32(FILE *fp, const struct ar_header *hdr, struct bfld
         return EINVAL;
     }
 
+    size_t total_bytes = 0;
     for (uint32_t i = 0; i < num_entries; ++i) {
         int c;
         size_t len = 0;
@@ -208,18 +276,22 @@ static int read_symbol_lut_32(FILE *fp, const struct ar_header *hdr, struct bfld
             ++len;
         }
 
-        struct bfld_vm_sym *symbol = malloc(sizeof(struct bfld_vm_sym) + len + 1);
+        struct ar_symbol *symbol = malloc(sizeof(struct ar_symbol) + len + 1);
         if (symbol == NULL) {
             free(offsets);
             return ENOMEM;
         }
 
-        symbol->bytecode_idx = ntohl(offsets[i]);
+        symbol->offset = ntohl(offsets[i]);
         fsetpos(fp, &pos);
-        fread(symbol->name, 1, len+1, fp);
-        symbol->len = len;
+        total_bytes += fread(symbol->name, 1, len+1, fp);
 
-        list_append(&vm->syms, &symbol->list_entry);
+        list_append_entry(symbols, &symbol->list_entry);
+    }
+
+    // Archive data sections are 2-byte aligned
+    if (total_bytes % 2 != 0) {
+        fgetc(fp); 
     }
 
     free(offsets);
@@ -227,10 +299,20 @@ static int read_symbol_lut_32(FILE *fp, const struct ar_header *hdr, struct bfld
 }
 
 
+static void free_symbols(struct list_head *symbols) 
+{
+    list_for_each_node(it, symbols, struct ar_symbol, list_entry) {
+        list_remove_entry(&it->list_entry);
+        free(it);
+    }
+}
+
+
 int bfld_vm_load(FILE *fp, struct bfld_vm **vm)
 {
     char magic[AR_MAGIC_SIZE];
     struct ar_header header;
+    struct list_head symbols = LIST_HEAD_INIT(symbols);
     char *references = NULL;
 
     *vm = NULL;
@@ -249,30 +331,34 @@ int bfld_vm_load(FILE *fp, struct bfld_vm **vm)
     if (vm == NULL) {
         return ENOMEM;
     }
-    list_head_init(&(*vm)->bytecode);
-    list_head_init(&(*vm)->syms);
+    list_head_init(&(*vm)->sections);
+    list_head_init(&(*vm)->symbols);
 
     while (read_member_header(fp, &header)) {
         if (strncmp(header.name, "/ ", 2) == 0) {
-            if (!list_empty(&(*vm)->syms)) {
+            if (!list_empty(&symbols)) {
+                free_symbols(&symbols);
                 free(references);
                 bfld_vm_free(vm);
                 return EINVAL;
             }
 
-            if (read_symbol_lut_32(fp, &header, *vm) != 0) {
+            if (read_symbol_lut_32(fp, &header, &symbols) != 0) {
+                free_symbols(&symbols);
                 free(references);
                 bfld_vm_free(vm);
                 return EINVAL;
             }
 
         } else if (strncmp(header.name, "/SYM64/", 7) == 0) {
+            free_symbols(&symbols);
             free(references);
             bfld_vm_free(vm);
             return ENOTSUP;
 
         } else if (strncmp(header.name, "//", 2) == 0) {
             if (read_header_references(fp, &header, &references) != 0) {
+                free_symbols(&symbols);
                 free(references);
                 bfld_vm_free(vm);
                 return EINVAL;
@@ -282,14 +368,19 @@ int bfld_vm_load(FILE *fp, struct bfld_vm **vm)
             char *member_name = NULL;
 
             if (get_member_name(&header, references, &member_name) != 0) {
+                free_symbols(&symbols);
                 free(member_name);
                 free(references);
                 bfld_vm_free(vm);
                 return EINVAL;
             }
 
+            size_t member_size = get_member_size(&header);
+
             void *data = read_member_data(fp, &header);
-            if (!parse_elf64(*vm, member_name, data)) {
+            if (!parse_elf64(*vm, data)) {
+                free_symbols(&symbols);
+                free(data);
                 free(member_name);
                 free(references);
                 bfld_vm_free(vm);
@@ -301,6 +392,7 @@ int bfld_vm_load(FILE *fp, struct bfld_vm **vm)
         }
     }
 
+    free_symbols(&symbols);
     free(references);
     return 0;
 }
@@ -311,13 +403,13 @@ void bfld_vm_free(struct bfld_vm **vm)
     if (*vm != NULL) {
         struct bfld_vm *v = *vm;
         
-        list_for_each_node(it, &v->bytecode, struct bfld_vm_bytecode, list_entry) {
-            list_remove(&it->list_entry);
+        list_for_each_node(it, &v->sections, struct bfld_vm_section, list_entry) {
+            list_remove_entry(&it->list_entry);
             free(it);
         }
 
-        list_for_each_node(it, &v->syms, struct bfld_vm_sym, list_entry) {
-            list_remove(&it->list_entry);
+        list_for_each_node(it, &v->symbols, struct bfld_vm_symbol, list_entry) {
+            list_remove_entry(&it->list_entry);
             free(it);
         }
 
