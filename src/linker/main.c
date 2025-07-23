@@ -1,6 +1,6 @@
 #include "image.h"
-#include "io.h"
-#include "inputobj.h"
+#include "mfile.h"
+#include "objfile.h"
 #include <utils/list.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -48,39 +48,46 @@ int main(int argc, char **argv)
         exit(1);
     }
 
+    // Open all input files
     int nfiles = 0;
-    struct ifile files[argc - optind + 1];
+    mfile *files[argc - optind + 1];
 
     for (int i = optind; i < argc; ++i) {
 
-        int status = ifile_open(&files[nfiles], vmpath);
+        int status = mfile_init(&files[nfiles], argv[i]);
+
         if (status != 0) {
             for (int j = 0; j < nfiles; ++j) {
-                ifile_close(&files[j]);
+                mfile_put(files[j]);
             }
             exit(2);
         }
         ++nfiles;
     }
 
+    // Parse object files and load their data
     struct list_head objfiles = LIST_HEAD_INIT(objfiles);
         
     for (int i = 0; i < nfiles; ++i) {
         fprintf(stderr, "Parsing file: %s\n", argv[optind + i]);
 
-        int status = input_objfile_get_all(&files[i], &objfiles);
+        int status = objfile_load(&objfiles, files[i]);
         if (status != 0) {
-            input_objfile_put_all(&objfiles);
+            list_for_each_objfile(objfile, &objfiles) {
+                objfile_put(objfile);
+            }
             for (int j = 0; j < nfiles; ++j) {
-                ifile_close(&files[j]);
+                mfile_put(files[j]);
             }
             exit(2);
         }
     }
 
-    input_objfile_put_all(&objfiles);
-    for (int j = 0; j < nfiles; ++j) {
-        ifile_close(&files[j]);
+    for (; nfiles > 0; --nfiles) {
+        mfile_put(files[nfiles-1]);
+    }
+    list_for_each_objfile(objfile, &objfiles) {
+        objfile_put(objfile);
     }
 
     exit(0);

@@ -1,6 +1,6 @@
 #include "ar.h"
-#include "../inputobj.h"
-#include "../io.h"
+#include "../mfile.h"
+#include "../objfile.h"
 #include "elf.h"
 #include <utils/list.h>
 #include <stdio.h>
@@ -38,9 +38,9 @@ static size_t get_member_size(const struct ar_header *hdr)
 }
 
 
-static bool ar_check_magic(const void *contents)
+static bool ar_check_magic(const void *content)
 {
-    if (strncmp(contents, AR_MAGIC, AR_MAGIC_SIZE) != 0) {
+    if (strncmp(content, AR_MAGIC, AR_MAGIC_SIZE) != 0) {
         return false;
     }
 
@@ -48,15 +48,15 @@ static bool ar_check_magic(const void *contents)
 }
 
 
-const void * ar_lookup_gsym(const struct ifile *fp, const char *symname)
+const void * ar_lookup_gsym(const mfile *fp, const char *symname)
 {
-    if (!ar_check_magic(fp->ptr)) {
+    if (!ar_check_magic(fp->data)) {
         return NULL;
     }
 
     size_t offset = AR_MAGIC_SIZE;
     size_t size = fp->size;
-    const void *ptr = fp->ptr;
+    const void *ptr = fp->data;
 
     while (offset < size) {
         const struct ar_header *hdr = (const void*) (((const char*) ptr) + offset);
@@ -70,7 +70,7 @@ const void * ar_lookup_gsym(const struct ifile *fp, const char *symname)
             for (uint32_t i = 0; i < num_entries; ++i) {
                 if (strcmp(symtab, symname) == 0) {
                     uint32_t offset = ntohl(offsets[i + 1]);
-                    return (const void*) (((const char*) fp->ptr) + offset);
+                    return (const void*) (((const char*) fp->data) + offset);
                 }
 
                 symtab += strlen(symtab) + 1;
@@ -129,27 +129,37 @@ static int get_member_name(const struct ar_header *hdr, const char *long_names, 
 }
 
 
-static int read_members(const struct ifile *fp, struct list_head *objfiles)
+static int read_members(mfile *fp, struct list_head *objfiles)
 {
+    if (!ar_check_magic(fp->data)) {
+        fprintf(stderr, "%s: Missing archive signature\n", fp->name);
+        return EBADF;
+    }
+
     size_t offset = AR_MAGIC_SIZE;
-    const void *ptr = fp->ptr;
+    const void *ptr = fp->data;
     size_t size = fp->size;
 
     const char *long_names = NULL;
+    struct list_head of = LIST_HEAD_INIT(of);
 
     while (offset < size) {
         const struct ar_header *hdr = (const void*) (((const char*) ptr) + offset);
         size_t membsz = get_member_size(hdr);
 
         if (size - offset < sizeof(*hdr)) {
-            fprintf(stderr, "Unexpected end of file\n");
-            input_objfile_put_all(objfiles);
+            fprintf(stderr, "%s: Unexpected end of archive file\n", fp->name);
+            list_for_each_objfile(objfile, &of) {
+                objfile_put(objfile);
+            }
             return EBADF;
         }
 
         if (strncmp(hdr->end, AR_END, 2) != 0) {
-            fprintf(stderr, "Invalid archive member header\n");
-            input_objfile_put_all(objfiles);
+            fprintf(stderr, "%s: Invalid archive member header\n", fp->name);
+            list_for_each_objfile(objfile, &of) {
+                objfile_put(objfile);
+            }
             return EBADF;
         }
 
@@ -164,56 +174,70 @@ static int read_members(const struct ifile *fp, struct list_head *objfiles)
             long_names = (const char*) (hdr + 1);
 
         } else if (elf_check_magic((const Elf64_Ehdr*) (hdr + 1))) {
+            char *name = NULL;
+            get_member_name(hdr, long_names, &name);
 
-            struct input_objfile *obj = input_objfile_alloc((const void*) (hdr+1), membsz);
+            struct objfile *obj = objfile_alloc(fp, (const void*) (hdr+1), membsz, name);
+            free(name);
+
             if (obj == NULL) {
-                input_objfile_put_all(objfiles);
+                list_for_each_objfile(objfile, &of) {
+                    objfile_put(objfile);
+                }
                 return ENOMEM;
             }
 
             int status = elf_load_objfile(obj);
             if (status != 0) {
-                input_objfile_free(obj);
+                objfile_put(obj);
+                list_for_each_objfile(objfile, &of) {
+                    objfile_put(objfile);
+                }
                 return status;
             }
 
-            list_append_entry(objfiles, &obj->entry);
+            list_append(&of, &obj->entry);
 
         } else {
             char *name = NULL;
             get_member_name(hdr, long_names, &name);
-            fprintf(stderr, "Ignoring non-ELF archive member %s\n", name);
+            fprintf(stderr, "%s: Ignoring non-ELF archive member %s\n", fp->name, name);
             free(name);
         }
 
         offset += sizeof(*hdr) + membsz;
     }
 
+    // Move the temporary list into the final list
+    objfiles->prev->next = of.next;
+    of.next->prev = objfiles;
+    objfiles->prev = of.prev;
+    of.prev->next = objfiles;
     return 0;
 }
 
 
-int input_objfile_get_all(const struct ifile *fp, struct list_head *objfiles)
+int objfile_load(struct list_head *objfiles, mfile *fp)
 {
-    if (ar_check_magic(fp->ptr)) {
+    if (ar_check_magic(fp->data)) {
         return read_members(fp, objfiles);
 
-    } else if (elf_check_magic(fp->ptr)) {
-        struct input_objfile *obj = input_objfile_alloc(fp->ptr, fp->size);
+    } else if (elf_check_magic(fp->data)) {
+        struct objfile *obj = objfile_alloc(fp, NULL, 0, NULL);
         if (obj == NULL) {
             return ENOMEM;
         }
 
         int status = elf_load_objfile(obj);
         if (status != 0) {
-            input_objfile_free(obj);
+            objfile_put(obj);
             return status;
         }
 
-        list_append_entry(objfiles, &obj->entry);
+        list_append(objfiles, &obj->entry);
         return 0;
     }
 
-    fprintf(stderr, "Unrecognized file format\n");
+    fprintf(stderr, "%s: Unrecognized file format\n", fp->name);
     return EBADF;
 }

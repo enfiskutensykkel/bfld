@@ -1,7 +1,7 @@
 #ifndef __BFLD_ELF_FILE_H__
 #define __BFLD_ELF_FILE_H__
 
-#include "../inputobj.h"
+#include "../objfile.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <elf.h>
@@ -28,10 +28,10 @@ const char * elf_lookup_str(const Elf64_Ehdr *ehdr, uint32_t offset);
 /*
  * Parse the ELF object file and set members on the input object file.
  */
-int elf_load_objfile(struct input_objfile *objfile);
+int elf_load_objfile(struct objfile *objfile);
 
 
-const Elf64_Shdr * elf_lookup_section(const struct input_sect *sect);
+//const Elf64_Shdr * elf_lookup_section(const struct input_sect *sect);
 
 
 #endif

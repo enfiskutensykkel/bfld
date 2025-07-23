@@ -1,5 +1,6 @@
-#include "io.h"
+#include "mfile.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -8,16 +9,12 @@
 #include <sys/stat.h>
 
 
-int ifile_open(struct ifile *fp, const char *pathname)
+int mfile_init(mfile **fhandle, const char *pathname)
 {
-    struct ifile f;
+    *fhandle = NULL;
 
-    fp->fd = -1;
-    fp->ptr = NULL;
-    fp->size = 0;
-
-    f.fd = open(pathname, O_RDONLY);
-    if (f.fd == -1) {
+    int fd = open(pathname, O_RDONLY);
+    if (fd == -1) {
         fprintf(stderr, "Could not open input file %s: %s\n",
                 pathname, strerror(errno));
         switch (errno) {
@@ -33,9 +30,9 @@ int ifile_open(struct ifile *fp, const char *pathname)
 
     // Get the file size so that the entire file can be memory-mapped
     struct stat s;
-    if (fstat(f.fd, &s) == -1) {
+    if (fstat(fd, &s) == -1) {
         int status = errno;
-        close(f.fd);
+        close(fd);
         fprintf(stderr, "Could not get file information about file %s: %s\n",
                 pathname, strerror(status));
         switch (status) {
@@ -48,34 +45,49 @@ int ifile_open(struct ifile *fp, const char *pathname)
                 return EBADF;
         }
     }
-    f.size = s.st_size;
 
     // Memory-map the file
-    f.ptr = mmap(NULL, f.size, PROT_READ, MAP_SHARED | MAP_POPULATE, f.fd, 0);
-    if (f.ptr == MAP_FAILED) {
+    void *p = mmap(NULL, s.st_size, PROT_READ, MAP_SHARED | MAP_POPULATE, fd, 0);
+    if (p == MAP_FAILED) {
         int status = errno;
-        close(f.fd);
+        close(fd);
         fprintf(stderr, "Could not read file %s: %s\n",
                 pathname, strerror(status));
         return EBADF;
     }
 
-    *fp = f;
+    // Create file handle
+    mfile *f = malloc(sizeof(mfile) + strlen(pathname) + 1);
+    if (f == NULL) {
+        munmap(p, s.st_size);
+        close(fd);
+        fprintf(stderr, "Failed to allocate handle\n");
+        return ENOMEM;
+    }
+
+    f->refcnt = 1;
+    f->fd = fd;
+    f->size = s.st_size;
+    f->data = p;
+    strcpy(f->name, pathname);
+
+    *fhandle = f;
 
     return 0;
 }
 
 
-void ifile_close(struct ifile *fp)
+void mfile_get(mfile *file)
 {
-    if (fp->ptr != NULL && fp->size > 0) {
-        munmap((void*) fp->ptr, fp->size);
-        fp->ptr = NULL;
-        fp->size = 0;
-    }
+    ++(file->refcnt);
+}
 
-    if (fp->fd > 0) {
-        close(fp->fd);
-        fp->fd = -1;
+
+void mfile_put(mfile *file)
+{
+    if (--(file->refcnt) == 0) {
+        munmap((void*) file->data, file->size);
+        close(file->fd);
+        free(file);
     }
 }

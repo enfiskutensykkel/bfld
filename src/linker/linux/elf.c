@@ -1,4 +1,5 @@
 #include "elf.h"
+#include "../objfile.h"
 #include <stdint.h>
 #include <stdbool.h>
 #include <errno.h>
@@ -41,13 +42,6 @@ const Elf64_Shdr * elf_section(const Elf64_Ehdr *ehdr, uint16_t idx)
 }
 
 
-const Elf64_Shdr * elf_lookup_section(const struct input_sect *sect)
-{
-    const Elf64_Ehdr *eh = sect->objfile->content;
-    return elf_section(eh, sect->idx);
-}
-
-
 const char * elf_lookup_str(const Elf64_Ehdr *ehdr, uint32_t offset)
 {
     if (ehdr->e_shstrndx == SHN_UNDEF) {
@@ -59,22 +53,73 @@ const char * elf_lookup_str(const Elf64_Ehdr *ehdr, uint32_t offset)
 }
 
 
-int elf_load_objfile(struct input_objfile *objfile)
+static void parse_rel_section(const Elf64_Ehdr *eh, const Elf64_Shdr *sh)
 {
-    const Elf64_Ehdr *eh = (const Elf64_Ehdr*) objfile->content;
+    size_t nent = sh->sh_size / sh->sh_entsize;
+
+    const Elf64_Rel *rels = (const void*) (((const char*) eh) + sh->sh_offset);
+
+    for (uint32_t i = 0; i < nent; ++i) {
+        const Elf64_Rel *rel = &rels[i];
+    }
+}
+
+
+static void parse_rela_section(const Elf64_Ehdr *eh, const Elf64_Shdr *sh)
+{
+}
+
+
+int elf_load_objfile(struct objfile *objfile)
+{
+    const Elf64_Ehdr *eh = (const Elf64_Ehdr*) objfile->file_data;
 
     for (uint64_t shndx = 0; shndx < eh->e_shnum; ++shndx) {
         const Elf64_Shdr *sh = elf_section(eh, shndx);
+        const char *name = elf_lookup_str(eh, sh->sh_name);
 
-        const void *ptr = ((const char*) eh) + sh->sh_offset;
+        switch (sh->sh_type) {
+            case SHT_NULL:
+                printf("%s null\n", name);
+                break;
 
-        struct input_sect *sect = input_sect_alloc(objfile,
-                                                   shndx,
-                                                   sh->sh_offset,
-                                                   ptr,
-                                                   sh->sh_size);
-        if (sect == NULL) {
-            return ENOMEM;
+            case SHT_PROGBITS:
+                printf("%s progbits\n", name);
+                break;
+
+            case SHT_NOBITS:
+                printf("%s nobits\n", name);
+                break;
+
+            case SHT_SYMTAB:
+                printf("%s symtab\n", name);
+                break;
+
+            case SHT_STRTAB:
+                printf("%s strtab\n", name);
+                break;
+
+            case SHT_DYNSYM:
+                printf("%s dynsym\n", name);
+                break;
+
+            case SHT_NOTE:
+                printf("%s note\n", name);
+                break;
+
+            case SHT_REL:
+                printf("%s rel\n", name);
+                parse_rel_section(eh, sh);
+                break;
+
+            case SHT_RELA:
+                printf("%s rela\n", name);
+                parse_rela_section(eh, sh);
+                break;
+
+            default:
+                printf("%s unknown section type: %u\n", name,sh->sh_type);
+                break;
         }
     }
 

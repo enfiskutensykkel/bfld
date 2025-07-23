@@ -1,5 +1,5 @@
-#ifndef __BFLD_LIST_H__
-#define __BFLD_LIST_H__
+#ifndef __BFLD_UTILS_LIST_H__
+#define __BFLD_UTILS_LIST_H__
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -57,7 +57,7 @@ bool list_entry_is_head(const struct list_head *head, const struct list_head *en
  * Remove entry from list.
  */
 static inline
-void list_remove_entry(struct list_head *entry)
+void list_remove(struct list_head *entry)
 {
     entry->prev->next = entry->next;
     entry->next->prev = entry->prev;
@@ -71,11 +71,9 @@ void list_remove_entry(struct list_head *entry)
 /*
  * Insert entry before the specified head,
  * i.e., at the back/tail of the list.
- *
- * Example: Adding elements to a queue.
  */
 static inline
-void list_tail_insert_entry(struct list_head *head, struct list_head *new_entry)
+void list_insert_before(struct list_head *head, struct list_head *new_entry)
 {
     struct list_head *tail = head->prev;
     tail->next = new_entry;
@@ -88,11 +86,9 @@ void list_tail_insert_entry(struct list_head *head, struct list_head *new_entry)
 /*
  * Insert entry after the specified head,
  * i.e., at the front/head of the list.
- *
- * Example: Pushing elements to a stack.
  */
 static inline
-void list_head_insert_entry(struct list_head *head, struct list_head *new_entry)
+void list_insert_after(struct list_head *head, struct list_head *new_entry)
 {
     struct list_head *first = head->next;
     first->prev = new_entry;
@@ -104,28 +100,30 @@ void list_head_insert_entry(struct list_head *head, struct list_head *new_entry)
 
 /*
  * Insert entry at the back/tail of the list.
+ * Example: Adding elements to a queue.
  */
 static inline
-void list_append_entry(struct list_head *head, struct list_head *new_entry)
+void list_append(struct list_head *head, struct list_head *new_entry)
 {
-    list_tail_insert_entry(head, new_entry);
+    list_insert_before(head, new_entry);
 }
 
 
 /*
  * Insert entry at the front/head of the list.
+ * Example: Pushing elements to a stack.
  */
 static inline
-void list_prepend_entry(struct list_head *head, struct list_head *new_entry)
+void list_prepend(struct list_head *head, struct list_head *new_entry)
 {
-    list_head_insert_entry(head, new_entry);
+    list_insert_after(head, new_entry);
 }
 
 
 /*
  * Iterate the linked list, entry by entry.
  */
-#define list_for_each_entry(iterator, head) \
+#define list_for_each(iterator, head) \
     for (struct list_head *__it = (head)->next, *__next = __it->next, *iterator = __it; \
             (void*) __it != (void*) (head); \
             __it = __next, __next = (__next)->next, iterator = __it)
@@ -147,13 +145,6 @@ void list_prepend_entry(struct list_head *head, struct list_head *new_entry)
  */
 #define list_node(head_ptr, type, member) \
     ((type*) ((char*) ((void*) head_ptr) - offsetof(type, member)))
-
-
-/*
- * Get the next node in the list (assuming the list nodes are of the same type).
- */
-#define list_next_node(current_node, type, member) \
-    list_node((current_node)->(member).next, type, member) 
 
 
 /*

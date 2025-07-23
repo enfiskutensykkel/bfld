@@ -5,7 +5,7 @@ project(bfld)
 add_library(bfvm STATIC src/vm/bfvm.c src/vm/foo.c)
 
 # Create target for the linker
-add_executable(bfld src/linker/io.c src/linker/main.c src/linker/image.c src/linker/inputobj.c)
+add_executable(bfld src/linker/main.c src/linker/mfile.c src/linker/objfile.c)
 target_include_directories(bfld PUBLIC include)
 target_compile_definitions(bfld PUBLIC DEFAULT_BFVM="$<TARGET_FILE:bfvm>")
 target_compile_options(bfld PRIVATE -Wall -Wextra -pedantic -g -ggdb)
