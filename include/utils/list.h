@@ -26,7 +26,7 @@ struct list_head
  * Inline initializer for an empty linked list.
  */
 #define LIST_HEAD_INIT(name) \
-    { &(name), &(name) }
+    (struct list_head) { &(name), &(name) }
 
 
 /*
@@ -35,8 +35,7 @@ struct list_head
 static inline
 void list_head_init(struct list_head *head)
 {
-    head->next = head;
-    head->prev = head;
+    head->next = head->prev = head;
 }
 
 
@@ -81,7 +80,8 @@ bool list_is_last(const struct list_head *head, const struct list_head *node)
 
 
 /*
- * Remove specified from its list.
+ * Remove the specified node from its list.
+ * The removed node is reinitialized.
  */
 static inline
 void list_remove(struct list_head *node)
@@ -91,16 +91,19 @@ void list_remove(struct list_head *node)
 
     // We reinitialize the node after removing it
     // to make sure that it does not refer to the old list
-    list_head_init(node); 
+    node->prev = node->next = node;
 }
 
 
 /*
- * Insert node before the specified head,
- * i.e., at the back / tail of the list.
+ * Insert node before the specified head, making the new
+ * element the last element in the list (tail insert).
+ *
+ * This is useful for implementing a queue, i.e., appending elements
+ * to the back of a FIFO queue.
  */
 static inline
-void list_insert_before(struct list_head *head, struct list_head *new_node)
+void list_insert_tail(struct list_head *head, struct list_head *new_node)
 {
     struct list_head *tail = head->prev;
     tail->next = new_node;
@@ -111,11 +114,14 @@ void list_insert_before(struct list_head *head, struct list_head *new_node)
 
 
 /*
- * Insert node after the specified head,
- * i.e., at the front of the list.
+ * Insert node after the specified head, making the new element
+ * the first element after head.
+ *
+ * This is useful for implementing a stack, i.e., pushing elements 
+ * to a LIFO stack.
  */
 static inline
-void list_insert_after(struct list_head *head, struct list_head *new_node)
+void list_insert(struct list_head *head, struct list_head *new_node)
 {
     struct list_head *first = head->next;
     first->prev = new_node;
@@ -126,26 +132,20 @@ void list_insert_after(struct list_head *head, struct list_head *new_node)
 
 
 /*
- * Append a new element to a list.
- * Inserts node at the back / tail of the list.
- * Example: Adding elements to a queue.
+ * Move elements from the list pointed to by old_head
+ * to the back of the list pointed to by head.
+ *
+ * The old_head is reinitialized.
  */
 static inline
-void list_append(struct list_head *head, struct list_head *new_node)
+void list_splice_tail(struct list_head *head, struct list_head *old_head)
 {
-    list_insert_before(head, new_node);
-}
+    head->prev->next = old_head->next;
+    old_head->next->prev = head;
+    head->prev = old_head->prev;
+    old_head->prev->next = head;
 
-
-/*
- * Prepend a list with a new element.
- * Inserts node at the front of the list.
- * Example: Pushing elements to a stack.
- */
-static inline
-void list_prepend(struct list_head *head, struct list_head *new_node)
-{
-    list_insert_after(head, new_node);
+    old_head->next = old_head->prev = old_head;
 }
 
 

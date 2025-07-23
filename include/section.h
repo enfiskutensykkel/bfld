@@ -1,5 +1,8 @@
 #ifndef __BFLD_SECTION_H__
 #define __BFLD_SECTION_H__
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 
 #include "mfile.h"
@@ -25,4 +28,7 @@ struct section
 };
 
 
+#ifdef __cplusplus
+}
+#endif
 #endif

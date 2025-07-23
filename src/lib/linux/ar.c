@@ -1,6 +1,6 @@
 #include "ar.h"
-#include "../mfile.h"
-#include "../objfile.h"
+#include <mfile.h>
+#include <objfile.h>
 #include "elf.h"
 #include <utils/list.h>
 #include <stdio.h>
@@ -196,7 +196,7 @@ static int read_members(mfile *fp, struct list_head *objfiles)
                 return status;
             }
 
-            list_append(&of, &obj->entry);
+            list_insert_tail(&of, &obj->entry);
 
         } else {
             char *name = NULL;
@@ -209,10 +209,7 @@ static int read_members(mfile *fp, struct list_head *objfiles)
     }
 
     // Move the temporary list into the final list
-    objfiles->prev->next = of.next;
-    of.next->prev = objfiles;
-    objfiles->prev = of.prev;
-    of.prev->next = objfiles;
+    list_splice_tail(objfiles, &of);
     return 0;
 }
 
@@ -234,7 +231,7 @@ int objfile_load(struct list_head *objfiles, mfile *fp)
             return status;
         }
 
-        list_append(objfiles, &obj->entry);
+        list_insert_tail(objfiles, &obj->entry);
         return 0;
     }
 

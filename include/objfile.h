@@ -1,5 +1,8 @@
 #ifndef __BFLD_OBJECT_FILE_H__
 #define __BFLD_OBJECT_FILE_H__
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #include "mfile.h"
 #include <stddef.h>
@@ -65,4 +68,7 @@ int objfile_load(struct list_head *objfiles, mfile *file);
 #define objfile_list_entry(head_ptr) list_entry(head_ptr, struct objfile, entry)
 
 
+#ifdef __cplusplus
+}
+#endif
 #endif

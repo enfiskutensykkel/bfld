@@ -1,5 +1,8 @@
 #ifndef __BFLD_MEMORY_MAPPED_FILE_H__
 #define __BFLD_MEMORY_MAPPED_FILE_H__
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #include <stddef.h>
 
@@ -49,4 +52,7 @@ void mfile_get(mfile *file);
 void mfile_put(mfile *file);
 
 
+#ifdef __cplusplus
+}
+#endif
 #endif

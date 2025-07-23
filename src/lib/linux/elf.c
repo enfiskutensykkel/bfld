@@ -1,5 +1,5 @@
 #include "elf.h"
-#include "../objfile.h"
+#include <objfile.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <errno.h>

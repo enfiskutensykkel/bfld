@@ -1,8 +1,12 @@
 #ifndef __BFLD_IMAGE_H__
 #define __BFLD_IMAGE_H__
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-#include <stdint.h>
 #include <utils/list.h>
+#include <stddef.h>
+#include <stdint.h>
 
 
 enum segment_type
@@ -37,5 +41,7 @@ int create_image(struct image **image);
 void destroy_image(struct image **image);
 
 
-
+#ifdef __cplusplus
+}
+#endif
 #endif

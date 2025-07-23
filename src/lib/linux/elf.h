@@ -1,7 +1,7 @@
 #ifndef __BFLD_ELF_FILE_H__
 #define __BFLD_ELF_FILE_H__
 
-#include "../objfile.h"
+#include <objfile.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <elf.h>

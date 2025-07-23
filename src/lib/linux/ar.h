@@ -1,7 +1,7 @@
 #ifndef __BFLD_ARCHIVE_FILE_H__
 #define __BFLD_ARCHIVE_FILE_H__
 
-#include "../mfile.h"
+#include <mfile.h>
 
 
 /*
