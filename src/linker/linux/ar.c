@@ -149,7 +149,7 @@ static int read_members(mfile *fp, struct list_head *objfiles)
 
         if (size - offset < sizeof(*hdr)) {
             fprintf(stderr, "%s: Unexpected end of archive file\n", fp->name);
-            list_for_each_objfile(objfile, &of) {
+            objfile_list_for_each(objfile, &of) {
                 objfile_put(objfile);
             }
             return EBADF;
@@ -157,7 +157,7 @@ static int read_members(mfile *fp, struct list_head *objfiles)
 
         if (strncmp(hdr->end, AR_END, 2) != 0) {
             fprintf(stderr, "%s: Invalid archive member header\n", fp->name);
-            list_for_each_objfile(objfile, &of) {
+            objfile_list_for_each(objfile, &of) {
                 objfile_put(objfile);
             }
             return EBADF;
@@ -181,7 +181,7 @@ static int read_members(mfile *fp, struct list_head *objfiles)
             free(name);
 
             if (obj == NULL) {
-                list_for_each_objfile(objfile, &of) {
+                objfile_list_for_each(objfile, &of) {
                     objfile_put(objfile);
                 }
                 return ENOMEM;
@@ -190,7 +190,7 @@ static int read_members(mfile *fp, struct list_head *objfiles)
             int status = elf_load_objfile(obj);
             if (status != 0) {
                 objfile_put(obj);
-                list_for_each_objfile(objfile, &of) {
+                objfile_list_for_each(objfile, &of) {
                     objfile_put(objfile);
                 }
                 return status;

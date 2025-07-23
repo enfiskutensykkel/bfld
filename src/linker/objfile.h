@@ -7,18 +7,17 @@
 #include <utils/list.h>
 
 
-
 /*
  * Represents an object file given as input to the linker.
  */
 struct objfile
 {
-    mfile *file;                    // File handle reference
-    int refcnt;                     // Reference counter
-    const void *file_data;          // Pointer to the start of the object file
-    size_t file_size;               // Total size of the object file
-    struct list_head entry;         // Linked list entry
-    char name[];                    // Filename of the object file
+    mfile *file;            // The underlying file where this object file came from
+    int refcnt;             // Reference counter
+    const void *file_data;  // Pointer to the start of the object file
+    size_t file_size;       // Total size of the object file
+    struct list_head entry; // Linked list entry
+    char name[];            // Filename of the object file
 };
 
 
@@ -59,11 +58,11 @@ void objfile_put(struct objfile *objfile);
 int objfile_load(struct list_head *objfiles, mfile *file);
 
 
-#define list_for_each_objfile(iterator, head_ptr) \
-    list_for_each_node(iterator, head_ptr, struct objfile, entry)
+#define objfile_list_for_each(iterator, head_ptr) \
+    list_for_each_entry(iterator, head_ptr, struct objfile, entry)
 
 
-#define list_objfile(head_ptr) list_node(head_ptr, struct objfile, entry)
+#define objfile_list_entry(head_ptr) list_entry(head_ptr, struct objfile, entry)
 
 
 #endif

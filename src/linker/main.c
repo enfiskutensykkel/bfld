@@ -10,6 +10,16 @@
 #include <errno.h>
 
 
+/*
+ * Basic linker operation
+ * - Read input object files. Determine length and type of the contents and read symbols.
+ * - Build symbol table containing all the symbols, linking undefined symbols to their definitions.
+ * - Decide where all contents should go in the output executable. Decide where in memory they
+ *   should go when program runs.
+ * - Read the contents data and relocations. Apply the relocations to contents, and write to output file.
+ * - Optionally write out the complete symbol table with the final values of the symbols.
+ */
+
 int main(int argc, char **argv)
 {
     int c;
@@ -73,7 +83,7 @@ int main(int argc, char **argv)
 
         int status = objfile_load(&objfiles, files[i]);
         if (status != 0) {
-            list_for_each_objfile(objfile, &objfiles) {
+            objfile_list_for_each(objfile, &objfiles) {
                 objfile_put(objfile);
             }
             for (int j = 0; j < nfiles; ++j) {
@@ -86,7 +96,7 @@ int main(int argc, char **argv)
     for (; nfiles > 0; --nfiles) {
         mfile_put(files[nfiles-1]);
     }
-    list_for_each_objfile(objfile, &objfiles) {
+    objfile_list_for_each(objfile, &objfiles) {
         objfile_put(objfile);
     }
 
