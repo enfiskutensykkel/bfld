@@ -1,4 +1,5 @@
 #include "rbtree.h"
+#include <assert.h>
 
 /*
  * Inspired by:
@@ -46,10 +47,10 @@
 /*
  * Set a node to black.
  */
-static inline rb_set_black(struct rb_node *node)
+static inline void rb_set_black(struct rb_node *node)
 {
-    if (rb_node != NULL) {
-        rb_node->color = RB_BLACK;
+    if (node != NULL) {
+        node->color = RB_BLACK;
     }
 }
 
@@ -73,18 +74,23 @@ static void rb_rotate(struct rb_tree *tree,
                       struct rb_node *root, 
                       struct rb_node *pivot)
 {
+    assert(root != NULL && pivot != NULL);
+
     if (pivot == root->right) {
         // Left rotation
         root->right = pivot->left;
         if (pivot->left != NULL) {
+            assert(pivot->left->parent == pivot);
             pivot->left->parent = root;
         }
         pivot->left = root;
 
     } else {
         // Right rotation
+        assert(pivot == root->left);
         root->left = pivot->right;
         if (pivot->right != NULL) {
+            assert(pivot->right->parent == pivot);
             pivot->right->parent = root;
         }
         pivot->left = root;
@@ -96,47 +102,83 @@ static void rb_rotate(struct rb_tree *tree,
     root->parent = pivot;
 
     if (parent != NULL) {
-        if (parent->left == old_root) {
-            parent->left = new_root;
+        if (parent->left == root) {
+            parent->left = pivot;
         } else {
-            parent->right = new_root;
+            assert(parent->right == root);
+            parent->right = pivot;
         }
 
     } else {
-        tree->node = new_root;
+        assert(tree->root == root);
+        tree->root = pivot;
     }
 }
 
 
-
-/*
- *
- */
-void rb_link_node(struct rb_node *node, struct rb_node *parent,
-                  struct rb_node **link)
+void rb_rebalance(struct rb_tree *tree, struct rb_node *node)
 {
-    node->parent = parent;
-    node->color = RB_RED;  // new nodes are always red
-    node->left = node->right = NULL;
-    *link = node;
-}
+    if (node->parent == NULL) {
+        tree->root = node;
+        node->color = RB_BLACK;
+        return;
+    }
+    
+    while (rb_is_red(node->parent)) {
+        struct rb_node *parent = node->parent;
+        assert(node == parent->left || node == parent->right);
+        struct rb_node *gparent = parent->parent;
+        assert(gparent != NULL);
+        assert(parent == gparent->left || parent == gparent->right);
 
+        if (parent == gparent->left) {
+            struct rb_node *uncle = gparent->right;
 
-void rb_add(struct rb_root *tree, struct rb_node *node,
-            int (*cmp)(const struct rb_node*, const struct rb_node*));
-{
-    struct rb_node **link = &tree->node;
-    struct rb_node *parent = NULL;
+            if (rb_is_red(uncle)) {
+                parent->color = RB_BLACK;
+                uncle->color = RB_BLACK;
+                gparent->color = RB_RED;
+                node = gparent;
 
-    while (*link) {
-        parent = *link;
-        if (cmp(node, parent) < 0) {
-            link = &parent->left;
-        } else {
-            link = &parent->right
+            } else {
+
+                if (node == parent->right) {
+                    rb_rotate(tree, parent, node);
+                    node = parent;
+                    parent = node->parent;
+                    gparent = parent->parent;
+                }
+
+                parent->color = RB_BLACK;
+                gparent->color = RB_RED;
+                rb_rotate(tree, gparent, gparent->left);
+            }
+
+        } else {  // parent == gparent->right
+            struct rb_node *uncle = gparent->left;
+
+            if (rb_is_red(uncle)) {
+                parent->color = RB_BLACK;
+                uncle->color = RB_BLACK;
+                gparent->color = RB_RED;
+                node = gparent;
+            
+            } else {
+
+                if (node == parent->left) {
+                    rb_rotate(tree, parent, node);
+                    node = parent;
+                    parent = node->parent;
+                    gparent = parent->parent;
+                }
+
+                parent->color = RB_BLACK;
+                gparent->color = RB_RED;
+                rb_rotate(tree, gparent, gparent->right);
+            }
+
         }
     }
 
-    rb_link_node(node, parent, link);
-    rb_insert(tree, node);
+    tree->root->color = RB_BLACK;
 }

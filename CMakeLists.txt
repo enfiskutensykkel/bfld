@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.16...3.30)
 project(bfld)
 
+# FIXME: consider moving some of these to their own CMakeLists.txt in subdirectories
+
+# Compile a utility library for (maybe useful for other projects)?
+add_library(bfldutils STATIC src/utils/rbtree.c)
+target_include_directories(bfldutils PUBLIC include/utils)
 
 # Compile the virtual machine
 add_library(bfvm STATIC src/vm/bfvm.c src/vm/foo.c)
@@ -9,8 +14,8 @@ add_library(bfvm STATIC src/vm/bfvm.c src/vm/foo.c)
 
 # Create a generic library of the linker
 add_library(libbfld SHARED src/lib/mfile.c src/lib/objfile.c)
+target_link_libraries(libbfld PRIVATE bfldutils)
 target_include_directories(libbfld PUBLIC include)
-target_include_directories(libbfld PUBLIC src/utils)
 target_compile_definitions(libbfld PUBLIC DEFAULT_BFVM="$<TARGET_FILE:bfvm>")
 target_compile_options(libbfld PRIVATE -Wall -Wextra -pedantic -g -ggdb)
 set_target_properties(libbfld PROPERTIES OUTPUT_NAME bfld)
@@ -30,3 +35,10 @@ endif ()
 # Create executable linker
 add_executable(bfld src/linker/main.c)
 target_link_libraries(bfld PRIVATE libbfld)
+
+
+# Add tests
+option(BUILD_TESTING "Build tests" ON)
+if (BUILD_TESTING)
+    add_subdirectory(tests)
+endif ()
