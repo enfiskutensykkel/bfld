@@ -51,11 +51,21 @@ static void validate_tree(const struct rb_tree *tree)
 }
 
 
+static size_t count_nodes(const struct rb_node *node)
+{
+    if (node == NULL) {
+        return 0;
+    }
+
+    return 1 + count_nodes(node->left) + count_nodes(node->right);
+}
+
+
 static struct word * traverse_find(const struct rb_node *node, const char *data)
 {
     if (node != NULL) {
         struct word * w = rb_entry(node, struct word, rb_node);
-        int c = strcmp(w->data, data);
+        int c = strcmp(data, w->data);
         if (c == 0) {
             return w;
         } else if (c < 0) {
@@ -84,10 +94,18 @@ static int wordcmp(const struct rb_node *a, const struct rb_node *b)
 {
     assert(a != NULL);
     assert(b != NULL);
+    assert(a != b);
     struct word *A = rb_entry(a, struct word, rb_node);
     struct word *B = rb_entry(b, struct word, rb_node);
 
     return strcmp(A->data, B->data);
+}
+
+static int searchcmp(const void *key, const struct rb_node *item)
+{
+    const char *s = (const char*) key;
+    assert(key != NULL && item != NULL);
+    return strcmp(s, rb_entry(item, struct word, rb_node)->data);
 }
 
 
@@ -105,11 +123,16 @@ static void print_sorted(const struct rb_node *node)
 int main()
 {
     const char *fruits[] = {"mango", "pear", "cherry", "plum", "banana", "orange", "apple", "coconut"};
+    // TODO: add duplicates
 
     struct rb_tree tree = RB_TREE;
 
     for (size_t i = 0; i < sizeof(fruits) / sizeof(*fruits); ++i) {
         struct word *word = alloc_word(fruits[i]);
+
+        size_t count_before = count_nodes(tree.root);
+        assert(count_before == i);
+
         printf("Adding word %s\n", word->data);
         fflush(stdout);
         rb_add(&tree, &word->rb_node, wordcmp);
@@ -117,6 +140,13 @@ int main()
         printf("Validating tree\n");
         fflush(stdout);
         validate_tree(&tree);
+
+        size_t count_after = count_nodes(tree.root);
+        printf("%zu == %zu + 1\n", count_after, count_before);
+        fflush(stdout);
+        assert(count_after == count_before + 1);
+
+        print_sorted(tree.root);
     }
 
     for (size_t i = 0; i < sizeof(fruits) / sizeof(*fruits); ++i) {
@@ -125,6 +155,15 @@ int main()
         struct word *w = traverse_find(tree.root, fruits[i]);
         assert(w != NULL);
     }
+
+    printf("Searching for banana\n");
+    fflush(stdout);
+    struct rb_node *node = rb_find(&tree, "banana", searchcmp);
+    assert(node != NULL);
+    struct word *w = rb_entry(node, struct word, rb_node);
+
+    node = rb_find(&tree, "NOT IN LIST", searchcmp);
+    assert(node == NULL);
 
     print_sorted(tree.root);
 

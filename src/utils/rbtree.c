@@ -56,6 +56,30 @@ static inline void rb_set_black(struct rb_node *node)
 
 
 /*
+ * Helper function to change a child.
+ * This is also known as a transplant.
+ */
+static inline void rb_change_child(struct rb_tree *tree, 
+                                   struct rb_node *parent,
+                                   struct rb_node *old_child,
+                                   struct rb_node *new_child)
+{
+    if (parent != NULL) {
+        if (parent->left == old_child) {
+            parent->left = new_child;
+        } else {
+            assert(parent->right == old_child);
+            parent->right = new_child;
+        }
+
+    } else {
+        assert(tree->root == old_child);
+        tree->root = new_child;
+    }
+}
+
+
+/*
  * Helper function to rotate a subtree on a given root node.
  *
  * https://en.wikipedia.org/wiki/Tree_rotation
@@ -75,6 +99,7 @@ static void rb_rotate(struct rb_tree *tree,
                       struct rb_node *pivot)
 {
     assert(root != NULL && pivot != NULL);
+    assert(pivot == root->left || pivot == root->right);
 
     if (pivot == root->right) {
         // Left rotation
@@ -93,7 +118,7 @@ static void rb_rotate(struct rb_tree *tree,
             assert(pivot->right->parent == pivot);
             pivot->right->parent = root;
         }
-        pivot->left = root;
+        pivot->right = root;
     }
 
     // Update parent pointers
@@ -101,22 +126,14 @@ static void rb_rotate(struct rb_tree *tree,
     pivot->parent = parent;
     root->parent = pivot;
 
-    if (parent != NULL) {
-        if (parent->left == root) {
-            parent->left = pivot;
-        } else {
-            assert(parent->right == root);
-            parent->right = pivot;
-        }
-
-    } else {
-        assert(tree->root == root);
-        tree->root = pivot;
-    }
+    rb_change_child(tree, parent, root, pivot);
 }
 
 
-void rb_rebalance(struct rb_tree *tree, struct rb_node *node)
+/*
+ * Fix up after the insertion.
+ */
+void rb_insert_fixup(struct rb_tree *tree, struct rb_node *node)
 {
     if (node->parent == NULL) {
         tree->root = node;
@@ -127,7 +144,9 @@ void rb_rebalance(struct rb_tree *tree, struct rb_node *node)
     while (rb_is_red(node->parent)) {
         struct rb_node *parent = node->parent;
         assert(node == parent->left || node == parent->right);
+
         struct rb_node *gparent = parent->parent;
+
         assert(gparent != NULL);
         assert(parent == gparent->left || parent == gparent->right);
 
@@ -143,15 +162,18 @@ void rb_rebalance(struct rb_tree *tree, struct rb_node *node)
             } else {
 
                 if (node == parent->right) {
-                    rb_rotate(tree, parent, node);
+                    rb_rotate(tree, parent, node);  // rotate left
                     node = parent;
                     parent = node->parent;
+                    assert(node == parent->left || node == parent->right);
                     gparent = parent->parent;
+                    assert(parent == gparent->left || parent == gparent->right);
                 }
 
                 parent->color = RB_BLACK;
                 gparent->color = RB_RED;
-                rb_rotate(tree, gparent, gparent->left);
+
+                rb_rotate(tree, gparent, gparent->left);  // rotate right
             }
 
         } else {  // parent == gparent->right
@@ -166,19 +188,43 @@ void rb_rebalance(struct rb_tree *tree, struct rb_node *node)
             } else {
 
                 if (node == parent->left) {
-                    rb_rotate(tree, parent, node);
+                    rb_rotate(tree, parent, node);  // rotate right
                     node = parent;
                     parent = node->parent;
+                    assert(node == parent->left || node == parent->right);
                     gparent = parent->parent;
+                    assert(parent == gparent->left || parent == gparent->right);
                 }
 
                 parent->color = RB_BLACK;
                 gparent->color = RB_RED;
-                rb_rotate(tree, gparent, gparent->right);
+                rb_rotate(tree, gparent, gparent->right);  // rotate left
             }
 
         }
     }
 
     tree->root->color = RB_BLACK;
+}
+
+
+void rb_replace_node(struct rb_tree *tree, 
+                     struct rb_node *old_node, 
+                     struct rb_node *new_node)
+{
+    struct rb_node *parent = old_node->parent;
+
+    // Copy children and color from the old node to the new
+    *new_node = *old_node;
+
+    // Set the surrounding nodes to point to the new node
+    if (old_node->left != NULL) {
+        old_node->left->parent = new_node;
+    }
+
+    if (old_node->right != NULL) {
+        old_node->right->parent = new_node;
+    }
+
+    rb_change_child(tree, parent, old_node, new_node);
 }
