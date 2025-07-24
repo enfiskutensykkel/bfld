@@ -87,6 +87,7 @@ static inline void rb_clear_node(struct rb_node *node)
 /*
  * Helper function to replace a subtree rooted at old_child
  * with a subtree rooted at new_child.
+ * Also sometimes referred to as a splice.
  */
 static inline void rb_transplant(struct rb_tree *tree, 
                                  struct rb_node *parent,
@@ -298,7 +299,12 @@ static struct rb_node * rb_remove_node(struct rb_tree *tree, struct rb_node *nod
         // Node has only right-hand child (or no children)
         rb_transplant(tree, node->parent, node, node->right);
 
-        if (node->right == NULL && node->color == RB_BLACK) {
+        if (node->right != NULL) {
+            // right child is non-null, inherit node's color
+            node->right->parent = node->parent;
+            node->right->color = node->color;
+        } else if (node->color == RB_BLACK) {
+            // removed node was black (and no child to absorb its color), need to fixup
             return node->parent;
         }
 
@@ -307,39 +313,45 @@ static struct rb_node * rb_remove_node(struct rb_tree *tree, struct rb_node *nod
     } else if (node->right == NULL) {
         // Node has only left-hand child (or no children)
         rb_transplant(tree, node->parent, node, node->left);
-
-        if (node->left == NULL && node->color == RB_BLACK) {
-            return node->parent;
-        }
-
+        node->left->parent = node->parent;
+        node->left->color = node->color;
         return NULL;
     }
 
     // Node has both children, we need to find the successor
     // start by finding the left-most child of node's right-hand child,
     // this is the minimum value that's smaller than the node
+    struct rb_node *rebalance = NULL;
     struct rb_node *successor = node->right;
     while (successor->left != NULL) {
         successor = successor->left;
     }
 
-    if (successor->parent != node) {
+    if (successor->parent == node) {
+        // Successor is node's direct child
+        // After transplanting, fixup (if needed) will happen below
+        rebalance = successor;
+    } else {
+        // Remove successof from original spot and link its right child to its old parent
+        rebalance = successor->parent;
         rb_transplant(tree, successor->parent, successor, successor->right);
         successor->right = node->right;
         node->right->parent = successor;
     }
+    assert(successor->left == NULL);
 
+    // Replace node with successor in the tree
     rb_transplant(tree, node->parent, node, successor);
     successor->left = node->left;
     successor->left->parent = successor;
+
+    // If successor was black, there might be a different black-height where it was removed
+    // Make sure that fixup starts from the appropriate location
+    rebalance = successor->color == RB_BLACK ? rebalance : NULL;
+
+    // Preserve the original color of the deleted node
     successor->color = node->color;
-
-    if (successor->right != NULL) {
-        successor->right->color = RB_BLACK;
-        return NULL;
-    } 
-
-    return rb_is_black(successor) ? successor->parent : NULL;
+    return rebalance;
 }
 
 

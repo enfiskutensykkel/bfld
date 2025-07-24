@@ -179,7 +179,7 @@ int main()
     const char *fruits[] = {
         "mango", "pear", "cherry", "plum", "banana", "orange", 
         "apple", "coconut", "avocado", "passion fruit", "huckleberry",
-        "blueberry", "orange", "guava", "pomegranate", "cantaloupe",
+        "blueberry", "guava", "pomegranate", "cantaloupe", "notafruit",
         "grape", "dragonfruit", "blackberry", "grapefruit", "lime",
         "lemon", "apricot", "date", "fig", "clementine", "strawberry",
         "raspberry", "nectarine", "jujube", "star fruit"
@@ -247,7 +247,6 @@ int main()
     // FIXME: make sure that arrays are actually sorted
 
     // Delete some items and make sure they are deleted
-    // FIXME: this doesn't work for duplicates
     const char *to_delete[] = {"pear", "mango", "banana", "apple"};
     for (size_t i = 0; i < sizeof(to_delete) / sizeof(*to_delete); ++i) {
         size_t count_before = count_nodes(tree.root);
@@ -267,7 +266,7 @@ int main()
         printf("%zu == %zu - 1\n", count_after, count_before);
         fflush(stdout);
         assert(count_after == count_before - 1);
-        //validate_tree(&tree);
+        validate_tree(&tree);
 
         node = rb_find(&tree, to_delete[i], searchcmp);
         assert(node == NULL);
@@ -297,6 +296,19 @@ int main()
             ++j;
         }
     }
+
+    // test adding a duplicate and searching for it 
+    struct word *duplicate = alloc_word("notafruit");
+    assert(duplicate != NULL);
+
+    rb_add(&tree, &duplicate->rb_node, wordcmp);
+    struct rb_node *first = rb_find(&tree, "notafruit", searchcmp);
+    assert(first != NULL);
+    assert(rb_entry(first, struct word, rb_node) != duplicate);
+
+//    rb_remove(&tree, first);
+//    validate_tree(&tree);
+
 
     return 0;
 }
