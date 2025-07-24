@@ -4,12 +4,32 @@
 extern "C" {
 #endif
 
-// FIXME: Do we need an "augmented" rbtree for making interval/segment trees?
-// Segment tree stores intervals, and optimized for "which of these intervals contains a given point" queries. Interval tree stores intervals as well, but optimized for "which of these intervals overlap with a given interval" queries. It can also be used for point queries - similar to segment tree
-
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
+
+
+struct rb_node;
+
+
+/*
+ * Red-black tree.
+ *
+ * Red-black trees are a type of self-balancing binary search tree.
+ * They offer relatively fast look up of nodes. However, note that
+ * iterating, inserting into and deleting from a tree are slow operations,
+ * so this is not the appropriate data structure for those.
+ */
+struct rb_tree
+{
+    struct rb_node *root;
+};
+
+
+/*
+ * Inline initializer for an empty tree.
+ */
+#define RB_TREE (struct rb_tree) { NULL }
 
 
 enum rb_color { RB_RED = 0, RB_BLACK = 1 };
@@ -35,39 +55,9 @@ struct rb_node
 
 
 /*
- * Red-black tree.
+ * Inline initializer for red-black tree node.
  */
-struct rb_tree
-{
-    struct rb_node *root;
-};
-
-
-/*
- * Inline initializer for an empty tree.
- */
-#define RB_TREE (struct rb_tree) { NULL }
-
-
-/*
- * Nodes that are known not to be inserted in a tree
- * are considered "cleared".
- */
-static inline 
-bool rb_is_clear(const struct rb_node *node)
-{
-    return node->parent == node;
-}
-
-
-static inline
-void rb_clear_node(struct rb_node *node)
-{
-    node->parent = node;
-}
-
-
-#define RB_CLEAR_NODE(name) (struct rb_node) {RB_RED, &(name), NULL, NULL}
+#define RB_NODE(name) (struct rb_node) {RB_RED, &(name), NULL, NULL}
 
 
 /*
@@ -95,6 +85,7 @@ void rb_insert_node(struct rb_node *node,
     node->color = RB_RED;  // new nodes are always red
     node->left = node->right = NULL;
     *link = node;
+    // FIXME: we could invoke rb_insert_fixup here directly
 }
 
 
@@ -116,8 +107,10 @@ void rb_replace_node(struct rb_tree *tree,
 /*
  * Add a node to the tree, using a comparator callback
  * to determine where to insert it, and rebalance the tree.
- *
- * Instead of doing this, you can make your own insertion function:
+ * 
+ * This function is inlined in hope that the compiler will optimize
+ * away calls to the comparator callback. Instead of doing using this function,
+ * you should ideally make your own insertion function:
  *
  * int my_insert(struct rb_tree *tree, struct mytype *data)
  * {
@@ -166,7 +159,7 @@ void rb_add(struct rb_tree *tree, struct rb_node *node,
 
 
 /*
- * Remove the specified node and rebalance the tree.
+ * Remove the specified node and rebalance the tree afterwards.
  */
 void rb_remove(struct rb_tree *tree, struct rb_node *node);
 
@@ -174,7 +167,9 @@ void rb_remove(struct rb_tree *tree, struct rb_node *node);
 /*
  * Do a binary search for a specific node, using a comparator callback.
  *
- * Instead of doing this, you can make your own custom search function:
+ * This function is inlined in hope that the compiler will optimize
+ * away calls to the comparator callback. Instead of using this function, 
+ * you ideally should make your own custom search function:
  *
  * struct mytype * my_search(struct rb_tree *tree, const char *string)
  * {
@@ -223,112 +218,26 @@ struct rb_node * rb_find(const struct rb_tree *tree, const void *key,
  * Get the first node (in sort order) of the tree.
  * Also known as the "minimum".
  */
-static inline
-struct rb_node * rb_first(const struct rb_tree *tree)
-{
-    struct rb_node *node = tree->root;
-
-    if (node == NULL) {
-        return NULL;
-    }
-
-    while (node->left != NULL) {
-        node = node->left;
-    }
-
-    return node;
-}
+struct rb_node * rb_first(const struct rb_tree *tree);
 
 
 /*
  * Get the last node (in sort order) of the tree.
  * Also known as the "maximum".
  */
-static inline
-struct rb_node * rb_last(const struct rb_tree *tree)
-{
-    struct rb_node *node = tree->root;
-
-    if (node == NULL) {
-        return NULL;
-    }
-
-    while (node->right != NULL) {
-        node = node->right;
-    }
-
-    return node;
-}
+struct rb_node * rb_last(const struct rb_tree *tree);
 
 
 /*
  * Get the next node (in sort order) of the tree.
  */
-static inline
-struct rb_node * rb_next(const struct rb_node *node)
-{
-    if (rb_is_clear(node)) {
-        return NULL;
-    }
-
-    // If we have a right-hand child, go down and one step 
-    // and then as far left as we can go.
-    if (node->right != NULL) {
-        node = node->right;
-        while (node->left != NULL) {
-            node = node->left;
-        }
-
-        return (struct rb_node*) node;
-    }
-
-    // No right-hand children, which means that everything
-    // down to the left is smaller than the current node.
-    // The next node must be in the general direction of the parent.
-    // Go up the tree; any time the ancestor is a right-hand child of
-    // its parent, keep going up. The parent of the first ancestor 
-    // that is a left-hand is the next node.
-    struct rb_node *parent = node->parent;
-    while (parent != NULL && node == parent->right) {
-        node = parent;
-        parent = parent->parent;
-    }
-
-    return parent;
-}
+struct rb_node * rb_next(const struct rb_node *node);
 
 
 /*
  * Get the previous node of the tree.
  */
-static inline
-struct rb_node * rb_prev(const struct rb_node *node)
-{
-    if (rb_is_clear(node)) {
-        return NULL;
-    }
-
-    // If we have a left-hand child, go down one level and then
-    // as far right as we are able to.
-    if (node->left != NULL) {
-        node = node->left;
-        while (node->right != NULL) {
-            node = node->right;
-        }
-        return (struct rb_node*) node;
-    }
-
-    // No left-hand children, which means that we need to go
-    // up until we find an ancestor that is a right-hand child of
-    // its parent.
-    struct rb_node *parent = node->parent;
-    while (parent != NULL && node == parent->left) {
-        node = parent;
-        parent = parent->parent;
-    }
-
-    return parent;
-}
+struct rb_node * rb_prev(const struct rb_node *node);
 
 
 /*

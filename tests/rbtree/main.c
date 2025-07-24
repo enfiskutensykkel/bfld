@@ -26,7 +26,9 @@ static void validate_nodes(const struct rb_node *node, int black_depth)
         assert(node->right == NULL || node->right->color == RB_BLACK);
     }
 
+    assert(node->left == NULL || node->left->parent == node);
     validate_nodes(node->left, black_depth);
+    assert(node->right == NULL || node->right->parent == node);
     validate_nodes(node->right, black_depth);
 }
 
@@ -57,11 +59,16 @@ static size_t count_nodes(const struct rb_node *node)
         return 0;
     }
 
+    assert(node->left == NULL || node->left->parent == node);
+    assert(node->right == NULL || node->right->parent == node);
     return 1 + count_nodes(node->left) + count_nodes(node->right);
 }
 
 
-static struct word * traverse_find(const struct rb_node *node, const char *data)
+/*
+ * Look for an item with binary search.
+ */
+static struct word * search(const struct rb_node *node, const char *data)
 {
     if (node != NULL) {
         struct word * w = rb_entry(node, struct word, rb_node);
@@ -69,13 +76,34 @@ static struct word * traverse_find(const struct rb_node *node, const char *data)
         if (c == 0) {
             return w;
         } else if (c < 0) {
-            return traverse_find(node->left, data);
+            return search(node->left, data);
         } else {
-            return traverse_find(node->right, data);
+            return search(node->right, data);
         }
     }
 
     return NULL;
+}
+
+
+/*
+ * Look for an item throughout the entire tree.
+ */
+static struct word * traverse_find(const struct rb_node *node, const char *data)
+{
+    if (node != NULL) {
+        struct word *w = rb_entry(node, struct word, rb_node);
+        if (strcmp(data, w->data) == 0) {
+            return w;
+        }
+
+        w = traverse_find(node->left, data);
+        if (w != NULL) {
+            return w;
+        }
+
+        return traverse_find(node->right, data);
+    }
 }
 
 
@@ -109,6 +137,32 @@ static int searchcmp(const void *key, const struct rb_node *item)
 }
 
 
+static size_t copy_sorted_recurse(const struct rb_node *node, const char **dst)
+{
+    if (node != NULL) {
+        size_t pos = copy_sorted_recurse(node->left, dst);
+        struct word *w = rb_entry(node, struct word, rb_node);
+        dst[pos++] = w->data;
+        return pos + copy_sorted_recurse(node->right, &dst[pos]);
+    }
+}
+
+
+static size_t copy_sorted_iterative(const struct rb_tree *tree, const char **dst)
+{
+    size_t i = 0;
+    struct rb_node *node = rb_first(tree);
+
+    while (node != NULL) {
+        struct word *w = rb_entry(node, struct word, rb_node);
+        dst[i++] = w->data;
+        node = rb_next(node);
+    }
+
+    return i;
+}
+
+
 static void print_sorted(const struct rb_node *node)
 {
     if (node != NULL) {
@@ -122,8 +176,17 @@ static void print_sorted(const struct rb_node *node)
 
 int main()
 {
-    const char *fruits[] = {"mango", "pear", "cherry", "plum", "banana", "orange", "apple", "coconut"};
-    // TODO: add duplicates
+    const char *fruits[] = {
+        "mango", "pear", "cherry", "plum", "banana", "orange", 
+        "apple", "coconut", "avocado", "passion fruit", "huckleberry",
+        "blueberry", "orange", "guava", "pomegranate", "cantaloupe",
+        "grape", "dragonfruit", "blackberry", "grapefruit", "lime",
+        "lemon", "apricot", "date", "fig", "clementine", "strawberry",
+        "raspberry", "nectarine", "jujube", "star fruit"
+    };
+
+    const char *copy[sizeof(fruits) / sizeof(*fruits)];
+    const char *copy2[sizeof(fruits) / sizeof(*fruits)];
 
     struct rb_tree tree = RB_TREE;
 
@@ -145,27 +208,95 @@ int main()
         printf("%zu == %zu + 1\n", count_after, count_before);
         fflush(stdout);
         assert(count_after == count_before + 1);
-
-        print_sorted(tree.root);
     }
 
     for (size_t i = 0; i < sizeof(fruits) / sizeof(*fruits); ++i) {
         printf("Searching manually for %s\n", fruits[i]);
         fflush(stdout);
-        struct word *w = traverse_find(tree.root, fruits[i]);
+        struct word *w = search(tree.root, fruits[i]);
         assert(w != NULL);
     }
 
-    printf("Searching for banana\n");
-    fflush(stdout);
-    struct rb_node *node = rb_find(&tree, "banana", searchcmp);
-    assert(node != NULL);
-    struct word *w = rb_entry(node, struct word, rb_node);
+    const char *to_find[] = {"pear", "coconut", "apple"};
+    for (size_t i = 0; i < sizeof(to_find) / sizeof(*to_find); ++i) {
+        printf("Searching for %s\n");
+        fflush(stdout);
 
-    node = rb_find(&tree, "NOT IN LIST", searchcmp);
-    assert(node == NULL);
+        struct rb_node *node = rb_find(&tree, to_find[i], searchcmp);
+        assert(node != NULL);
+        struct word *w = rb_entry(node, struct word, rb_node);
+        struct word *manual = search(tree.root, to_find[i]);
+        assert(w == manual);
+    }
 
-    print_sorted(tree.root);
+    assert(rb_find(&tree, "NOT IN LIST", searchcmp) == NULL);
+
+    memset(copy, 0, sizeof(copy));
+    memset(copy2, 0, sizeof(copy2));
+    size_t n = copy_sorted_recurse(tree.root, copy);
+    assert(n == sizeof(fruits) / sizeof(*fruits));
+    n = copy_sorted_iterative(&tree, copy2);
+    assert(n == sizeof(fruits) / sizeof(*fruits));
+
+    for (size_t i = 0; i < sizeof(copy) / sizeof(*copy); ++i) {
+        printf("%s == %s\n", copy[i], copy2[i]);
+        fflush(stdout);
+        assert(copy[i] == copy2[i]);
+    }
+
+    // FIXME: make sure that arrays are actually sorted
+
+    // Delete some items and make sure they are deleted
+    // FIXME: this doesn't work for duplicates
+    const char *to_delete[] = {"pear", "mango", "banana", "apple"};
+    for (size_t i = 0; i < sizeof(to_delete) / sizeof(*to_delete); ++i) {
+        size_t count_before = count_nodes(tree.root);
+
+        printf("Searching for %s\n", to_delete[i]);
+        fflush(stdout);
+        struct rb_node *node = rb_find(&tree, to_delete[i], searchcmp);
+        assert(node != NULL);
+
+        printf("Deleting %s\n", rb_entry(node, struct word, rb_node)->data);
+        fflush(stdout);
+        rb_remove(&tree, node);
+
+        printf("Validating tree\n");
+        fflush(stdout);
+        size_t count_after = count_nodes(tree.root);
+        printf("%zu == %zu - 1\n", count_after, count_before);
+        fflush(stdout);
+        assert(count_after == count_before - 1);
+        //validate_tree(&tree);
+
+        node = rb_find(&tree, to_delete[i], searchcmp);
+        assert(node == NULL);
+
+        struct word *w = traverse_find(tree.root, to_delete[i]);
+        assert(w == NULL);
+    }
+
+    memset(copy2, 0, sizeof(copy2));
+    n = copy_sorted_iterative(&tree, copy2);
+    for (size_t i = 0, j = 0; j < n; ++i) {
+        assert(i < sizeof(copy) / sizeof(*copy));
+        
+        size_t k = 0;
+        for (; k < sizeof(to_delete) / sizeof(*to_delete); ++k) {
+            if (strcmp(to_delete[k], copy[i]) == 0) {
+                break;
+            }
+        }
+        if (k < sizeof(to_delete) / sizeof(*to_delete)) {
+            printf("%s was deleted\n", copy[i]);
+            fflush(stdout);
+        } else {
+            printf("%s == %s\n", copy2[j], copy[i]);
+            fflush(stdout);
+            assert(copy2[j] == copy[i]);
+            ++j;
+        }
+    }
 
     return 0;
 }

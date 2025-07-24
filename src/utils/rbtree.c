@@ -5,28 +5,43 @@
  * Inspired by:
  *   https://en.wikipedia.org/wiki/Red-black_tree
  *   https://elixir.bootlin.com/linux/v6.15.7/source/lib/rbtree.c
+ *   https://www.kernel.org/doc/html/v6.15/core-api/rbtree.html
+ *   https://cs.brynmawr.edu/Courses/cs246/spring2016/lectures/16_RedBlackTrees.pdf
  *
  * Terminology:
  *   The black depth of a node is the number of black nodes from the root
  *   to that node.
+ *   
+ *   The black height of a tree is the number of black nodes in any path
+ *   from the root to the leaves, which is constant. The black height of
+ *   a node is the subtree it is the root for.
  *
  * Properties:
- *  1) Every node is either red or black.
- *  2) All NULL nodes (leaves) are considered black.
- *  3) A red node does not have a red child.
- *  4) Every path from a given node to any of its descendant
+ *  P1) Every node is either red or black.
+ *  P2) All NULL nodes (leaves) are considered black.
+ *  P3) A red node does not have a red child.
+ *  P4) Every path from a given node to any of its descendant
  *     NULL nodes goes through the same number of black nodes
- *  5) The root is black.
+ *  P5) The root is black.
  *
  *  In order to satisfy the requirements, if a node N has exactly one child, 
  *  the child must be red. If the child were black, its leaves would sit at 
  *  a different black depth than N's NULL node (which are considered black 
- *  by 2), which would violate 4.
+ *  by P2), which would violate P4.
  *  
- *  3 and 4 give the O(log n) guarantee, since 3 implies you cannot have two
- *  consecutive red nodes in a path and every red node is therefore followed 
- *  by a black. So if B is the number of black nodes on every path (as per 4),
- *  then the longest possible path due to 3 is 2B.
+ *  P3 and P4 give the O(log n) guarantee, since P3 implies you cannot have 
+ *  two consecutive red nodes in a path and every red node is therefore 
+ *  followed by a black. So if B is the number of black nodes on every path 
+ *  (as per P4), then the longest possible path due to P3 is 2B.
+ *
+ * Theorems:
+ *   T1) Root x has n >= 2^bh(x)-1 nodes, where bh(x) is the black height 
+ *       of node x.
+ *   T2) At least half of the nodes on any path from the root to a NULL
+ *       must be black. bh(x) >= h/2
+ *   T3) No path from any node x to a NULL is more than twice as long
+ *       as any other path from x to any other NULL.
+ *   T4) A tree with n nodes has height h <= 2log(n + 1)
  */
 
 
@@ -44,9 +59,6 @@
 #define rb_is_red(node_ptr) !rb_is_black(node_ptr)
 
 
-/*
- * Set a node to black.
- */
 static inline void rb_set_black(struct rb_node *node)
 {
     if (node != NULL) {
@@ -56,13 +68,30 @@ static inline void rb_set_black(struct rb_node *node)
 
 
 /*
- * Helper function to change a child.
- * This is also known as a transplant.
+ * Nodes that are known not to be inserted in a tree
+ * are considered "cleared".
  */
-static inline void rb_change_child(struct rb_tree *tree, 
-                                   struct rb_node *parent,
-                                   struct rb_node *old_child,
-                                   struct rb_node *new_child)
+static inline bool rb_is_cleared(const struct rb_node *node)
+{
+    return node->parent == node;
+}
+
+
+static inline void rb_clear_node(struct rb_node *node)
+{
+    node->parent = node;
+    node->left = node->right = NULL;
+}
+
+
+/*
+ * Helper function to replace a subtree rooted at old_child
+ * with a subtree rooted at new_child.
+ */
+static inline void rb_transplant(struct rb_tree *tree, 
+                                 struct rb_node *parent,
+                                 struct rb_node *old_child,
+                                 struct rb_node *new_child)
 {
     if (parent != NULL) {
         if (parent->left == old_child) {
@@ -75,6 +104,11 @@ static inline void rb_change_child(struct rb_tree *tree,
     } else {
         assert(tree->root == old_child);
         tree->root = new_child;
+    }
+
+    // Make sure that the new_child's parent pointer points to its new parent
+    if (new_child != NULL) {
+        new_child->parent = parent;
     }
 }
 
@@ -123,19 +157,22 @@ static void rb_rotate(struct rb_tree *tree,
 
     // Update parent pointers
     struct rb_node *parent = root->parent;
-    pivot->parent = parent;
     root->parent = pivot;
 
-    rb_change_child(tree, parent, root, pivot);
+    rb_transplant(tree, parent, root, pivot);
 }
 
 
 /*
- * Fix up after the insertion.
+ * Repair/rebalance/recolor the tree after an insertion.
+ *
+ * See bottom-up insertion from slides for references to the cases:
+ * https://cs.brynmawr.edu/Courses/cs246/spring2016/lectures/16_RedBlackTrees.pdf
  */
 void rb_insert_fixup(struct rb_tree *tree, struct rb_node *node)
 {
     if (node->parent == NULL) {
+        // Case 0: node is root, color it black
         tree->root = node;
         node->color = RB_BLACK;
         return;
@@ -150,60 +187,80 @@ void rb_insert_fixup(struct rb_tree *tree, struct rb_node *node)
         assert(gparent != NULL);
         assert(parent == gparent->left || parent == gparent->right);
 
-        if (parent == gparent->left) {
+        if (parent == gparent->left) {  // parent is gparent's left child
             struct rb_node *uncle = gparent->right;
 
             if (rb_is_red(uncle)) {
+                // Case 1: both parent and uncle are red
                 parent->color = RB_BLACK;
                 uncle->color = RB_BLACK;
                 gparent->color = RB_RED;
                 node = gparent;
+                continue;
 
             } else {
+                // uncle is black
 
                 if (node == parent->right) {
+                    // Case 2: zig-zag (double rotate)
+                    // node and parent are opposite-hand children
+
                     rb_rotate(tree, parent, node);  // rotate left
                     node = parent;
                     parent = node->parent;
                     assert(node == parent->left || node == parent->right);
                     gparent = parent->parent;
                     assert(parent == gparent->left || parent == gparent->right);
+
+                    // Case 2 continuation by fall-through to Case 3
                 }
 
+                // Case 3: zig-zig (single rotate)
+                // node and parent are both left-hand children
                 parent->color = RB_BLACK;
                 gparent->color = RB_RED;
-
-                rb_rotate(tree, gparent, gparent->left);  // rotate right
+                rb_rotate(tree, gparent, gparent->left);  // rotate right on grand parent
             }
 
-        } else {  // parent == gparent->right
+        } else {  // parent is gparent's right child
             struct rb_node *uncle = gparent->left;
 
             if (rb_is_red(uncle)) {
+                // Case 1: both parent and uncle are red
                 parent->color = RB_BLACK;
                 uncle->color = RB_BLACK;
                 gparent->color = RB_RED;
                 node = gparent;
+                continue;
             
             } else {
+                // uncle is black
 
                 if (node == parent->left) {
-                    rb_rotate(tree, parent, node);  // rotate right
+                    // Case 2: zig-zag (double rotation)
+                    // node and parent are opposite-hand children
+                    rb_rotate(tree, parent, node);  // rotate right on parent
+                    
+                    // Move up to next parent
                     node = parent;
                     parent = node->parent;
                     assert(node == parent->left || node == parent->right);
                     gparent = parent->parent;
                     assert(parent == gparent->left || parent == gparent->right);
+
+                    // Case 2 continuation by fall-through to Case 3
                 }
 
+                // Case 3: zig-zig (single rotation)
+                // node and parent both right-hand children
                 parent->color = RB_BLACK;
                 gparent->color = RB_RED;
-                rb_rotate(tree, gparent, gparent->right);  // rotate left
+                rb_rotate(tree, gparent, gparent->right);  // rotate left on grand parent
             }
-
         }
     }
 
+    // Ensure that the root is black
     tree->root->color = RB_BLACK;
 }
 
@@ -214,7 +271,7 @@ void rb_replace_node(struct rb_tree *tree,
 {
     struct rb_node *parent = old_node->parent;
 
-    // Copy children and color from the old node to the new
+    // Copy children, parent and color from the old node to the new
     *new_node = *old_node;
 
     // Set the surrounding nodes to point to the new node
@@ -226,5 +283,274 @@ void rb_replace_node(struct rb_tree *tree,
         old_node->right->parent = new_node;
     }
 
-    rb_change_child(tree, parent, old_node, new_node);
+    rb_transplant(tree, parent, old_node, new_node);
+}
+
+
+/*
+ * "Normal" binary search tree deletion. If the tree needs to be 
+ * rebalanced afterwards, the pointer to the node where rebalancing 
+ * should start is returned.
+ */
+static struct rb_node * rb_remove_node(struct rb_tree *tree, struct rb_node *node)
+{
+    if (node->left == NULL) {
+        // Node has only right-hand child (or no children)
+        rb_transplant(tree, node->parent, node, node->right);
+
+        if (node->right == NULL && node->color == RB_BLACK) {
+            return node->parent;
+        }
+
+        return NULL;
+
+    } else if (node->right == NULL) {
+        // Node has only left-hand child (or no children)
+        rb_transplant(tree, node->parent, node, node->left);
+
+        if (node->left == NULL && node->color == RB_BLACK) {
+            return node->parent;
+        }
+
+        return NULL;
+    }
+
+    // Node has both children, we need to find the successor
+    // start by finding the left-most child of node's right-hand child,
+    // this is the minimum value that's smaller than the node
+    struct rb_node *successor = node->right;
+    while (successor->left != NULL) {
+        successor = successor->left;
+    }
+
+    if (successor->parent != node) {
+        rb_transplant(tree, successor->parent, successor, successor->right);
+        successor->right = node->right;
+        node->right->parent = successor;
+    }
+
+    rb_transplant(tree, node->parent, node, successor);
+    successor->left = node->left;
+    successor->left->parent = successor;
+    successor->color = node->color;
+
+    if (successor->right != NULL) {
+        successor->right->color = RB_BLACK;
+        return NULL;
+    } 
+
+    return rb_is_black(successor) ? successor->parent : NULL;
+}
+
+
+/*
+ * Repair/recolor/rebalance a tree after deletion.
+ * Start fixing up from the specified parent node.
+ */
+static void rb_remove_fixup(struct rb_tree *tree, struct rb_node *parent)
+{
+    struct rb_node *node = NULL;  // Node has been removed. NULL nodes are black.
+    
+    while (true) {
+
+        if (node == parent->left) {  // node is left-hand child
+            struct rb_node *sibling = parent->right;
+
+            if (rb_is_red(sibling)) {
+                // Case 1: Sibling is red
+                sibling->color = RB_BLACK;
+                parent->color = RB_RED;
+                rb_rotate(tree, parent, sibling);  // rotate left
+                sibling = parent->right;  // update sibling after rotate
+            }
+
+            if (rb_is_black(sibling->right)) {
+                if (rb_is_black(sibling->left)) {
+                    // Case 2: Sibling is black, both its children are black
+                    sibling->color = RB_RED;
+                    if (parent->color == RB_RED) {
+                        parent->color = RB_BLACK;
+                    } else {
+                        node = parent;
+                        parent = parent->parent;
+                        if (parent != NULL) {
+                            continue;  // we recurse up the tree
+                        }
+                    }
+                    break;
+                } 
+
+                // Case 3: Sibling is black, right child is black, left is red
+                rb_set_black(sibling->left);
+                sibling->color = RB_RED;
+                rb_rotate(tree, sibling, sibling->left);  // right rotate
+                sibling = parent->right;  // update sibling after rotate
+                
+                // Fall-through to Case 4
+            }
+
+            // Case 4: Sibling is black, right is red, left any color
+            sibling->color = parent->color;
+            parent->color = RB_BLACK;
+            rb_set_black(sibling->right);
+            rb_rotate(tree, parent, sibling);  // left rotate
+            node = tree->root;
+            break;
+
+        } else {  // node is right-hand child
+            struct rb_node *sibling = parent->left;
+
+            if (rb_is_red(sibling)) {
+                // Case 1: Sibling is red
+                sibling->color = RB_BLACK;
+                parent->color = RB_RED;
+                rb_rotate(tree, parent, sibling);  // rotate right
+                sibling = parent->left;
+            }
+            
+            if (rb_is_black(sibling->left)) {
+                if (rb_is_black(sibling->right)) {
+                    // Case 2: Sibling is black, both its children are black
+                    sibling->color = RB_RED;
+                    if (parent->color == RB_RED) {
+                        parent->color = RB_BLACK;
+                    } else {
+                        node = parent;
+                        parent = parent->parent;
+                        if (parent != NULL) {
+                            continue;  // we recurse up the tree
+                        }
+                    }
+                    break;
+                }
+
+                // Case 3: Sibling is black, its left is black and right is red
+                rb_set_black(sibling->right);
+                sibling->color = RB_RED;
+                rb_rotate(tree, sibling, sibling->right);  // left rotate
+                sibling = parent->left;  // update sibling after rotation
+                
+                // Fall-through to Case 4
+            }
+
+            // Case 4: Sibling is black, left is red, right is any color
+            sibling->color = parent->color;
+            parent->color = RB_BLACK;
+            rb_set_black(sibling->left);
+            rb_rotate(tree, parent, sibling);  // right rotate
+            node = tree->root;
+            break;
+        }
+    }
+
+    rb_set_black(tree->root);
+}
+
+
+void rb_remove(struct rb_tree *tree, struct rb_node *node)
+{
+    if (rb_is_cleared(node)) {
+        return;
+    }
+
+    struct rb_node *fixup = rb_remove_node(tree, node);
+    if (fixup != NULL) {
+        rb_remove_fixup(tree, fixup);
+    }
+
+    rb_clear_node(node);
+}
+
+
+struct rb_node * rb_first(const struct rb_tree *tree)
+{
+    struct rb_node *node = tree->root;
+
+    if (node == NULL) {
+        return NULL;
+    }
+
+    while (node->left != NULL) {
+        node = node->left;
+    }
+
+    return node;
+}
+
+
+struct rb_node * rb_last(const struct rb_tree *tree)
+{
+    struct rb_node *node = tree->root;
+
+    if (node == NULL) {
+        return NULL;
+    }
+
+    while (node->right != NULL) {
+        node = node->right;
+    }
+
+    return node;
+}
+
+
+struct rb_node * rb_next(const struct rb_node *node)
+{
+    if (rb_is_cleared(node)) {
+        return NULL;
+    }
+
+    // If we have a right-hand child, go down and one step 
+    // and then as far left as we can go.
+    if (node->right != NULL) {
+        node = node->right;
+        while (node->left != NULL) {
+            node = node->left;
+        }
+
+        return (struct rb_node*) node;
+    }
+
+    // No right-hand children, which means that everything
+    // down to the left is smaller than the current node.
+    // The next node must be in the general direction of the parent.
+    // Go up the tree; any time the ancestor is a right-hand child of
+    // its parent, keep going up. The parent of the first ancestor 
+    // that is a left-hand is the next node.
+    struct rb_node *parent = node->parent;
+    while (parent != NULL && node == parent->right) {
+        node = parent;
+        parent = parent->parent;
+    }
+
+    return parent;
+}
+
+
+struct rb_node * rb_prev(const struct rb_node *node)
+{
+    if (rb_is_cleared(node)) {
+        return NULL;
+    }
+
+    // If we have a left-hand child, go down one level and then
+    // as far right as we are able to.
+    if (node->left != NULL) {
+        node = node->left;
+        while (node->right != NULL) {
+            node = node->right;
+        }
+        return (struct rb_node*) node;
+    }
+
+    // No left-hand children, which means that we need to go
+    // up until we find an ancestor that is a right-hand child of
+    // its parent.
+    struct rb_node *parent = node->parent;
+    while (parent != NULL && node == parent->left) {
+        node = parent;
+        parent = parent->parent;
+    }
+
+    return parent;
 }

@@ -9,11 +9,16 @@ extern "C" {
 
 
 /*
- * Doubly linked list implementation.
+ * Doubly linked list.
  *
- * Lists have an empty head (the head node is not part
- * of the list itself) that points to the first (and last)
- * node in the list.
+ * Lists are useful for making ordered collections, 
+ * for example queues or stacks.
+ *
+ * Doubly linked lists offer fast insertion and deletion as they have 
+ * a list head that points to the first (and last) node in the list.
+ *
+ * Note that the head node is considered part of the list itself,
+ * even though both the list head and the list nodes use the same struct.
  */
 struct list_head
 {
@@ -31,6 +36,7 @@ struct list_head
 
 /*
  * Initialize an empty linked list.
+ * An empty list is where the head's pointers point to itself.
  */
 static inline
 void list_head_init(struct list_head *head)

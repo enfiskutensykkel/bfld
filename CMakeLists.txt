@@ -5,6 +5,7 @@ project(bfld)
 
 # Compile a utility library for (maybe useful for other projects)?
 add_library(bfldutils STATIC src/utils/rbtree.c)
+target_compile_options(bfldutils PRIVATE -Wall -Wextra -pedantic -g -ggdb)
 target_include_directories(bfldutils PUBLIC include/utils)
 
 # Compile the virtual machine
