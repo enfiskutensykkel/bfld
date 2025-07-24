@@ -297,17 +297,39 @@ int main()
         }
     }
 
+    validate_tree(&tree);
+
+    fflush(stdout);
     // test adding a duplicate and searching for it 
+    size_t count_before = count_nodes(tree.root);
     struct word *duplicate = alloc_word("notafruit");
     assert(duplicate != NULL);
-
+    printf("Adding duplicate %s (%p)\n", duplicate->data, &duplicate->rb_node);
     rb_add(&tree, &duplicate->rb_node, wordcmp);
-    struct rb_node *first = rb_find(&tree, "notafruit", searchcmp);
-    assert(first != NULL);
-    assert(rb_entry(first, struct word, rb_node) != duplicate);
+    size_t count_after = count_nodes(tree.root);
+    assert(count_after == count_before + 1);
+    validate_tree(&tree);
 
-//    rb_remove(&tree, first);
-//    validate_tree(&tree);
+    printf("Searching for duplicate\n");
+    fflush(stdout);
+    struct rb_node *first = rb_find(&tree, "notafruit", searchcmp);
+
+    assert(first != NULL);
+    struct word *found = rb_entry(first, struct word, rb_node);
+    assert(found != duplicate);
+
+    printf("Duplicate %s found (%p)\n", found->data, &found->rb_node);
+    fflush(stdout);
+
+    count_before = count_after;
+    rb_remove(&tree, first);
+    count_after = count_nodes(tree.root);
+    assert(count_after == count_before - 1);
+    validate_tree(&tree);
+
+    struct rb_node *second = rb_find(&tree, "notafruit", searchcmp);
+    assert(second != NULL);
+    assert(second != first);
 
 
     return 0;
