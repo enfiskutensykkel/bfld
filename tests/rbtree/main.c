@@ -247,7 +247,7 @@ int main()
     // FIXME: make sure that arrays are actually sorted
 
     // Delete some items and make sure they are deleted
-    const char *to_delete[] = {"pear", "mango", "banana", "apple"};
+    const char *to_delete[] = {"pear", "mango", "banana", "apple", "plum"};
     for (size_t i = 0; i < sizeof(to_delete) / sizeof(*to_delete); ++i) {
         size_t count_before = count_nodes(tree.root);
 

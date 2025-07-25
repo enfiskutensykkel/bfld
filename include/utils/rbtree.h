@@ -74,7 +74,10 @@ void rb_tree_init(struct rb_tree *tree)
  * Insert a node directly into a given position in the tree,
  * specified by parent and the parent's child link.
  *
- * After calling this, the tree must be rebalanced (recolored).
+ * Note that this only links the new node in its proper position.
+ * The tree must be rebalanced after insertions.
+ *
+ * See also: rb_insert_fixup()
  */
 static inline
 void rb_insert_node(struct rb_node *node,
@@ -85,12 +88,16 @@ void rb_insert_node(struct rb_node *node,
     node->color = RB_RED;  // new nodes are always red
     node->left = node->right = NULL;
     *link = node;
-    // FIXME: we could invoke rb_insert_fixup here directly
 }
 
 
 /*
- * Rebalance (recolor) the tree after inserting a node.
+ * Rebalance the tree after insertion(s).
+ *
+ * This is a separate step, also known as "lazy fixup",
+ * allowing bulk insertions before rebalancing the tree.
+ *
+ * See also: rb_insert_node()
  */
 void rb_insert_fixup(struct rb_tree *tree, struct rb_node *node);
 
