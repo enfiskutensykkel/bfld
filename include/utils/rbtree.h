@@ -114,7 +114,7 @@ void rb_replace_node(struct rb_tree *tree,
  *
  * int my_insert(struct rb_tree *tree, struct mytype *data)
  * {
- *   struct rb_node **new = *(root->rb_node), *parent = NULL;
+ *   struct rb_node **new = &(tree->root), *parent = NULL;
  *
  *   while (*new != NULL) {
  *     struct mytype *this = rb_entry(*new, struct mytype, node);  // assumes that struct mytype has a rb_node member called "node"
@@ -132,8 +132,8 @@ void rb_replace_node(struct rb_tree *tree,
  *   }
  *   
  *   // Add new node and rebalance the tree
- *   rb_insert_node(node, parent, new);
- *   rb_insert_fixup(tree, node);
+ *   rb_insert_node(&data->node, parent, new);
+ *   rb_insert_fixup(tree, &data->node);
  *   return 0;
  * }
  */

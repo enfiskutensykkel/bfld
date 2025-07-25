@@ -5,9 +5,9 @@ extern "C" {
 #endif
 
 #include "mfile.h"
+#include "utils/list.h"
 #include <stddef.h>
 #include <stdint.h>
-#include <utils/list.h>
 
 
 /*
@@ -15,13 +15,18 @@ extern "C" {
  */
 struct objfile
 {
-    mfile *file;            // The underlying file where this object file came from
-    int refcnt;             // Reference counter
-    const void *file_data;  // Pointer to the start of the object file
-    size_t file_size;       // Total size of the object file
-    struct list_head entry; // Linked list entry
-    char name[];            // Filename of the object file
+    mfile *file;                // The underlying file where this object file came from
+    int refcnt;                 // Reference counter
+    const void *file_data;      // Pointer to the start of the object file
+    size_t file_size;           // Total size of the object file
+    struct list_head entry;     // Linked list entry
+    char name[];                // Filename of the object file
 };
+
+// TODO: consider using ops struct instead of hard compiling
+// also maybe custom objfile for each implementation/backend?
+
+
 
 
 /*
@@ -55,10 +60,17 @@ void objfile_put(struct objfile *objfile);
 
 
 /*
- * Load all object files found in the specified memory-mapped file
+ * Parse all object files found in the specified memory-mapped file
  * and add them to the list.
  */
-int objfile_load(struct list_head *objfiles, mfile *file);
+int objfile_parse(struct list_head *objfiles, mfile *file);
+
+
+
+/*
+ * 
+ */
+
 
 
 #define objfile_list_for_each(iterator, head_ptr) \

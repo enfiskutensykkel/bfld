@@ -4,44 +4,58 @@
 extern "C" {
 #endif
 
+#include <utils/rbtree.h>
 #include <utils/list.h>
 #include <stddef.h>
 #include <stdint.h>
 
 
-enum segment_type
-{
-    SEG_TYPE_NULL,
-    SEG_TYPE_CODE,
-    SEG_TYPE_DATA
-};
-
-
-struct segment
-{
-    enum segment_type type;
-    uint64_t addr;
-    size_t size;
-    struct list_head listh;
-};
-
-
 /*
- * File image rep
+ * Intermediate representation of an "image"; 
+ * what will eventually be written to disk
+ * as a complete executable.
  */
 struct image
 {
-    size_t filesz;  // Total file size of image
+    struct rb_tree symbols; // A map of all symbols
 };
 
 
-int create_image(struct image **image);
+int image_create(struct image **img);
 
 
-void destroy_image(struct image **image);
+void image_destroy(struct image **image);
 
 
 #ifdef __cplusplus
 }
 #endif
 #endif
+
+
+//enum segment_type
+//{
+//    SEG_TYPE_NULL,
+//    SEG_TYPE_CODE,
+//    SEG_TYPE_DATA
+//};
+//
+//
+//struct segment
+//{
+//    enum segment_type type;
+//    uint64_t addr;
+//    size_t size;
+//    struct list_head listh;
+//};
+//
+//
+///*
+// * File image rep
+// */
+//struct image
+//{
+//};
+
+
+

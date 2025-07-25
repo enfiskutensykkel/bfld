@@ -1,4 +1,5 @@
 #include "image.h"
+#include <utils/rbtree.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -7,25 +8,25 @@
 #include <string.h>
 
 
-int create_image(struct image **image)
+int image_create(struct image **image)
 {
     *image = NULL;
 
-    long pgsz = sysconf(_SC_PAGESIZE);
+    //long pgsz = sysconf(_SC_PAGESIZE);
 
     struct image *img = malloc(sizeof(struct image));
     if (img == NULL) {
         return ENOMEM;
     }
 
-    img->filesz = 0;
+    rb_tree_init(&img->symbols);
 
     *image = img;
     return 0;
 }
 
 
-void destroy_image(struct image **image)
+void image_destroy(struct image **image)
 {
     if (*image != NULL) {
         free(*image);

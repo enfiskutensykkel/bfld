@@ -38,7 +38,7 @@ static size_t get_member_size(const struct ar_header *hdr)
 }
 
 
-static bool ar_check_magic(const void *content)
+bool ar_check_magic(const void *content)
 {
     if (strncmp(content, AR_MAGIC, AR_MAGIC_SIZE) != 0) {
         return false;
@@ -48,7 +48,7 @@ static bool ar_check_magic(const void *content)
 }
 
 
-const void * ar_lookup_gsym(const mfile *fp, const char *symname)
+const void * ar_lookup_symbol(const mfile *fp, const char *symname)
 {
     if (!ar_check_magic(fp->data)) {
         return NULL;
@@ -129,7 +129,7 @@ static int get_member_name(const struct ar_header *hdr, const char *long_names, 
 }
 
 
-static int read_members(mfile *fp, struct list_head *objfiles)
+int ar_parse_members(mfile *fp, struct list_head *objfiles)
 {
     if (!ar_check_magic(fp->data)) {
         fprintf(stderr, "%s: Missing archive signature\n", fp->name);
@@ -211,30 +211,4 @@ static int read_members(mfile *fp, struct list_head *objfiles)
     // Move the temporary list into the final list
     list_splice_tail(objfiles, &of);
     return 0;
-}
-
-
-int objfile_load(struct list_head *objfiles, mfile *fp)
-{
-    if (ar_check_magic(fp->data)) {
-        return read_members(fp, objfiles);
-
-    } else if (elf_check_magic(fp->data)) {
-        struct objfile *obj = objfile_alloc(fp, NULL, 0, NULL);
-        if (obj == NULL) {
-            return ENOMEM;
-        }
-
-        int status = elf_load_objfile(obj);
-        if (status != 0) {
-            objfile_put(obj);
-            return status;
-        }
-
-        list_insert_tail(objfiles, &obj->entry);
-        return 0;
-    }
-
-    fprintf(stderr, "%s: Unrecognized file format\n", fp->name);
-    return EBADF;
 }

@@ -2,6 +2,7 @@
 #include "mfile.h"
 #include "objfile.h"
 #include <utils/list.h>
+#include <utils/rbtree.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,10 +21,12 @@
  * - Optionally write out the complete symbol table with the final values of the symbols.
  */
 
+
 int main(int argc, char **argv)
 {
     int c;
     int idx = 0;
+    struct image *image = NULL;
 
     static struct option options[] = {
         {"vm", required_argument, 0, 'i'},
@@ -75,13 +78,13 @@ int main(int argc, char **argv)
         ++nfiles;
     }
 
-    // Parse object files and load their data
+    // Parse object files
     struct list_head objfiles = LIST_HEAD_INIT(objfiles);
         
     for (int i = 0; i < nfiles; ++i) {
         fprintf(stderr, "Parsing file: %s\n", argv[optind + i]);
 
-        int status = objfile_load(&objfiles, files[i]);
+        int status = objfile_parse(&objfiles, files[i]);
         if (status != 0) {
             objfile_list_for_each(objfile, &objfiles) {
                 objfile_put(objfile);
@@ -91,6 +94,12 @@ int main(int argc, char **argv)
             }
             exit(2);
         }
+    }
+
+    // Build a symbol table
+    struct rb_tree symtab = RB_TREE;
+    objfile_list_for_each(objfile, &objfiles) {
+        objfile_extract_symbols(objfile, &symtab);
     }
 
     for (; nfiles > 0; --nfiles) {

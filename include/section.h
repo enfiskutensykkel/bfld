@@ -4,8 +4,10 @@
 extern "C" {
 #endif
 
-
-#include "mfile.h"
+#include "objfile.h"
+#include <stddef.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 
 enum section_type
@@ -20,12 +22,28 @@ enum section_type
 struct section
 {
     mfile *file;            // File reference
+    int refcnt;             // Reference count
     enum section_type type; // Section type
-    const void *ptr;        // Pointer to the definition/contents
+    const void *data;       // Pointer to the definition/contents
     size_t size;            // Size of the content
+    size_t alignment;
 
     // TODO: addr, alignment whatever is needed
+    // TODO: defined symbols? or the other way around only?
+    // TODO: relocations
 };
+
+
+/*
+ * Increase section reference count.
+ */
+void section_get(struct section *sect);
+
+
+/*
+ * Decrease section reference count.
+ */
+void section_put(struct section *sect);
 
 
 #ifdef __cplusplus

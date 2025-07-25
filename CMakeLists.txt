@@ -4,7 +4,7 @@ project(bfld)
 # FIXME: consider moving some of these to their own CMakeLists.txt in subdirectories
 
 # Compile a utility library for (maybe useful for other projects)?
-add_library(bfldutils STATIC src/utils/rbtree.c)
+add_library(bfldutils SHARED src/utils/rbtree.c)
 target_compile_options(bfldutils PRIVATE -Wall -Wextra -pedantic -g -ggdb)
 target_include_directories(bfldutils PUBLIC include/utils)
 
@@ -14,7 +14,7 @@ add_library(bfvm STATIC src/vm/bfvm.c src/vm/foo.c)
 
 
 # Create a generic library of the linker
-add_library(libbfld SHARED src/lib/mfile.c src/lib/objfile.c)
+add_library(libbfld SHARED src/lib/mfile.c src/lib/objfile.c src/lib/symbol.c)
 target_link_libraries(libbfld PRIVATE bfldutils)
 target_include_directories(libbfld PUBLIC include)
 target_compile_definitions(libbfld PUBLIC DEFAULT_BFVM="$<TARGET_FILE:bfvm>")
