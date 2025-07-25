@@ -291,7 +291,7 @@ void rb_replace_node(struct rb_tree *tree,
 
 
 /*
- * "Normal" binary search tree deletion. 
+ * Binary search tree deletion. 
  * If the tree needs to be rebalanced afterwards, the pointer to 
  * the node where rebalancing should start is returned (i.e., the parent).
  * If fixup is not needed, then NULL is returned.
@@ -316,19 +316,22 @@ static struct rb_node * rb_remove_node(struct rb_tree *tree, struct rb_node *nod
 
     } else if (node->right == NULL) {
         // Node has only left-hand child
-        // child inherits the node's color
+        // child inherits the node's color (no fixup)
         rb_transplant(tree, node->parent, node, node->left);
         node->left->parent = node->parent;
         node->left->color = node->color;
         return NULL;
     }
 
-    // Node has both children, we need to find the successor
-    // start by finding the left-most child of node's right-hand child,
-    // this is the minimum value that's smaller than the node that is removed
+    /* Node has both children, i.e., both node->right and node->left are non-NULL
+     * We need to find the successor, find the left-most descendant of node's 
+     * right-hand child, as this is the node that immediately succeeds the
+     * node that's being removed
+     */
     struct rb_node *fixup = NULL;
     struct rb_node *successor = node->right;
     struct rb_node *rchild = NULL;  // successor's right child
+
     while (successor->left != NULL) {
         successor = successor->left;
     }
@@ -342,7 +345,7 @@ static struct rb_node * rb_remove_node(struct rb_tree *tree, struct rb_node *nod
         fixup = successor->parent;
         rchild = successor->right;
         rb_transplant(tree, successor->parent, successor, successor->right);
-        successor->right = node->right;  // node->right must be set due to the checks above
+        successor->right = node->right;
         successor->right->parent = successor;
     }
     assert(successor->left == NULL);
@@ -355,7 +358,6 @@ static struct rb_node * rb_remove_node(struct rb_tree *tree, struct rb_node *nod
     // Make sure that fixup starts from the appropriate location
     if (rchild != NULL) {
         // Child is recolored black and fixup is skipped
-        // This assumes that child is properly inserted (which it should be)
         fixup = NULL;
         rchild->color = RB_BLACK;
     } else if (!rb_is_black(successor)) {
@@ -377,6 +379,13 @@ static void rb_remove_fixup(struct rb_tree *tree, struct rb_node *parent)
 {
     struct rb_node *node = NULL;  // Node has been removed. NULL nodes are black.
     
+    /*
+     * Loop invariants:
+     * - node is black (NULL on the first iteration, considered black)
+     * - node is not the root (parent != NULL)
+     * - all paths going through parent and node to a leaf have
+     *   a black node count that is 1 lower than other leaf paths
+     */
     while (true) {
 
         if (node == parent->left) {  // node is left-hand child
