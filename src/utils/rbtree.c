@@ -7,6 +7,7 @@
  *   https://elixir.bootlin.com/linux/v6.15.7/source/lib/rbtree.c
  *   https://www.kernel.org/doc/html/v6.15/core-api/rbtree.html
  *   https://cs.brynmawr.edu/Courses/cs246/spring2016/lectures/16_RedBlackTrees.pdf
+ *   https://github.com/gfxstrand/rb-tree/
  *
  * Terminology:
  *   The black depth of a node is the number of black nodes from the root
@@ -21,13 +22,13 @@
  *  P2) All NULL nodes (leaves) are considered black.
  *  P3) A red node does not have a red child.
  *  P4) Every path from a given node to any of its descendant
- *     NULL nodes goes through the same number of black nodes
+ *      NULL nodes goes through the same number of black nodes.
  *  P5) The root is black.
  *
  *  In order to satisfy the requirements, if a node N has exactly one child, 
  *  the child must be red. If the child were black, its leaves would sit at 
  *  a different black depth than N's NULL node (which are considered black 
- *  by P2), which would violate P4.
+ *  by P2), which would violate P4 (sometimes called a 'double black').
  *  
  *  P3 and P4 give the O(log n) guarantee, since P3 implies you cannot have 
  *  two consecutive red nodes in a path and every red node is therefore 
@@ -87,7 +88,8 @@ static inline void rb_clear_node(struct rb_node *node)
 /*
  * Helper function to replace a subtree rooted at old_child
  * with a subtree rooted at new_child.
- * Also sometimes referred to as a splice.
+ *
+ * Also sometimes referred to as a "splice".
  */
 static inline void rb_transplant(struct rb_tree *tree, 
                                  struct rb_node *parent,
@@ -289,9 +291,10 @@ void rb_replace_node(struct rb_tree *tree,
 
 
 /*
- * "Normal" binary search tree deletion. If the tree needs to be 
- * rebalanced afterwards, the pointer to the node where rebalancing 
- * should start is returned.
+ * "Normal" binary search tree deletion. 
+ * If the tree needs to be rebalanced afterwards, the pointer to 
+ * the node where rebalancing should start is returned (i.e., the parent).
+ * If fixup is not needed, then NULL is returned.
  */
 static struct rb_node * rb_remove_node(struct rb_tree *tree, struct rb_node *node)
 {
@@ -300,18 +303,20 @@ static struct rb_node * rb_remove_node(struct rb_tree *tree, struct rb_node *nod
         rb_transplant(tree, node->parent, node, node->right);
 
         if (node->right != NULL) {
-            // right child is non-null, inherit node's color
+            // right child inherits node's color
             node->right->parent = node->parent;
             node->right->color = node->color;
         } else if (node->color == RB_BLACK) {
-            // removed node was black (and no child to absorb its color), need to fixup
+            // removed node was black (and no child to absorb its color)
+            // need to fixup starting from the removed node's parent
             return node->parent;
         }
 
         return NULL;
 
     } else if (node->right == NULL) {
-        // Node has only left-hand child (or no children)
+        // Node has only left-hand child
+        // child inherits the node's color
         rb_transplant(tree, node->parent, node, node->left);
         node->left->parent = node->parent;
         node->left->color = node->color;
@@ -320,23 +325,25 @@ static struct rb_node * rb_remove_node(struct rb_tree *tree, struct rb_node *nod
 
     // Node has both children, we need to find the successor
     // start by finding the left-most child of node's right-hand child,
-    // this is the minimum value that's smaller than the node
-    struct rb_node *rebalance = NULL;
+    // this is the minimum value that's smaller than the node that is removed
+    struct rb_node *fixup = NULL;
     struct rb_node *successor = node->right;
+    struct rb_node *rchild = NULL;  // successor's right child
     while (successor->left != NULL) {
         successor = successor->left;
     }
 
     if (successor->parent == node) {
         // Successor is node's direct child
-        // After transplanting, fixup (if needed) will happen below
-        rebalance = successor;
+        fixup = successor;
+        rchild = successor->right;
     } else {
-        // Remove successof from original spot and link its right child to its old parent
-        rebalance = successor->parent;
+        // Remove successor from original spot and link its right child to its old parent
+        fixup = successor->parent;
+        rchild = successor->right;
         rb_transplant(tree, successor->parent, successor, successor->right);
-        successor->right = node->right;
-        node->right->parent = successor;
+        successor->right = node->right;  // node->right must be set due to the checks above
+        successor->right->parent = successor;
     }
     assert(successor->left == NULL);
 
@@ -345,13 +352,20 @@ static struct rb_node * rb_remove_node(struct rb_tree *tree, struct rb_node *nod
     successor->left = node->left;
     successor->left->parent = successor;
 
-    // If successor was black, there might be a different black-height where it was removed
     // Make sure that fixup starts from the appropriate location
-    rebalance = successor->color == RB_BLACK ? rebalance : NULL;
+    if (rchild != NULL) {
+        // Child is recolored black and fixup is skipped
+        // This assumes that child is properly inserted (which it should be)
+        fixup = NULL;
+        rchild->color = RB_BLACK;
+    } else if (!rb_is_black(successor)) {
+        // Successor wasn't black, so no fixup is required
+        fixup = NULL;
+    }
 
     // Preserve the original color of the deleted node
     successor->color = node->color;
-    return rebalance;
+    return fixup;
 }
 
 
@@ -523,12 +537,13 @@ struct rb_node * rb_next(const struct rb_node *node)
         return (struct rb_node*) node;
     }
 
-    // No right-hand children, which means that everything
-    // down to the left is smaller than the current node.
-    // The next node must be in the general direction of the parent.
-    // Go up the tree; any time the ancestor is a right-hand child of
-    // its parent, keep going up. The parent of the first ancestor 
-    // that is a left-hand is the next node.
+    /* No right-hand children, which means that everything
+     * down to the left is smaller than the current node.
+     * The next node must be in the general direction of the parent.
+     * Go up the tree; any time the ancestor is a right-hand child of
+     * its parent, keep going up. The parent of the first ancestor 
+     * that is a left-hand is the next node.
+     */
     struct rb_node *parent = node->parent;
     while (parent != NULL && node == parent->right) {
         node = parent;
