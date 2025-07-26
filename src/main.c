@@ -1,5 +1,6 @@
 #include "mfile.h"
 #include "objfile.h"
+#include "objfile_loader.h"
 #include "utils/list.h"
 #include "utils/rbtree.h"
 #include <stddef.h>
@@ -61,25 +62,38 @@ int main(int argc, char **argv)
 
     // Open all input files
     int nfiles = 0;
-    mfile *files[argc - optind + 1];
+    struct objfile *input_files[argc - optind];
 
     for (int i = optind; i < argc; ++i) {
+        mfile *file;
 
-        int status = mfile_init(&files[nfiles], argv[i]);
-
+        int status = mfile_init(&file, argv[i]);
         if (status != 0) {
-            for (int j = 0; j < nfiles; ++j) {
-                mfile_put(files[j]);
-            }
-            exit(2);
+            fprintf(stderr, "%s: Unable to open file\n", argv[i]);
+            mfile_put(file);
+            goto invalid_input_file;
         }
-        ++nfiles;
+
+        input_files[nfiles] = objfile_load(file, NULL);
+        if (input_files[nfiles] == NULL) {
+            fprintf(stderr, "%s: Unrecognized format\n", argv[i]);
+            mfile_put(file);
+            goto invalid_input_file;
+        }
+
+        mfile_put(file);
+        nfiles++;
     }
 
-
-    for (; nfiles > 0; --nfiles) {
-        mfile_put(files[nfiles-1]);
+    for (int i = 0; i < nfiles; ++i) {
+        objfile_put(input_files[i]);
     }
 
     exit(0);
+
+invalid_input_file:
+    for (int i = 0; i < nfiles; ++i) {
+        objfile_put(input_files[i]);
+    }
+    exit(2);
 }

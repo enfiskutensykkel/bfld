@@ -4,6 +4,7 @@
 extern "C" {
 #endif
 
+#include "mfile.h"
 #include "utils/list.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -33,6 +34,17 @@ struct objfile;
 struct objfile_loader;
 
 
+/*
+ * Allocate and initialize a object file handle.
+ * 
+ * This is a low level function which you probably 
+ * should not be calling directly.
+ *
+ * Instead see objfile_load()
+ */
+int objfile_init(struct objfile **objfile, const char *filename,
+                 const uint8_t *data, size_t size);
+
 
 /*
  * Take an object file reference.
@@ -48,20 +60,26 @@ void objfile_put(struct objfile *objfile);
 
 /*
  * Get the filename of the object file.
+ * May be NULL if unknown.
  */
 const char * objfile_filename(const struct objfile *objfile);
 
 
 /*
- * Get the name of the object file loader used to parse this object file.
+ * Get the underlying loader used to load this object file.
+ * Can be NULL if the loader is not set or unknown.
  */
-const char * objfile_loader_name(const struct objfile *objfile);
+const struct objfile_loader * objfile_get_loader(const struct objfile *objfile);
 
 
 /*
- * Get the loader used to parse this object file.
+ * Attempt load the specified file as an object file.
+ *
+ * If a loader is specified, this function will try to use that specific
+ * loader to load the file. If loader is NULL, registered loaders are attempted
+ * one by one.
  */
-const struct objfile_loader * objfile_get_loader(const struct objfile *objfile);
+struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader);
 
 
 ///*

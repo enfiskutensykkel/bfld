@@ -79,15 +79,19 @@ int mfile_init(mfile **fhandle, const char *pathname)
 
 void mfile_get(mfile *file)
 {
-    ++(file->refcnt);
+    if (file != NULL) {
+        ++(file->refcnt);
+    }
 }
 
 
 void mfile_put(mfile *file)
 {
-    if (--(file->refcnt) == 0) {
-        munmap((void*) file->data, file->size);
-        close(file->fd);
-        free(file);
+    if (file != NULL) {
+        if (--(file->refcnt) == 0) {
+            munmap((void*) file->data, file->size);
+            close(file->fd);
+            free(file);
+        }
     }
 }

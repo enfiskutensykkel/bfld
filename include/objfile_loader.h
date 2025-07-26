@@ -4,7 +4,6 @@
 extern "C" {
 #endif
 
-#include "mfile.h"
 #include "symtypes.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -15,16 +14,6 @@ extern "C" {
  * Forward declaration of object file.
  */
 struct objfile;
-
-
-/*
- * Private data for the object file loader.
- *
- * Each file loader implements their own version of this struct,
- * allowing them to keep necessary private data, for example,
- * pointers to headers, start of sections, symbols, etc.
- */
-struct objfile_private;
 
 
 /*
@@ -46,8 +35,11 @@ struct objfile_loader_ops
 
     /*
      * Parse the file data and allocate a input file handle.
+     *
+     * If this function returns anything but 0, it is assumed
+     * to mean that an fatal error occurred and parsing is aborted.
      */
-    int (*parse_file)(struct objfile_private **objfile_data, 
+    int (*parse_file)(void **objfile_loader_data, 
                       const char *filename,
                       const uint8_t *file_data, 
                       size_t file_size);
@@ -74,12 +66,12 @@ struct objfile_loader_ops
      *      continue parsing
      * <0 - fatal error, stop parsing
      */
-    int (*extract_symbols)(struct objfile_private *objfile_data,
-                           int (*emit_symbol)(const char *name, 
-                                              enum symbol_binding,
-                                              enum symbol_type,
-                                              uint64_t sect_idx,
-                                              size_t sect_offset));
+    void (*extract_symbols)(void *objfile_loader_data,
+                            int (*emit_symbol)(const char *name, 
+                                               enum symbol_binding,
+                                               enum symbol_type,
+                                               uint64_t sect_idx,
+                                               size_t sect_offset));
     
 
 
@@ -91,7 +83,7 @@ struct objfile_loader_ops
     /*
      * Release the private data handle; we're done with the file.
      */
-    void (*release)(struct objfile_private *objfile_data);
+    void (*release)(void *objfile_loader_data);
 };
 
 
@@ -104,13 +96,30 @@ extern struct objfile_loader * objfile_loader_register(const char *name,
                                                        const struct objfile_loader_ops *ops);
 
 
+
 /*
- * Go through all registered object file loaders and try to probe the file.
- *
- * Returns an object file handle if we found a loader and were able
- * to probe the file.
+ * Try to look up an object file loader by its name.
  */
-extern struct objfile * objfile_loader_probe_all(mfile *mfile);
+extern const struct objfile_loader * objfile_loader_find(const char *name);
+
+
+/*
+ * Get the name of an object file loader.
+ */
+const char * objfile_loader_name(const struct objfile_loader *loader);
+
+
+/*
+ * Go through all registered object file loaders and try to probe
+ * the memory area.
+ */
+extern const struct objfile_loader * objfile_loader_probe(const uint8_t *file_data, 
+                                                          size_t file_size);
+
+
+void objfile_loader_get(struct objfile_loader *loader);
+
+void objfile_loader_put(struct objfile_loader *loader);
 
 
 /*
@@ -129,7 +138,29 @@ extern struct objfile * objfile_loader_probe_all(mfile *mfile);
  *     objfile_loader_register("my_elf_loader", &my_ops);
  * }
  */
-#define OBJFILE_LOADER_INIT __attribute__((constructor)
+#define OBJFILE_LOADER_INIT __attribute__((constructor))
+
+
+/*
+ * Mark a loader exit function so it is ran on exit.
+ *
+ * Can be used if your loader needs to allocate and clean
+ * up on start up and on exit.
+ *
+ * Example usage:
+ *
+ * struct objfile_loader *this_loader = NULL;
+ *
+ * OBJFILE_LOADER_INIT void my_loader_init(void) {
+ *     this_loader = objfile_loader_register("myloader");
+ *     objfile_loader_get(this_loader);
+ * }
+ *
+ * OBJFILE_LOADER_EXIT void my_loader_exit(void) {
+ *     objfile_loader_put(this_loader);
+ * }
+ */
+#define OBJFILE_LOADER_EXIT __attribute__((destructor))
 
 
 #ifdef __cplusplus

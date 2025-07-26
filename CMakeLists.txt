@@ -5,7 +5,8 @@ file(GLOB_RECURSE BFLD_HEADER_FILES "include/*.h")
 
 
 # Compile a utility library for (maybe useful for other projects)?
-add_library(utilslib SHARED src/utils/rbtree.c)
+add_library(utilslib SHARED EXCLUDE_FROM_ALL src/utils/rbtree.c)
+target_sources(utilslib INTERFACE include/utils/list.h include/utils/rbtree.h)
 target_include_directories(utilslib PUBLIC include/utils)
 target_compile_options(utilslib PRIVATE -Wall -Wextra -pedantic)
 set_target_properties(utilslib PROPERTIES OUTPUT_NAME bfldutils)
@@ -39,40 +40,13 @@ set_target_properties(linkerlib PROPERTIES OUTPUT_NAME bfld)
 
 
 # Make an executable linker
+
+# TODO: at some point we want to register loaders/frontends with dlsym/dlopen and determine loaders/frontends with command line arguments (then point default loader based on architecture using if (macos/unix)
+
 add_executable(bfld src/main.c)
+add_subdirectory(src/elf)
+
 #target_compile_definitions(bfld PUBLIC DEFAULT_BFVM="$<TARGET_FILE:bfvm>")
 target_compile_definitions(bfld PUBLIC DEFAULT_BFVM="NOFILE")
 target_compile_options(bfld PRIVATE -Wall -Wextra -pedantic)
 target_link_libraries(bfld PRIVATE linkerlib)
-
-
-## Compile the virtual machine
-#add_library(bfvm STATIC src/vm/bfvm.c src/vm/foo.c)
-## TODO: do something similar to bfld, make a lib that's just the vm and then make an executable in order to run the VM from cli
-#
-#
-## Create a generic library of the linker
-#add_library(libbfld SHARED src/lib/mfile.c src/lib/objfile.c src/lib/symbol.c)
-#target_link_libraries(libbfld PRIVATE bfldutils)
-#target_include_directories(libbfld PUBLIC include)
-#target_compile_definitions(libbfld PUBLIC DEFAULT_BFVM="$<TARGET_FILE:bfvm>")
-#target_compile_options(libbfld PRIVATE -Wall -Wextra -pedantic -g -ggdb)
-#set_target_properties(libbfld PROPERTIES OUTPUT_NAME bfld)
-#
-#
-## Add OS specific sources to the target
-#if (UNIX)
-#    message(STATUS "Compiling for Linux")
-#    target_sources(libbfld PRIVATE src/lib/linux/ar.c src/lib/linux/elf.c)
-#
-#else ()
-#    message(FATAL_ERROR "Platform is not supported")
-#
-#endif ()
-#
-#
-## Create executable linker
-#add_executable(bfld src/linker/main.c)
-#target_link_libraries(bfld PRIVATE libbfld)
-
-
