@@ -4,46 +4,40 @@
 extern "C" {
 #endif
 
-#include "objfile.h"
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
 
 
-enum section_type
-{
-    SECTION_ZERO,   // Section without contents, i.e., unitialized variables (.bss)
-    SECTION_DATA,   // Section with data contents, for example variables. (.data)
-    SECTION_RODATA, // Section contains read-only data, for example strings (.rodata)
-    SECTION_TEXT    // Section contains machine code
-};
+/*
+ * Forward declaration of an object file.
+ * Object files have custom implementations,
+ * depending on the file loader that parses it.
+ */
+struct objfile;
 
 
+/*
+ * Intermediate representation of a section with data.
+ */
 struct section
 {
-    mfile *file;            // File reference
-    int refcnt;             // Reference count
-    enum section_type type; // Section type
-    const void *data;       // Pointer to the definition/contents
-    size_t size;            // Size of the content
-    size_t alignment;
+    enum {
+        SECTION_ZERO,   // Section without contents, i.e., unitialized variables (.bss)
+        SECTION_DATA,   // Section with data contents, for example variables. (.data)
+        SECTION_RODATA, // Section contains read-only data, for example strings (.rodata)
+        SECTION_TEXT    // Section contains machine code
+    } type; 
 
-    // TODO: addr, alignment whatever is needed
-    // TODO: defined symbols? or the other way around only?
-    // TODO: relocations
+    const struct objfile *objfile; // reference to the object file where the section came from
+    uint64_t sect_idx;  // Section index, used for identifying the section 
+    uint64_t align;     // Memory alignment
+    uint64_t addr;      // Absolute or relative address of the loaded section
+    uint64_t size;      // Size of the content
+
+    const uint8_t *data;  // Pointer to the definition/contents (can be NULL)
+    size_t data_size;   // Size of the contents on file (can be 0)
 };
-
-
-/*
- * Increase section reference count.
- */
-void section_get(struct section *sect);
-
-
-/*
- * Decrease section reference count.
- */
-void section_put(struct section *sect);
 
 
 #ifdef __cplusplus

@@ -29,9 +29,11 @@ struct list_head
 
 /*
  * Inline initializer for an empty linked list.
+ *
+ * struct list_head my_list;
+ * my_list = (struct list_head) LIST_HEAD_INIT(my_list);
  */
-#define LIST_HEAD_INIT(name) \
-    (struct list_head) { &(name), &(name) }
+#define LIST_HEAD_INIT(name) { &(name), &(name) }
 
 
 /*

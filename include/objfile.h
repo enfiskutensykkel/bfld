@@ -4,51 +4,38 @@
 extern "C" {
 #endif
 
-#include "mfile.h"
 #include "utils/list.h"
 #include <stddef.h>
 #include <stdint.h>
 
 
 /*
- * Represents an object file given as input to the linker.
+ * Forward declaration of a section.
  */
-struct objfile
-{
-    mfile *file;                // The underlying file where this object file came from
-    int refcnt;                 // Reference counter
-    const void *file_data;      // Pointer to the start of the object file
-    size_t file_size;           // Total size of the object file
-    struct list_head entry;     // Linked list entry
-    char name[];                // Filename of the object file
-};
+struct section;
 
-// TODO: consider using ops struct instead of hard compiling
-// also maybe custom objfile for each implementation/backend?
 
+/*
+ * Forward declaration of a declared symbol.
+ */
+struct symbol;
+
+
+/*
+ * Representation of an input file, or more specifically, an input unit.
+ */
+struct objfile;
+
+
+/*
+ * Forward declaration of an object file loader.
+ */
+struct objfile_loader;
 
 
 
 /*
- * Helper function to allocate an input object file reference.
- *
- * The start pointer and size arguments indicates the offset into 
- * the memory-mapped file where the object file content begins. 
- * If this is set to NULL, then the pointer is assumed to be the 
- * start of the memory-mapped file and the size argument is ignored.
- *
- * If the object file has a different name than the memory-mapped
- * file, e.g., if it comes from a library or an archive file, then
- * this can be specified with the name argument.
- */
-struct objfile * objfile_alloc(mfile *file, 
-                               const void *start, 
-                               size_t size,
-                               const char *name);
-
-
-/*
- * Acquire an object file reference.
+ * Take an object file reference.
  */
 void objfile_get(struct objfile *objfile);
 
@@ -60,24 +47,33 @@ void objfile_put(struct objfile *objfile);
 
 
 /*
- * Parse all object files found in the specified memory-mapped file
- * and add them to the list.
+ * Get the filename of the object file.
  */
-int objfile_parse(struct list_head *objfiles, mfile *file);
-
+const char * objfile_filename(const struct objfile *objfile);
 
 
 /*
- * 
+ * Get the name of the object file loader used to parse this object file.
  */
+const char * objfile_loader_name(const struct objfile *objfile);
 
 
+/*
+ * Get the loader used to parse this object file.
+ */
+const struct objfile_loader * objfile_get_loader(const struct objfile *objfile);
 
-#define objfile_list_for_each(iterator, head_ptr) \
-    list_for_each_entry(iterator, head_ptr, struct objfile, entry)
 
-
-#define objfile_list_entry(head_ptr) list_entry(head_ptr, struct objfile, entry)
+///*
+// * Get the number of sections the object file has.
+// */
+//uint64_t objfile_num_sections(const struct objfile *objfile);
+//
+//
+///*
+// * Create a new section reference 
+// */
+//struct section * objfile_exctract_section(const struct objfile *objfile, uint64_t sect_idx);
 
 
 #ifdef __cplusplus

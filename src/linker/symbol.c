@@ -1,7 +1,10 @@
 #include "symbol.h"
 #include "section.h"
-#include <utils/rbtree.h>
+#include "objfile.h"
+#include "utils/rbtree.h"
 #include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
 #include <errno.h>
 #include <string.h>
 
@@ -27,10 +30,22 @@ struct symbol * symbol_find(const struct rb_tree *symtab, const char *name)
 }
 
 
-int symbol_create(struct symbol **sym, struct rb_tree *symtab, const char *name)
+static void free_symbol(struct symbol *sym)
+{
+    objfile_put(sym->objfile);
+    free((void*) sym->name);
+    free(sym);
+}
+
+
+int symbol_create(struct symbol **sym, const char *name,
+                  enum symbol_binding binding, 
+                  enum symbol_type type,
+                  struct rb_tree *symtab)
 {
     *sym = NULL;
 
+    struct symbol *s = NULL;
     struct rb_node **pos = &(symtab->root), *parent = NULL;
     
     while (*pos != NULL) {
@@ -45,11 +60,16 @@ int symbol_create(struct symbol **sym, struct rb_tree *symtab, const char *name)
         } else {
             // A symbol with the specified name already exists
             *sym = this;
-            return EEXIST;
+            break;
         }
     }
 
-    struct symbol *s = malloc(sizeof(struct symbol));
+    if ((*sym) != NULL && (*sym)->binding != SYMBOL_WEAK) {
+        // The existing symbol is strong
+        return EEXIST;
+    }
+
+    s = malloc(sizeof(struct symbol));
     if (s == NULL) {
         return ENOMEM;
     }
@@ -60,11 +80,24 @@ int symbol_create(struct symbol **sym, struct rb_tree *symtab, const char *name)
         return ENOMEM;
     }
 
-    s->section = NULL;
+    s->binding = binding;
+    s->type = type;
+    s->addr = 0;
+    s->objfile = NULL;
+    s->defined = false;
+    s->sect_idx = 0;
     s->offset = 0;
+    s->size = 0;
 
-    rb_insert_node(&s->tree_node, parent, pos);
-    rb_insert_fixup(symtab, &s->tree_node);
+    if ((*sym) == NULL) {
+        // New symbol, insert it at the given position
+        rb_insert_node(&s->tree_node, parent, pos);
+        rb_insert_fixup(symtab, &s->tree_node);
+    } else {
+        // We're replacing a weak symbol, just replace the tree node
+        rb_replace_node(symtab, &(*sym)->tree_node, &s->tree_node);
+        free_symbol((*sym));
+    }
     *sym = s;
     return 0;
 }
@@ -74,14 +107,9 @@ void symbol_remove(struct rb_tree *symtab, struct symbol **sym)
 {
     if (*sym != NULL) {
         rb_remove(symtab, &(*sym)->tree_node);
-
-        if ((*sym)->section != NULL) {
-            // section_put((*sym)->section);
-            (*sym)->section = NULL;
+        if ((*sym)->objfile != NULL) {
         }
-
-        free((*sym)->name);
-        free(*sym);
+        free_symbol(*sym);
         *sym = NULL;
     }
 }
