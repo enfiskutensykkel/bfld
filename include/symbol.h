@@ -34,7 +34,7 @@ struct symbol
     bool defined;           // Is the symbol defined?
     uint64_t sect_idx;      // Section index
     size_t offset;          // offset into the section to definition
-    uint64_t size;          // size of the symbol
+    size_t size;            // size of the symbol
 };
 
 

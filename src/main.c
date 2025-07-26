@@ -1,6 +1,7 @@
 #include "mfile.h"
 #include "objfile.h"
 #include "objfile_loader.h"
+#include "symbol.h"
 #include "utils/list.h"
 #include "utils/rbtree.h"
 #include <stddef.h>
@@ -9,6 +10,128 @@
 #include <stdio.h>
 #include <getopt.h>
 #include <errno.h>
+
+
+struct input_file
+{
+    struct list_head list;
+    struct objfile *file;
+    struct rb_tree symtab;  // local symbol table
+};
+
+
+struct linker_ctx
+{
+    struct list_head input_files;
+    struct rb_tree global_symtab;   // global symbol table
+};
+
+
+static void dump_symtab(struct rb_tree *symtab)
+{
+    struct rb_node *node = rb_first(symtab);
+
+    const char *binding_names[SYMBOL_WEAK + 1] = {
+        "LOCAL", "GLOBAL", "WEAK"
+    };
+
+    const char *type_names[SYMBOL_FUNCTION + 1] = {
+        "UNDEFINED", "NOTYPE", "DATA", "FUNCTION"
+    };
+
+    while (node != NULL) {
+        struct symbol *sym = rb_entry(node, struct symbol, tree_node);
+        fprintf(stdout, "%s %s with %s binding [%s])\n", 
+                sym->name, type_names[sym->type], binding_names[sym->binding],
+                sym->defined ? "defined" : "extern");
+
+        node = rb_next(node);
+    }
+}
+
+
+static int open_input_file(struct linker_ctx *ctx, const char *filename)
+{
+    struct input_file *f = malloc(sizeof(struct input_file));
+    if (f == NULL) {
+        return ENOMEM;
+    }
+
+    mfile *mf = NULL;
+    int status = mfile_init(&mf, filename);
+    if (status != 0) {
+        fprintf(stderr, "%s: Unable to open file\n", filename);
+        free(f);
+        return EBADF;
+    }
+
+    f->file = objfile_load(mf, NULL);
+    if (f->file == NULL) {
+        fprintf(stderr, "%s: Unrecognized file format\n", filename);
+        mfile_put(mf);
+        free(f);
+        return EBADF;
+    }
+
+    mfile_put(mf);
+
+    rb_tree_init(&f->symtab);
+    list_insert_tail(&ctx->input_files, &f->list);
+
+    return 0;
+}
+
+
+static void destroy_symtab(struct rb_tree *symtab)
+{
+    struct rb_node *node = rb_first(symtab);
+
+    while (node != NULL) {
+        struct symbol *sym = rb_entry(node, struct symbol, tree_node);
+        struct rb_node *next = rb_next(node);
+
+        symbol_remove(symtab, &sym);
+
+        node = next;
+    }
+
+    rb_tree_init(symtab);
+}
+
+
+static void close_input_file(struct input_file *file)
+{
+    list_remove(&file->list);
+    destroy_symtab(&file->symtab);
+    objfile_put(file->file);
+    free(file);
+}
+
+
+static struct linker_ctx * create_ctx(void)
+{
+    struct linker_ctx *ctx = malloc(sizeof(struct linker_ctx));
+    if (ctx == NULL) {
+        return NULL;
+    }
+
+    list_head_init(&ctx->input_files);
+    rb_tree_init(&ctx->global_symtab);
+
+    return ctx;
+}
+
+
+static void destroy_ctx(struct linker_ctx *ctx)
+{
+    list_for_each_entry(file, &ctx->input_files, struct input_file, list) {
+        close_input_file(file);
+    }
+
+    destroy_symtab(&ctx->global_symtab);
+    free(ctx);
+}
+
 
 
 /*
@@ -60,40 +183,32 @@ int main(int argc, char **argv)
         exit(1);
     }
 
-    // Open all input files
-    int nfiles = 0;
-    struct objfile *input_files[argc - optind];
+    struct linker_ctx *ctx = create_ctx();
 
     for (int i = optind; i < argc; ++i) {
-        mfile *file;
-
-        int status = mfile_init(&file, argv[i]);
+        int status = open_input_file(ctx, argv[i]);
         if (status != 0) {
-            fprintf(stderr, "%s: Unable to open file\n", argv[i]);
-            mfile_put(file);
-            goto invalid_input_file;
+            destroy_ctx(ctx);
+            exit(2);
         }
-
-        input_files[nfiles] = objfile_load(file, NULL);
-        if (input_files[nfiles] == NULL) {
-            fprintf(stderr, "%s: Unrecognized format\n", argv[i]);
-            mfile_put(file);
-            goto invalid_input_file;
-        }
-
-        mfile_put(file);
-        nfiles++;
     }
 
-    for (int i = 0; i < nfiles; ++i) {
-        objfile_put(input_files[i]);
+    // Build symbol tables
+    list_for_each_entry(inputfile, &ctx->input_files, struct input_file, list) {
+        int status = objfile_extract_symbols(inputfile->file, &ctx->global_symtab, &inputfile->symtab);
+        if (status != 0) {
+            destroy_ctx(ctx);
+            exit(3);
+        }
+
+        fprintf(stdout, "Local symbol table for %s\n", objfile_filename(inputfile->file));
+        dump_symtab(&inputfile->symtab);
+        fprintf(stdout, "\n");
     }
 
+    fprintf(stdout, "Global symbol table\n");
+    dump_symtab(&ctx->global_symtab);
+
+    destroy_ctx(ctx);
     exit(0);
-
-invalid_input_file:
-    for (int i = 0; i < nfiles; ++i) {
-        objfile_put(input_files[i]);
-    }
-    exit(2);
 }

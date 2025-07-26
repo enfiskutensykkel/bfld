@@ -23,6 +23,22 @@ struct objfile_loader;
 
 
 /*
+ * Representation of a symbol detected in the object file.
+ */
+struct objfile_symbol
+{
+    const char          *name;      // symbol name
+    uint64_t            value;      // value of the symbol
+    enum symbol_binding bind;       // symbol binding
+    enum symbol_type    type;       // symbol type
+    bool                defined;    // is the symbol defined?
+    uint64_t            sect_idx;   // section index (if defined)
+    size_t              size;       // size of the defined symbol
+    size_t              offset;     // offset within the section (if defined)
+};
+
+
+/*
  * Operations that a file loader should support.
  */
 struct objfile_loader_ops
@@ -67,13 +83,9 @@ struct objfile_loader_ops
      * <0 - fatal error, stop parsing
      */
     void (*extract_symbols)(void *objfile_loader_data,
-                            int (*emit_symbol)(const char *name, 
-                                               enum symbol_binding,
-                                               enum symbol_type,
-                                               uint64_t sect_idx,
-                                               size_t sect_offset));
-    
-
+                            int (*emit_symbol)(void *user_data, const struct objfile_symbol*),
+                            void *user_data);
+                            
 
     //int (*load_sections)(struct objfile *file, ...);
     
@@ -117,10 +129,6 @@ extern const struct objfile_loader * objfile_loader_probe(const uint8_t *file_da
                                                           size_t file_size);
 
 
-void objfile_loader_get(struct objfile_loader *loader);
-
-void objfile_loader_put(struct objfile_loader *loader);
-
 
 /*
  * Mark a loader initializer so that it is invoked on startup.
@@ -153,11 +161,11 @@ void objfile_loader_put(struct objfile_loader *loader);
  *
  * OBJFILE_LOADER_INIT void my_loader_init(void) {
  *     this_loader = objfile_loader_register("myloader");
- *     objfile_loader_get(this_loader);
  * }
  *
  * OBJFILE_LOADER_EXIT void my_loader_exit(void) {
- *     objfile_loader_put(this_loader);
+ *     ...
+ *     objfile_loader_unregister(this_loader);
  * }
  */
 #define OBJFILE_LOADER_EXIT __attribute__((destructor))

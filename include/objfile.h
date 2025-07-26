@@ -6,20 +6,9 @@ extern "C" {
 
 #include "mfile.h"
 #include "utils/list.h"
+#include "utils/rbtree.h"
 #include <stddef.h>
 #include <stdint.h>
-
-
-/*
- * Forward declaration of a section.
- */
-struct section;
-
-
-/*
- * Forward declaration of a declared symbol.
- */
-struct symbol;
 
 
 /*
@@ -82,15 +71,17 @@ const struct objfile_loader * objfile_get_loader(const struct objfile *objfile);
 struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader);
 
 
-///*
-// * Get the number of sections the object file has.
-// */
+
+/*
+ * Extract all symbols from the object file.
+ */
+int objfile_extract_symbols(const struct objfile* objfile,
+                            struct rb_tree *global_symtab,
+                            struct rb_tree *local_symtab);
+
+
+
 //uint64_t objfile_num_sections(const struct objfile *objfile);
-//
-//
-///*
-// * Create a new section reference 
-// */
 //struct section * objfile_exctract_section(const struct objfile *objfile, uint64_t sect_idx);
 
 

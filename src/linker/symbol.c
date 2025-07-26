@@ -32,7 +32,9 @@ struct symbol * symbol_find(const struct rb_tree *symtab, const char *name)
 
 static void free_symbol(struct symbol *sym)
 {
-    objfile_put(sym->objfile);
+    if (sym->objfile) {
+        objfile_put(sym->objfile);
+    }
     free((void*) sym->name);
     free(sym);
 }
@@ -107,9 +109,25 @@ void symbol_remove(struct rb_tree *symtab, struct symbol **sym)
 {
     if (*sym != NULL) {
         rb_remove(symtab, &(*sym)->tree_node);
-        if ((*sym)->objfile != NULL) {
-        }
         free_symbol(*sym);
         *sym = NULL;
     }
+}
+
+
+int symbol_resolve_definition(struct symbol *sym, struct objfile *file,
+                              uint64_t sect_idx, size_t offset, size_t size)
+{
+    if (sym->objfile != NULL) {
+        return EEXIST;
+    }
+
+    sym->defined = true;
+    objfile_get(file);
+    sym->objfile = file;
+    sym->sect_idx = sect_idx;
+    sym->offset = offset;
+    sym->size = size;
+
+    return 0;
 }

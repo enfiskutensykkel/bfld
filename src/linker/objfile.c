@@ -1,7 +1,9 @@
 #include "objfile.h"
 #include "objfile_loader.h"
 #include "mfile.h"
+#include "symbol.h"
 #include "utils/list.h"
+#include "utils/rbtree.h"
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -17,7 +19,6 @@ struct objfile
     size_t file_size;
     void *loader_data;
     const struct objfile_loader *loader;
-    // list over IR sections?
 };
 
 
@@ -60,13 +61,13 @@ struct objfile_loader * objfile_loader_register(const char *name,
 }
 
 
-void objfile_loader_get(struct objfile_loader *loader)
+static void objfile_loader_get(struct objfile_loader *loader)
 {
     ++(loader->refcnt);
 }
 
 
-void objfile_loader_put(struct objfile_loader *loader)
+static void objfile_loader_put(struct objfile_loader *loader)
 {
     if (--(loader->refcnt) == 0) {
         list_remove(&loader->list_node);
@@ -76,7 +77,13 @@ void objfile_loader_put(struct objfile_loader *loader)
 }
 
 
-__attribute__((destructor))
+void objfile_loader_unregister(struct objfile_loader *loader)
+{
+    list_remove(&loader->list_node);
+}
+
+
+__attribute__((destructor(65535)))
 static void cleanup_loaders(void)
 {
     list_for_each_entry(loader, &loaders, struct objfile_loader, list_node) {
@@ -129,6 +136,9 @@ void objfile_put(struct objfile *objfile)
         }
         free(objfile->filename);
         mfile_put(objfile->file);
+        if (objfile->loader != NULL) {
+            objfile_loader_put((struct objfile_loader*) objfile->loader);
+        }
         free(objfile);
     }
 }
@@ -218,6 +228,73 @@ struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader)
     objfile->file = file;
     objfile->loader_data = loader_data;
     objfile->loader = loader;
+    objfile_loader_get((struct objfile_loader*) loader);
 
     return objfile;
+}
+
+
+/*
+ * Helper struct to pass as user-data to the object file loader's 
+ * extract_symbols
+ */
+struct symbol_data
+{
+    int status;
+    const struct objfile *objfile;
+    struct rb_tree *global_symtab;
+    struct rb_tree *local_symtab;
+};
+
+
+static int insert_emitted_symbols(void *user_data, const struct objfile_symbol *objsym)
+{
+    int status;
+    struct symbol *sym = NULL;
+    struct symbol_data *ctx = (struct symbol_data*) user_data;
+    
+    if (objsym->bind == SYMBOL_LOCAL) {
+        status = symbol_create(&sym, objsym->name, objsym->bind, objsym->type,
+                               ctx->local_symtab);
+    } else {
+        status = symbol_create(&sym, objsym->name, objsym->bind, objsym->type,
+                               ctx->global_symtab);
+    }
+
+    // TODO use sym to say something about where the symbol came from
+    if (status == EEXIST) {
+        fprintf(stderr, "%s: Multiple definitions of symbol %s\n", 
+                        ctx->objfile->filename, objsym->name);
+        return -1;
+    }
+
+    if (objsym->defined) {
+        status = symbol_resolve_definition(sym, (struct objfile*) ctx->objfile, 
+                                           objsym->sect_idx, objsym->offset, objsym->size);
+    }
+
+    return 0;
+}
+
+
+int objfile_extract_symbols(const struct objfile* objfile,
+                            struct rb_tree *global_symtab,
+                            struct rb_tree *local_symtab)
+{
+    if (objfile->loader == NULL || objfile->loader->ops->extract_symbols == NULL) {
+        return EBADF;
+    }
+
+    struct symbol_data data = {
+        .status = 0,
+        .objfile = objfile,
+        .global_symtab = global_symtab,
+        .local_symtab = local_symtab
+    };
+
+    objfile->loader->ops->extract_symbols(objfile->loader_data, 
+                                          insert_emitted_symbols,
+                                          &data);
+
+    return data.status;
 }
