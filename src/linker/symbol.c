@@ -94,6 +94,7 @@ int symbol_create(struct symbol **sym,
     s->sect_idx = 0;
     s->offset = 0;
     s->size = 0;
+    s->definition = NULL;
 
     if ((*sym) == NULL) {
         // New symbol, insert it at the given position

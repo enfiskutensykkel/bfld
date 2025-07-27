@@ -9,7 +9,7 @@
 #include <sys/stat.h>
 
 
-int mfile_init(mfile **fhandle, const char *pathname)
+int mfile_open_read(mfile **fhandle, const char *pathname)
 {
     *fhandle = NULL;
 
@@ -101,8 +101,13 @@ void mfile_put(mfile *file)
 {
     if (file != NULL) {
         if (--(file->refcnt) == 0) {
-            munmap((void*) file->data, file->size);
-            close(file->fd);
+
+            if (file->fd >= 0) {
+                // If memory came from a file, unmap and close file
+                munmap((void*) file->data, file->size);
+                close(file->fd);
+            } 
+
             free(file->name);
             free(file);
         }

@@ -5,16 +5,9 @@ extern "C" {
 #endif
 
 #include "mfile.h"
-#include "utils/list.h"
 #include "utils/rbtree.h"
 #include <stddef.h>
 #include <stdint.h>
-
-
-/*
- * Forward declaration of object file operations.
- */
-struct objfile_ops;
 
 
 /*
@@ -23,16 +16,12 @@ struct objfile_ops;
  */
 struct objfile
 {
-    char *name;
-    int refcnt;
-    const uint8_t *data;
-    size_t size;
-    mfile *file;
-    void *loader_data;
-    const struct objfile_loader *loader;
-    const struct objfile_ops *ops;
+    char *name;             // filename used when opening the object file
+    int refcnt;             // reference counter
+    mfile *file;            // reference to the underlying memory-map
+    void *loader_data;      // private data for the object file loader
+    const struct objfile_loader *loader;  // the underlying object file loader (front-end)
 };
-
 
 
 /*
@@ -43,18 +32,17 @@ struct objfile
  *
  * Instead see objfile_load()
  */
-int objfile_init(struct objfile **objfile, const char *name,
-                 const uint8_t *data, size_t size);
+int objfile_init(struct objfile **objfile, mfile *file, const char *name);
 
 
 /*
- * Take an object file reference.
+ * Take an object file reference (increase reference counter).
  */
 void objfile_get(struct objfile *objfile);
 
 
 /*
- * Release an object file reference.
+ * Release an object file reference (decrease reference counter).
  */
 void objfile_put(struct objfile *objfile);
 

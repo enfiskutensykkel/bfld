@@ -75,12 +75,11 @@ void objfile_get(struct objfile *objfile)
 }
 
 
-int objfile_init(struct objfile **objfile, const char *name,
-                 const uint8_t *data, size_t size)
+int objfile_init(struct objfile **objfile, mfile *file, const char *name)
 {
         
     struct objfile *obj = malloc(sizeof(struct objfile));
-   if (obj == NULL) {
+    if (obj == NULL) {
         return ENOMEM;
     }
 
@@ -90,10 +89,9 @@ int objfile_init(struct objfile **objfile, const char *name,
         return ENOMEM;
     }
 
-    obj->file = NULL;
+    mfile_get(file);
+    obj->file = file;
     obj->refcnt = 1;
-    obj->data = data;
-    obj->size = size;
     obj->loader_data = NULL;
     obj->loader = NULL;
 
@@ -114,38 +112,27 @@ struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader)
 
     if (loader == NULL) {
         // We could not find any suitable loaders
-        log_error("Unrecognized format");
+        return NULL;
+    }
+
+    struct objfile *objfile = NULL;
+    int status = objfile_init(&objfile, file, file->name);
+    if (status != 0) {
         return NULL;
     }
 
     log_ctx_push(LOG_CTX_FILE(loader->name, file->name));
 
-    mfile_get(file);
-
-    void *loader_data = NULL;
-    int status = loader->parse_file(&loader_data, file->name,
-                                    file->data, file->size);
+    status = loader->parse_file(&objfile->loader_data, file->name,
+                                file->data, file->size);
     if (status != 0) {
         // Loader wasn't happy with the file
-        mfile_put(file);
-        log_error("Corrupt file");
+        log_error("Invalid file format or corrupt file");
+        objfile_put(objfile);
         log_ctx_pop();
         return NULL;
     }
 
-    struct objfile *objfile = NULL;
-    status = objfile_init(&objfile, file->name, file->data, file->size);
-    if (status != 0) {
-        mfile_put(file);
-        if (loader->release != NULL) {
-            loader->release(loader_data);
-        }
-        log_ctx_pop();
-        return NULL;
-    }
-
-    objfile->file = file;
-    objfile->loader_data = loader_data;
     objfile->loader = loader;
 
     log_ctx_pop();
@@ -180,7 +167,6 @@ static int insert_emitted_symbols(void *user_data, const struct objfile_symbol *
                                objsym->bind, objsym->type, ctx->global_symtab);
     }
 
-    
     if (status == EEXIST && sym->binding != SYMBOL_WEAK) {
         ctx->status = EEXIST;
         log_error("Multiple definitions for symbol '%s'; defined in both %s and %s", 
@@ -212,7 +198,7 @@ int objfile_extract_symbols(struct objfile* objfile,
                             struct rb_tree *local_symtab)
 {
     if (objfile->loader == NULL || objfile->loader->extract_symbols == NULL) {
-        log_fatal("Missing loader for object file");
+        log_error("Missing loader for object file");
         return EBADF;
     }
     log_ctx_push(LOG_CTX_FILE(objfile->loader->name, objfile->name));

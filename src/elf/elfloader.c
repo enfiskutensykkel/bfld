@@ -196,7 +196,7 @@ static void parse_elf_symtab(void *ctx, int (*emit_symbol)(void *user, const str
 }
 
 
-static const struct objfile_loader elf_loader = {
+const struct objfile_loader elf_loader = {
     .name = "elfloader",
     .probe = check_elf_header,
     .parse_file = parse_elf_file,

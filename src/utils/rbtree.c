@@ -590,3 +590,47 @@ struct rb_node * rb_prev(const struct rb_node *node)
 
     return parent;
 }
+
+
+static struct rb_node * rb_left_deepest_node(const struct rb_node *node)
+{
+    while (true) {
+        if (node->left != NULL) {
+            node = node->left;
+        } else if (node->right != NULL) {
+            node = node->right;
+        } else {
+            return (struct rb_node*) node;
+        }
+    }
+}
+
+
+struct rb_node *rb_next_postorder(const struct rb_node *node)
+{
+    // post-order: we are at node, children are already visited
+    //
+    if (node == NULL) {
+        return NULL;
+    }
+    const struct rb_node *parent = node->parent;
+
+    if (parent != NULL && node == parent->left && parent->right != NULL) {
+        // If we are the parent's left node, go to the parent's 
+        // right and then all the way down
+        return rb_left_deepest_node(parent->right);
+    } else {
+        // we are the parents right child, return the parent
+        return (struct rb_node*) parent;
+    }
+}
+
+
+struct rb_node *rb_first_postorder(const struct rb_tree *tree)
+{
+    if (tree->root == NULL) {
+        return NULL;
+    }
+
+    return rb_left_deepest_node(tree->root);
+}

@@ -1,1 +1,1 @@
-target_sources(bfld PRIVATE elfloader.c)
+target_sources(bfld PRIVATE elfloader.c arloader.c)

@@ -27,7 +27,13 @@ struct objfile_symbol
 
 
 /*
- * Operations that an object file loader should support.
+ * Represents an object file loader.
+ *
+ * bfld supports different front-ends for loading object files in
+ * different formats (i.e., ELF, Mach-O, etc).
+ *
+ * This struct should be declared statically by a loader, with
+ * members set. It contains the operations supported by the loader.
  */
 struct objfile_loader
 {
@@ -43,7 +49,10 @@ struct objfile_loader
     bool (*probe)(const uint8_t *file_data, size_t file_size);
 
     /*
-     * Parse the file data and allocate a input file handle.
+     * Parse the file data and allocate a private file data (if needed).
+     *
+     * This function should set up necessary pointers and handles
+     * to avoid parsing the file later.
      *
      * If this function returns anything but 0, it is assumed
      * to mean that an fatal error occurred and parsing is aborted.
@@ -76,17 +85,16 @@ struct objfile_loader
      * <0 - fatal error, stop parsing
      */
     void (*extract_symbols)(void *objfile_loader_data,
-                            int (*emit_symbol)(void *user_data, const struct objfile_symbol*),
-                            void *user_data);
+                            int (*emit_symbol)(void *callback_data, const struct objfile_symbol*),
+                            void *callback_data);
                             
 
     //int (*load_sections)(struct objfile *file, ...);
     
     //int (*load_relocations)(struct objfile *file, ...);
     
-
     /*
-     * Release the private data handle; we're done with the file.
+     * Release the private data associated with the file; we're done with the file.
      */
     void (*release)(void *objfile_loader_data);
 };
@@ -119,7 +127,7 @@ const struct objfile_loader * objfile_loader_probe(const uint8_t *file_data, siz
  *
  * Example usage:
  *
- * const struct objfile_loader_ops my_ops = {
+ * const struct objfile_loader my_loader = {
  *   .name = "my_elf_loader",
  *   .probe = my_elf_probe,
  *   .parse_file = &my_elf_parser,
@@ -128,7 +136,7 @@ const struct objfile_loader * objfile_loader_probe(const uint8_t *file_data, siz
  *
  * OBJFILE_LOADER_INIT void my_elf_loader_init(void) {
  *     ...
- *     objfile_loader_register("my_elf_loader", &my_ops);
+ *     objfile_loader_register(&my_loader);
  * }
  */
 #define OBJFILE_LOADER_INIT __attribute__((constructor))

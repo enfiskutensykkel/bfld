@@ -1,3 +1,4 @@
+#include <archive.h>
 #include <logging.h>
 #include <mfile.h>
 #include <objfile.h>
@@ -12,7 +13,7 @@
 #include <errno.h>
 
 
-int __log_verbosity = 2;
+int __log_verbosity = 5;
 int __log_ctx_idx = 0;
 log_ctx_t __log_ctx[LOG_CTX_NUM];
 
@@ -25,9 +26,17 @@ struct input_file
 };
 
 
+struct archive_file
+{
+    struct list_head list;
+    struct archive *file;
+};
+
+
 struct linker_ctx
 {
     struct list_head input_files;
+    struct list_head archives;
     struct rb_tree global_symtab;   // global symbol table
 };
 
@@ -56,33 +65,54 @@ static void dump_symtab(struct rb_tree *symtab)
 }
 
 
-static int open_input_file(struct linker_ctx *ctx, const char *filename)
+static struct input_file * try_open_input_file(struct linker_ctx *ctx, mfile *file)
 {
-    struct input_file *f = malloc(sizeof(struct input_file));
-    if (f == NULL) {
-        return ENOMEM;
+    struct objfile *objfile;
+
+    objfile = objfile_load(file, NULL);
+    if (objfile == NULL) {
+        return NULL;
     }
 
-    mfile *mf = NULL;
-    int status = mfile_init(&mf, filename);
-    if (status != 0) {
-        free(f);
-        return EBADF;
+    struct input_file *handle = malloc(sizeof(struct input_file));
+    if (handle == NULL) {
+        objfile_put(objfile);
+        return NULL;
     }
 
-    f->file = objfile_load(mf, NULL);
-    if (f->file == NULL) {
-        mfile_put(mf);
-        free(f);
-        return EBADF;
+    handle->file = objfile;
+    rb_tree_init(&handle->symtab);
+    list_insert_tail(&ctx->input_files, &handle->list);
+    return handle;
+}
+
+
+static struct archive_file * try_open_archive(struct linker_ctx *ctx, mfile *file)
+{
+    struct archive *ar;
+
+    ar = archive_load(file, NULL);
+    if (ar == NULL) {
+        return NULL;
     }
 
-    mfile_put(mf);
+    struct archive_file *handle = malloc(sizeof(struct archive_file));
+    if (handle == NULL) {
+        archive_put(ar);
+        return NULL;
+    }
 
-    rb_tree_init(&f->symtab);
-    list_insert_tail(&ctx->input_files, &f->list);
+    handle->file = ar;
+    list_insert_tail(&ctx->archives, &handle->list);
+    return handle;
+}
 
-    return 0;
+
+static void close_archive(struct archive_file *file)
+{
+    list_remove(&file->list);
+    archive_put(file->file);
+    free(file);
 }
 
 
@@ -120,6 +150,7 @@ static struct linker_ctx * create_ctx(void)
     }
 
     list_head_init(&ctx->input_files);
+    list_head_init(&ctx->archives);
     rb_tree_init(&ctx->global_symtab);
 
     return ctx;
@@ -130,6 +161,10 @@ static void destroy_ctx(struct linker_ctx *ctx)
 {
     list_for_each_entry(file, &ctx->input_files, struct input_file, list) {
         close_input_file(file);
+    }
+
+    list_for_each_entry(file, &ctx->archives, struct archive_file, list) {
+        close_archive(file);
     }
 
     destroy_symtab(&ctx->global_symtab);
@@ -191,12 +226,31 @@ int main(int argc, char **argv)
     struct linker_ctx *ctx = create_ctx();
 
     for (int i = optind; i < argc; ++i) {
-        int status = open_input_file(ctx, argv[i]);
+        mfile *file = NULL;
+        int status = mfile_open_read(&file, argv[i]);
+
         if (status != 0) {
             log_fatal("Could not open all input files");
             destroy_ctx(ctx);
             exit(2);
         }
+
+        log_ctx_push(LOG_CTX_FILE(NULL, file->name));
+
+        if (try_open_input_file(ctx, file) != NULL) {
+            // file is an object file
+        } else if (try_open_archive(ctx, file) != NULL) {
+            // file is an archive
+        } else {
+            log_fatal("Unrecognized file format");
+            mfile_put(file);
+            destroy_ctx(ctx);
+            log_ctx_pop();
+            exit(2);
+        }
+
+        mfile_put(file);
+        log_ctx_pop();
     }
 
     // Build symbol tables

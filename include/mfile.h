@@ -10,21 +10,16 @@ extern "C" {
 /*
  * Memory-mapped file handle.
  *
- * Represents a read-only file descriptor that has been memory-mapped 
- * to allow convenient read access to the file.
- *
- * Holds the opened file descriptor, the memory-mapped pointer,
- * the size of the file, and also the path to the file.
- *
- * The handle is reference counted.
+ * Represents a read-only file descriptor that has been memory-mapped,
+ * to allow convenient and fast read access to the file.
  */
 struct _mfile
 {
-    char *name;
-    int refcnt;
-    int fd;
-    size_t size;
-    const void *data;
+    char *name;         // filename used when opening the file
+    int refcnt;         // reference counter
+    int fd;             // the file descriptor used to open the file
+    size_t size;        // the total size of the file
+    const void *data;   // memory mapped pointer to the start of the file
 };
 
 typedef struct _mfile mfile;
@@ -34,7 +29,7 @@ typedef struct _mfile mfile;
  * Open a file as read-only and memory-map its content
  * and allocate a new file handle.
  */
-int mfile_init(mfile **fhandle, const char *pathname);
+int mfile_open_read(mfile **fhandle, const char *pathname);
 
 
 /* 
@@ -48,8 +43,6 @@ void mfile_get(mfile *file);
  *
  * When the reference count is 0, the mapped memory is unmapped
  * and the file descriptor is closed and the handle is freed.
- *
- * Your code should not use the handle after calling this function.
  */
 void mfile_put(mfile *file);
 

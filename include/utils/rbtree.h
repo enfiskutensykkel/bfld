@@ -258,7 +258,7 @@ struct rb_node * rb_first_postorder(const struct rb_tree *tree);
  * Get the next node in post-order (visiting both children first
  * before the parent node).
  */
-struct rb_node *rb_next_postorder(const struct rb_tree *tree);
+struct rb_node *rb_next_postorder(const struct rb_node *node);
 
 
 #ifdef __cplusplus
