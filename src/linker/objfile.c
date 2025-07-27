@@ -8,119 +8,46 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include <stdio.h>
-
-
-struct objfile
-{
-    char *filename;
-    int refcnt;
-    mfile *file;
-    const uint8_t *file_data;
-    size_t file_size;
-    void *loader_data;
-    const struct objfile_loader *loader;
-};
+#include "pluginregistry.h"
 
 
 /*
- * Maintain a list of object file loaders.
+ * List of object file loaders.
  */ 
-static struct list_head loaders = LIST_HEAD_INIT(loaders);
-
-
-/*
- * Definition of a object file loader.
- */
-struct objfile_loader
-{
-    int refcnt;
-    char *name;
-    struct list_head list_node;
-    const struct objfile_ops *ops;
-};
-
-
-struct objfile_loader * objfile_loader_register(const char *name, 
-        const struct objfile_ops *ops)
-{
-    struct objfile_loader *loader = malloc(sizeof(struct objfile_loader));
-    if (loader == NULL) {
-        return NULL;
-    }
-
-    loader->name = strdup(name);
-    if (loader->name == NULL) {
-        free(loader);
-        return NULL;
-    }
-
-    loader->refcnt = 1;
-    loader->ops = ops;
-    list_insert_tail(&loaders, &loader->list_node);
-    return loader;
-}
-
-
-static void objfile_loader_get(struct objfile_loader *loader)
-{
-    ++(loader->refcnt);
-}
-
-
-static void objfile_loader_put(struct objfile_loader *loader)
-{
-    if (--(loader->refcnt) == 0) {
-        list_remove(&loader->list_node);
-        free(loader->name);
-        free(loader);
-    }
-}
-
-
-void objfile_loader_unregister(struct objfile_loader *loader)
-{
-    list_remove(&loader->list_node);
-}
+static struct list_head objfile_loaders = LIST_HEAD_INIT(objfile_loaders);
 
 
 __attribute__((destructor(65535)))
-static void cleanup_loaders(void)
+static void unregister_loaders(void)
 {
-    list_for_each_entry(loader, &loaders, struct objfile_loader, list_node) {
-        objfile_loader_put(loader);
-    }
+    plugin_clear_registry(&objfile_loaders);
 }
 
 
-const struct objfile_loader * objfile_loader_probe(const uint8_t *data, size_t size)
+int objfile_loader_register(const struct objfile_loader *loader)
 {
-    list_for_each_entry(loader, &loaders, struct objfile_loader, list_node) {
-        if (loader->ops->probe != NULL) {
-            if (loader->ops->probe(data, size)) {
-                return loader;
-            }
-        }
-    }
-
-    return NULL;
-}
-
-
-const char * objfile_loader_name(const struct objfile_loader *loader)
-{
-    if (loader != NULL) {
-        return loader->name;
-    }
-
-    return NULL;
+    return plugin_register(&objfile_loaders, loader->name, loader);
 }
 
 
 const struct objfile_loader * objfile_loader_find(const char *name)
 {
-    list_for_each_entry(loader, &loaders, struct objfile_loader, list_node) {
-        if (strcmp(loader->name, name) == 0) {
+    struct plugin_registry_entry *entry;
+    entry = plugin_find_entry(&objfile_loaders, name);
+
+    if (entry == NULL) {
+        return NULL;
+    }
+
+    return (struct objfile_loader*) entry->plugin;
+}
+
+
+const struct objfile_loader * objfile_loader_probe(const uint8_t *data, size_t size)
+{
+    list_for_each_entry(loader_entry, &objfile_loaders, struct plugin_registry_entry, list_node) {
+        const struct objfile_loader *loader = loader_entry->plugin;
+        if (loader->probe(data, size)) {
             return loader;
         }
     }
@@ -132,14 +59,11 @@ const struct objfile_loader * objfile_loader_find(const char *name)
 void objfile_put(struct objfile *objfile)
 {
     if (--(objfile->refcnt) == 0) {
-        if (objfile->loader != NULL && objfile->loader->ops->release != NULL) {
-            objfile->loader->ops->release(objfile->loader_data);
+        if (objfile->loader != NULL && objfile->loader->release != NULL) {
+            objfile->loader->release(objfile->loader_data);
         }
-        free(objfile->filename);
+        free(objfile->name);
         mfile_put(objfile->file);
-        if (objfile->loader != NULL) {
-            objfile_loader_put((struct objfile_loader*) objfile->loader);
-        }
         free(objfile);
     }
 }
@@ -151,19 +75,7 @@ void objfile_get(struct objfile *objfile)
 }
 
 
-const char * objfile_filename(const struct objfile *objfile)
-{
-    return objfile->filename;
-}
-
-
-const struct objfile_loader * objfile_get_loader(const struct objfile *objfile)
-{
-    return objfile->loader;
-}
-
-
-int objfile_init(struct objfile **objfile, const char *filename,
+int objfile_init(struct objfile **objfile, const char *name,
                  const uint8_t *data, size_t size)
 {
         
@@ -172,16 +84,16 @@ int objfile_init(struct objfile **objfile, const char *filename,
         return ENOMEM;
     }
 
-    obj->filename = strdup(filename);
-    if (obj->filename == NULL) {
+    obj->name = strdup(name);
+    if (obj->name == NULL) {
         free(obj);
         return ENOMEM;
     }
 
     obj->file = NULL;
     obj->refcnt = 1;
-    obj->file_data = data;
-    obj->file_size = size;
+    obj->data = data;
+    obj->size = size;
     obj->loader_data = NULL;
     obj->loader = NULL;
 
@@ -202,19 +114,22 @@ struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader)
 
     if (loader == NULL) {
         // We could not find any suitable loaders
-        log_fatal("Unrecognized format");
+        log_error("Unrecognized format");
         return NULL;
     }
+
+    log_ctx_push(LOG_CTX_FILE(loader->name, file->name));
 
     mfile_get(file);
 
     void *loader_data = NULL;
-    int status = loader->ops->parse_file(&loader_data, file->name,
-                                         file->data, file->size);
+    int status = loader->parse_file(&loader_data, file->name,
+                                    file->data, file->size);
     if (status != 0) {
         // Loader wasn't happy with the file
         mfile_put(file);
-        log_fatal("Corrupt file");
+        log_error("Corrupt file");
+        log_ctx_pop();
         return NULL;
     }
 
@@ -222,17 +137,18 @@ struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader)
     status = objfile_init(&objfile, file->name, file->data, file->size);
     if (status != 0) {
         mfile_put(file);
-        if (loader->ops->release != NULL) {
-            loader->ops->release(loader_data);
+        if (loader->release != NULL) {
+            loader->release(loader_data);
         }
+        log_ctx_pop();
         return NULL;
     }
 
     objfile->file = file;
     objfile->loader_data = loader_data;
     objfile->loader = loader;
-    objfile_loader_get((struct objfile_loader*) loader);
 
+    log_ctx_pop();
     return objfile;
 }
 
@@ -267,8 +183,8 @@ static int insert_emitted_symbols(void *user_data, const struct objfile_symbol *
     
     if (status == EEXIST && sym->binding != SYMBOL_WEAK) {
         ctx->status = EEXIST;
-        log_fatal("Multiple definitions for symbol '%s'; defined in both %s and %s", 
-                  sym->name, ctx->objfile->filename, sym->source->filename);
+        log_error("Multiple definitions for symbol '%s'; defined in both %s and %s", 
+                  sym->name, ctx->objfile->name, sym->source->name);
         return -1;
 
     } else if (status != 0) {
@@ -281,8 +197,8 @@ static int insert_emitted_symbols(void *user_data, const struct objfile_symbol *
                                            objsym->sect_idx, objsym->offset, objsym->size);
         if (status != 0) {
             ctx->status = EEXIST;
-            log_fatal("Multiple definitions for symbol '%s'; defined in both %s and %s",
-                    sym->name, ctx->objfile->filename, sym->definition->filename);
+            log_error("Multiple definitions for symbol '%s'; defined in both %s and %s",
+                      sym->name, ctx->objfile->name, sym->definition->name);
             return -1;
         }
     }
@@ -295,12 +211,11 @@ int objfile_extract_symbols(struct objfile* objfile,
                             struct rb_tree *global_symtab,
                             struct rb_tree *local_symtab)
 {
-    if (objfile->loader == NULL || objfile->loader->ops->extract_symbols == NULL) {
+    if (objfile->loader == NULL || objfile->loader->extract_symbols == NULL) {
         log_fatal("Missing loader for object file");
         return EBADF;
     }
-    log_ctx_push(LOG_CTX(objfile_loader_name(objfile->loader)));
-    log_ctx_push(LOG_CTX_FILE(objfile->filename));
+    log_ctx_push(LOG_CTX_FILE(objfile->loader->name, objfile->name));
 
     struct symbol_data data = {
         .status = 0,
@@ -309,14 +224,10 @@ int objfile_extract_symbols(struct objfile* objfile,
         .local_symtab = local_symtab
     };
 
-    objfile->loader->ops->extract_symbols(objfile->loader_data, 
-                                          insert_emitted_symbols,
-                                          &data);
+    objfile->loader->extract_symbols(objfile->loader_data, 
+                                     insert_emitted_symbols,
+                                     &data);
 
-    if (data.status != 0) {
-    }
-
-    log_ctx_pop();
     log_ctx_pop();
     return data.status;
 }

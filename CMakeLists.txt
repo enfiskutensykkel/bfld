@@ -28,6 +28,7 @@ endif ()
 # Create shared library of the linker code
 add_library(linkerlib SHARED 
     src/utils/rbtree.c
+    src/linker/pluginregistry.c
     src/linker/mfile.c 
     src/linker/objfile.c 
     src/linker/section.c

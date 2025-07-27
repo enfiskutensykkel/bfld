@@ -24,9 +24,6 @@ struct elf_file
 };
 
 
-static struct objfile_loader *this = NULL;
-
-
 /*
  * Check if the file has the magic ELF64 signature.
  */
@@ -199,7 +196,8 @@ static void parse_elf_symtab(void *ctx, int (*emit_symbol)(void *user, const str
 }
 
 
-static const struct objfile_ops elf_loader_ops = {
+static const struct objfile_loader elf_loader = {
+    .name = "elfloader",
     .probe = check_elf_header,
     .parse_file = parse_elf_file,
     .extract_symbols = parse_elf_symtab,
@@ -207,7 +205,7 @@ static const struct objfile_ops elf_loader_ops = {
 };
 
 
-OBJFILE_LOADER_INIT static void elf_loader(void)
+OBJFILE_LOADER_INIT static void elf_loader_init(void)
 {
-    this = objfile_loader_register("elfloader", &elf_loader_ops);
+    objfile_loader_register(&elf_loader);
 }

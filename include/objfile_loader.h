@@ -11,18 +11,6 @@ extern "C" {
 
 
 /*
- * Forward declaration of object file.
- */
-struct objfile;
-
-
-/*
- * Forward declaration of object file loader.
- */
-struct objfile_loader;
-
-
-/*
  * Representation of a symbol detected in the object file.
  */
 struct objfile_symbol
@@ -41,8 +29,13 @@ struct objfile_symbol
 /*
  * Operations that an object file loader should support.
  */
-struct objfile_ops
+struct objfile_loader
 {
+    /*
+     * The name of the object file loader.
+     */
+    const char *name;
+
     /*
      * Determine if the memory mapped file is a format
      * that is supported by the file loader.
@@ -102,31 +95,23 @@ struct objfile_ops
 
 /*
  * Register an object file loader.
- * Returns the registered loader, or NULL if a loader could not be registered.
  */
-extern struct objfile_loader * objfile_loader_register(const char *name, 
-                                                       const struct objfile_ops *ops);
+int objfile_loader_register(const struct objfile_loader *loader);
 
 
 
 /*
  * Try to look up an object file loader by its name.
  */
-extern const struct objfile_loader * objfile_loader_find(const char *name);
+const struct objfile_loader * objfile_loader_find(const char *name);
 
 
 /*
- * Get the name of an object file loader.
+ * Go through all registered object file loaders and 
+ * try to probe the memory area to check if the loader
+ * supports this format.
  */
-const char * objfile_loader_name(const struct objfile_loader *loader);
-
-
-/*
- * Go through all registered object file loaders and try to probe the memory area.
- */
-extern const struct objfile_loader * objfile_loader_probe(const uint8_t *file_data, 
-                                                          size_t file_size);
-
+const struct objfile_loader * objfile_loader_probe(const uint8_t *file_data, size_t file_size);
 
 
 /*
@@ -135,6 +120,7 @@ extern const struct objfile_loader * objfile_loader_probe(const uint8_t *file_da
  * Example usage:
  *
  * const struct objfile_loader_ops my_ops = {
+ *   .name = "my_elf_loader",
  *   .probe = my_elf_probe,
  *   .parse_file = &my_elf_parser,
  *   ...
@@ -146,28 +132,6 @@ extern const struct objfile_loader * objfile_loader_probe(const uint8_t *file_da
  * }
  */
 #define OBJFILE_LOADER_INIT __attribute__((constructor))
-
-
-/*
- * Mark a loader exit function so it is ran on exit.
- *
- * Can be used if your loader needs to allocate and clean
- * up on start up and on exit.
- *
- * Example usage:
- *
- * struct objfile_loader *this_loader = NULL;
- *
- * OBJFILE_LOADER_INIT void my_loader_init(void) {
- *     this_loader = objfile_loader_register("myloader");
- * }
- *
- * OBJFILE_LOADER_EXIT void my_loader_exit(void) {
- *     ...
- *     objfile_loader_unregister(this_loader);
- * }
- */
-#define OBJFILE_LOADER_EXIT __attribute__((destructor))
 
 
 #ifdef __cplusplus

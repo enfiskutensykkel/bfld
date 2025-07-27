@@ -13,9 +13,12 @@ int mfile_init(mfile **fhandle, const char *pathname)
 {
     *fhandle = NULL;
 
+    log_ctx_push(LOG_CTX_FILE(NULL, pathname));
+
     int fd = open(pathname, O_RDONLY);
     if (fd == -1) {
-        log_fatal("Failed to open file: %s", strerror(errno));
+        log_error(strerror(errno));
+        log_ctx_pop();
         switch (errno) {
             case EACCES:
             case EPERM:
@@ -32,7 +35,8 @@ int mfile_init(mfile **fhandle, const char *pathname)
     if (fstat(fd, &s) == -1) {
         int status = errno;
         close(fd);
-        log_fatal("Could not get file information about file: %s", strerror(status));
+        log_error(strerror(status));
+        log_ctx_pop();
         switch (status) {
             case EACCES:
             case EPERM:
@@ -49,15 +53,26 @@ int mfile_init(mfile **fhandle, const char *pathname)
     if (p == MAP_FAILED) {
         int status = errno;
         close(fd);
-        log_fatal("Unable to memory-map file: %s", strerror(status));
+        log_error("Unable to memory-map file; %s", strerror(status));
+        log_ctx_pop();
         return EBADF;
     }
 
     // Create file handle
-    mfile *f = malloc(sizeof(mfile) + strlen(pathname) + 1);
+    mfile *f = malloc(sizeof(mfile));
     if (f == NULL) {
         munmap(p, s.st_size);
         close(fd);
+        log_ctx_pop();
+        return ENOMEM;
+    }
+
+    f->name = strdup(pathname);
+    if (f->name == NULL) {
+        free(f);
+        munmap(p, s.st_size);
+        close(fd);
+        log_ctx_pop();
         return ENOMEM;
     }
 
@@ -69,6 +84,7 @@ int mfile_init(mfile **fhandle, const char *pathname)
 
     *fhandle = f;
 
+    log_ctx_pop();
     return 0;
 }
 
@@ -87,6 +103,7 @@ void mfile_put(mfile *file)
         if (--(file->refcnt) == 0) {
             munmap((void*) file->data, file->size);
             close(file->fd);
+            free(file->name);
             free(file);
         }
     }

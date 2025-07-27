@@ -18,14 +18,16 @@ extern "C" {
  *
  * The handle is reference counted.
  */
-typedef struct _mfile
+struct _mfile
 {
+    char *name;
     int refcnt;
     int fd;
     size_t size;
     const void *data;
-    char name[];
-} mfile;
+};
+
+typedef struct _mfile mfile;
 
 
 /*

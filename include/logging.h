@@ -22,7 +22,7 @@ extern int __log_verbosity;
 
 extern int __log_ctx_idx;
 
-#define LOG_CTX_NUM 16
+#define LOG_CTX_NUM 32
 extern log_ctx_t __log_ctx[LOG_CTX_NUM];
 
 
@@ -33,7 +33,7 @@ extern log_ctx_t __log_ctx[LOG_CTX_NUM];
 
 #define LOG_CTX_EMPTY LOG_CTX(NULL)
 
-#define LOG_CTX_FILE(filename, ...) LOG_CTX(NULL, .file = (filename), __VA_ARGS__)
+#define LOG_CTX_FILE(_name, filename, ...) LOG_CTX(_name, .file = (filename) ? (filename) : __log_ctx[__log_ctx_idx].file, __VA_ARGS__)
 
 
 static inline

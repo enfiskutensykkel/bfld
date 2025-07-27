@@ -12,15 +12,27 @@ extern "C" {
 
 
 /*
- * Representation of an input file, or more specifically, an input unit.
+ * Forward declaration of object file operations.
  */
-struct objfile;
+struct objfile_ops;
 
 
 /*
- * Forward declaration of an object file loader.
+ * Representation of an object file.
+ * Object files are input files to the linker.
  */
-struct objfile_loader;
+struct objfile
+{
+    char *name;
+    int refcnt;
+    const uint8_t *data;
+    size_t size;
+    mfile *file;
+    void *loader_data;
+    const struct objfile_loader *loader;
+    const struct objfile_ops *ops;
+};
+
 
 
 /*
@@ -31,7 +43,7 @@ struct objfile_loader;
  *
  * Instead see objfile_load()
  */
-int objfile_init(struct objfile **objfile, const char *filename,
+int objfile_init(struct objfile **objfile, const char *name,
                  const uint8_t *data, size_t size);
 
 
@@ -45,20 +57,6 @@ void objfile_get(struct objfile *objfile);
  * Release an object file reference.
  */
 void objfile_put(struct objfile *objfile);
-
-
-/*
- * Get the filename of the object file.
- * May be NULL if unknown.
- */
-const char * objfile_filename(const struct objfile *objfile);
-
-
-/*
- * Get the underlying loader used to load this object file.
- * Can be NULL if the loader is not set or unknown.
- */
-const struct objfile_loader * objfile_get_loader(const struct objfile *objfile);
 
 
 /*
