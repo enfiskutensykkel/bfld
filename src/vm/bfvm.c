@@ -19,3 +19,8 @@ int entrypoint(void)
     some_array[0] = 0;
     return v;
 }
+
+int bar(void)
+{
+    return 9001;
+}

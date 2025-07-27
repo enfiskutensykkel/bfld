@@ -58,7 +58,6 @@ struct objfile_loader
      * to mean that an fatal error occurred and parsing is aborted.
      */
     int (*parse_file)(void **objfile_loader_data, 
-                      const char *filename,
                       const uint8_t *file_data, 
                       size_t file_size);
     
@@ -84,9 +83,9 @@ struct objfile_loader
      *      continue parsing
      * <0 - fatal error, stop parsing
      */
-    void (*extract_symbols)(void *objfile_loader_data,
-                            int (*emit_symbol)(void *callback_data, const struct objfile_symbol*),
-                            void *callback_data);
+    int (*extract_symbols)(void *objfile_loader_data,
+                           int (*emit_symbol)(void *callback_data, const struct objfile_symbol*),
+                           void *callback_data);
                             
 
     //int (*load_sections)(struct objfile *file, ...);

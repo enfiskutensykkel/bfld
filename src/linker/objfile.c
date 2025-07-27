@@ -123,8 +123,7 @@ struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader)
 
     log_ctx_push(LOG_CTX_FILE(loader->name, file->name));
 
-    status = loader->parse_file(&objfile->loader_data, file->name,
-                                file->data, file->size);
+    status = loader->parse_file(&objfile->loader_data, file->data, file->size);
     if (status != 0) {
         // Loader wasn't happy with the file
         log_error("Invalid file format or corrupt file");
@@ -210,10 +209,20 @@ int objfile_extract_symbols(struct objfile* objfile,
         .local_symtab = local_symtab
     };
 
-    objfile->loader->extract_symbols(objfile->loader_data, 
-                                     insert_emitted_symbols,
-                                     &data);
+    int status = objfile->loader->extract_symbols(objfile->loader_data, 
+                                                  insert_emitted_symbols,
+                                                  &data);
 
-    log_ctx_pop();
-    return data.status;
+    if (data.status != 0) {
+        log_ctx_pop();
+        return data.status;
+    }
+
+    if (status != 0) {
+        log_error("Could not extract symbols");
+        log_ctx_pop();
+        return EBADF;
+    }
+
+    return 0;
 }

@@ -15,7 +15,6 @@
  */
 struct elf_file
 {
-    const char *filename;       // filename
     const Elf64_Ehdr *eh;       // pointer to the start of the ELF file (the ELF header)
     const char *strtab;         // symbol string table
     uint64_t nsyms;               // number of symbols in the symbol table
@@ -82,7 +81,7 @@ static const char * elf_lookup_str(const Elf64_Ehdr *ehdr, uint32_t offset)
 }
 
 
-static int parse_elf_file(void **ctx_data, const char *filename, const uint8_t *data, size_t size)
+static int parse_elf_file(void **ctx_data, const uint8_t *data, size_t size)
 {
     const Elf64_Ehdr *eh = (const Elf64_Ehdr*) data;
 
@@ -114,7 +113,6 @@ static int parse_elf_file(void **ctx_data, const char *filename, const uint8_t *
         return ENOMEM;
     }
 
-    ctx->filename = filename;
     ctx->eh = eh;
     ctx->strtab = strtab;
     ctx->nsyms = nsyms;
@@ -126,7 +124,7 @@ static int parse_elf_file(void **ctx_data, const char *filename, const uint8_t *
 }
 
 
-static void parse_elf_symtab(void *ctx, int (*emit_symbol)(void *user, const struct objfile_symbol*), void *user)
+static int parse_elf_symtab(void *ctx, int (*emit_symbol)(void *user, const struct objfile_symbol*), void *user)
 {
     struct elf_file *ef = (struct elf_file*) ctx;
 
@@ -190,9 +188,11 @@ static void parse_elf_symtab(void *ctx, int (*emit_symbol)(void *user, const str
 
         if (emit_symbol(user, &symbol) < 0) {
             log_fatal("Fatal error while processing symbols, aborting further processing");
-            return;
+            return -1;
         }
     }
+
+    return 0;
 }
 
 
