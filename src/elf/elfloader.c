@@ -1,3 +1,4 @@
+#include "logging.h"
 #include "objfile_loader.h"
 #include <stddef.h>
 #include <stdbool.h>
@@ -6,7 +7,6 @@
 #include <elf.h>
 #include <errno.h>
 #include <string.h>
-#include <stdio.h>
 
 
 /*
@@ -22,6 +22,9 @@ struct elf_file
     const Elf64_Sym *symtab;    // pointer to the symbol table
     const Elf64_Sym *sect_syms[];// section symbol map, used for relocations
 };
+
+
+static struct objfile_loader *this = NULL;
 
 
 /*
@@ -105,6 +108,10 @@ static int parse_elf_file(void **ctx_data, const char *filename, const uint8_t *
         }
     }
 
+    if (symtab == NULL) {
+        log_fatal("Could not locate symbol table");
+    }
+
     struct elf_file *ctx = malloc(sizeof(struct elf_file) + sizeof(const Elf64_Sym*) * nsyms);
     if (ctx == NULL) {
         return ENOMEM;
@@ -185,14 +192,14 @@ static void parse_elf_symtab(void *ctx, int (*emit_symbol)(void *user, const str
         }
 
         if (emit_symbol(user, &symbol) < 0) {
-            fprintf(stderr, "%s: Fatal error while processing symbols\n", ef->filename);
+            log_fatal("Fatal error while processing symbols, aborting further processing");
             return;
         }
     }
 }
 
 
-const struct objfile_loader_ops elf_loader_ops = {
+static const struct objfile_ops elf_loader_ops = {
     .probe = check_elf_header,
     .parse_file = parse_elf_file,
     .extract_symbols = parse_elf_symtab,
@@ -202,5 +209,5 @@ const struct objfile_loader_ops elf_loader_ops = {
 
 OBJFILE_LOADER_INIT static void elf_loader(void)
 {
-    objfile_loader_register("elf", &elf_loader_ops);
+    this = objfile_loader_register("elfloader", &elf_loader_ops);
 }

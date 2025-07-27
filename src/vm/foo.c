@@ -1,5 +1,7 @@
 #include <stdint.h>
 
+int a_weak_symbol __attribute__((weak));
+
 extern uint32_t *an_external_pointer;
 
 static uint8_t a_local_array[16];

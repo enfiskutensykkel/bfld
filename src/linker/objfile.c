@@ -1,3 +1,4 @@
+#include "logging.h"
 #include "objfile.h"
 #include "objfile_loader.h"
 #include "mfile.h"
@@ -36,12 +37,12 @@ struct objfile_loader
     int refcnt;
     char *name;
     struct list_head list_node;
-    const struct objfile_loader_ops *ops;
+    const struct objfile_ops *ops;
 };
 
 
 struct objfile_loader * objfile_loader_register(const char *name, 
-        const struct objfile_loader_ops *ops)
+        const struct objfile_ops *ops)
 {
     struct objfile_loader *loader = malloc(sizeof(struct objfile_loader));
     if (loader == NULL) {
@@ -201,6 +202,7 @@ struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader)
 
     if (loader == NULL) {
         // We could not find any suitable loaders
+        log_fatal("Unrecognized format");
         return NULL;
     }
 
@@ -212,6 +214,7 @@ struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader)
     if (status != 0) {
         // Loader wasn't happy with the file
         mfile_put(file);
+        log_fatal("Corrupt file");
         return NULL;
     }
 
@@ -241,7 +244,7 @@ struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader)
 struct symbol_data
 {
     int status;
-    const struct objfile *objfile;
+    struct objfile *objfile;
     struct rb_tree *global_symtab;
     struct rb_tree *local_symtab;
 };
@@ -254,36 +257,50 @@ static int insert_emitted_symbols(void *user_data, const struct objfile_symbol *
     struct symbol_data *ctx = (struct symbol_data*) user_data;
     
     if (objsym->bind == SYMBOL_LOCAL) {
-        status = symbol_create(&sym, objsym->name, objsym->bind, objsym->type,
-                               ctx->local_symtab);
+        status = symbol_create(&sym, ctx->objfile, objsym->name, 
+                                objsym->bind, objsym->type, ctx->local_symtab);
     } else {
-        status = symbol_create(&sym, objsym->name, objsym->bind, objsym->type,
-                               ctx->global_symtab);
+        status = symbol_create(&sym, ctx->objfile, objsym->name, 
+                               objsym->bind, objsym->type, ctx->global_symtab);
     }
 
-    // TODO use sym to say something about where the symbol came from
-    if (status == EEXIST) {
-        fprintf(stderr, "%s: Multiple definitions of symbol %s\n", 
-                        ctx->objfile->filename, objsym->name);
+    
+    if (status == EEXIST && sym->binding != SYMBOL_WEAK) {
+        ctx->status = EEXIST;
+        log_fatal("Multiple definitions for symbol '%s'; defined in both %s and %s", 
+                  sym->name, ctx->objfile->filename, sym->source->filename);
+        return -1;
+
+    } else if (status != 0) {
+        ctx->status = ENOMEM;
         return -1;
     }
 
     if (objsym->defined) {
-        status = symbol_resolve_definition(sym, (struct objfile*) ctx->objfile, 
+        status = symbol_resolve_definition(sym, ctx->objfile, 
                                            objsym->sect_idx, objsym->offset, objsym->size);
+        if (status != 0) {
+            ctx->status = EEXIST;
+            log_fatal("Multiple definitions for symbol '%s'; defined in both %s and %s",
+                    sym->name, ctx->objfile->filename, sym->definition->filename);
+            return -1;
+        }
     }
 
     return 0;
 }
 
 
-int objfile_extract_symbols(const struct objfile* objfile,
+int objfile_extract_symbols(struct objfile* objfile,
                             struct rb_tree *global_symtab,
                             struct rb_tree *local_symtab)
 {
     if (objfile->loader == NULL || objfile->loader->ops->extract_symbols == NULL) {
+        log_fatal("Missing loader for object file");
         return EBADF;
     }
+    log_ctx_push(LOG_CTX(objfile_loader_name(objfile->loader)));
+    log_ctx_push(LOG_CTX_FILE(objfile->filename));
 
     struct symbol_data data = {
         .status = 0,
@@ -296,5 +313,10 @@ int objfile_extract_symbols(const struct objfile* objfile,
                                           insert_emitted_symbols,
                                           &data);
 
+    if (data.status != 0) {
+    }
+
+    log_ctx_pop();
+    log_ctx_pop();
     return data.status;
 }

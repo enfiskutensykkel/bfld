@@ -1,5 +1,5 @@
 #include "mfile.h"
-#include <stdio.h>
+#include "logging.h"
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -15,8 +15,7 @@ int mfile_init(mfile **fhandle, const char *pathname)
 
     int fd = open(pathname, O_RDONLY);
     if (fd == -1) {
-        fprintf(stderr, "Could not open input file %s: %s\n",
-                pathname, strerror(errno));
+        log_fatal("Failed to open file: %s", strerror(errno));
         switch (errno) {
             case EACCES:
             case EPERM:
@@ -33,8 +32,7 @@ int mfile_init(mfile **fhandle, const char *pathname)
     if (fstat(fd, &s) == -1) {
         int status = errno;
         close(fd);
-        fprintf(stderr, "Could not get file information about file %s: %s\n",
-                pathname, strerror(status));
+        log_fatal("Could not get file information about file: %s", strerror(status));
         switch (status) {
             case EACCES:
             case EPERM:
@@ -51,8 +49,7 @@ int mfile_init(mfile **fhandle, const char *pathname)
     if (p == MAP_FAILED) {
         int status = errno;
         close(fd);
-        fprintf(stderr, "Could not read file %s: %s\n",
-                pathname, strerror(status));
+        log_fatal("Unable to memory-map file: %s", strerror(status));
         return EBADF;
     }
 
@@ -61,7 +58,6 @@ int mfile_init(mfile **fhandle, const char *pathname)
     if (f == NULL) {
         munmap(p, s.st_size);
         close(fd);
-        fprintf(stderr, "Failed to allocate handle\n");
         return ENOMEM;
     }
 

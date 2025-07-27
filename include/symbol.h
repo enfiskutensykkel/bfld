@@ -29,9 +29,10 @@ struct symbol
 
     uint64_t addr;          // absolute for an executable, relative (to base address) for a shared library
 
-    struct objfile *objfile; // object file this symbol came from
+    struct objfile *source; // object file this symbol came from
     
     bool defined;           // Is the symbol defined?
+    struct objfile *definition; // object file where the symbol definition comes from
     uint64_t sect_idx;      // Section index
     size_t offset;          // offset into the section to definition
     size_t size;            // size of the symbol
@@ -76,8 +77,11 @@ int symbol_resolve_definition(struct symbol *sym, struct objfile *objfile,
  * On other failures, an errno is returned and the symbol pointer is
  * set to NULL.
  */
-int symbol_create(struct symbol **symbol, const char *name,
-                  enum symbol_binding binding, enum symbol_type type,
+int symbol_create(struct symbol **symbol, 
+                  struct objfile *source,
+                  const char *name,
+                  enum symbol_binding binding, 
+                  enum symbol_type type,
                   struct rb_tree *symtab);
 
 

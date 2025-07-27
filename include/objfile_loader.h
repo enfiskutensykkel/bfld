@@ -39,9 +39,9 @@ struct objfile_symbol
 
 
 /*
- * Operations that a file loader should support.
+ * Operations that an object file loader should support.
  */
-struct objfile_loader_ops
+struct objfile_ops
 {
     /*
      * Determine if the memory mapped file is a format
@@ -105,7 +105,7 @@ struct objfile_loader_ops
  * Returns the registered loader, or NULL if a loader could not be registered.
  */
 extern struct objfile_loader * objfile_loader_register(const char *name, 
-                                                       const struct objfile_loader_ops *ops);
+                                                       const struct objfile_ops *ops);
 
 
 
@@ -122,8 +122,7 @@ const char * objfile_loader_name(const struct objfile_loader *loader);
 
 
 /*
- * Go through all registered object file loaders and try to probe
- * the memory area.
+ * Go through all registered object file loaders and try to probe the memory area.
  */
 extern const struct objfile_loader * objfile_loader_probe(const uint8_t *file_data, 
                                                           size_t file_size);

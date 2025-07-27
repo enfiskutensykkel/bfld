@@ -66,7 +66,8 @@ const struct objfile_loader * objfile_get_loader(const struct objfile *objfile);
  *
  * If a loader is specified, this function will try to use that specific
  * loader to load the file. If loader is NULL, registered loaders are attempted
- * one by one.
+ * one by one until either an appropriate file loader is found or there are 
+ * no more loaders to try (and NULL is returned).
  */
 struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader);
 
@@ -75,7 +76,7 @@ struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader);
 /*
  * Extract all symbols from the object file.
  */
-int objfile_extract_symbols(const struct objfile* objfile,
+int objfile_extract_symbols(struct objfile* objfile,
                             struct rb_tree *global_symtab,
                             struct rb_tree *local_symtab);
 
