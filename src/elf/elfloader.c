@@ -53,6 +53,11 @@ static bool check_elf_header(const uint8_t *ptr, size_t size)
         return false;
     }
 
+    // Only allow .o files
+    if (ehdr->e_type != ET_REL) {
+        return false;
+    }
+
     return true;
 }
 
