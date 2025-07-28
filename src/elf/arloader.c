@@ -203,6 +203,14 @@ static int parse_members(void *ctx, bool (*emit)(void *user, uint64_t, const cha
 }
 
 
+static int load_elf_member(void *ctx, const struct objfile_loader *loader, void **loader_data, 
+                           uint64_t member_id, const char *name, size_t offset, size_t size)
+{
+    struct ar_file *ar = ctx;
+    return loader->parse_file(loader_data, ar->start + offset + sizeof(struct ar_header), size);
+}
+
+
 const struct archive_loader ar_loader = {
     .name = "ar-loader",
     .member_loader = &elf_loader,
@@ -210,6 +218,7 @@ const struct archive_loader ar_loader = {
     .parse_file = init,
     .parse_members = parse_members,
     .parse_symbol_index = parse_ranlib_index,
+    .load_member = load_elf_member,
     .release = free,
 };
 

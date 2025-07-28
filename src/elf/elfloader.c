@@ -160,7 +160,7 @@ static int parse_elf_symtab(void *ctx, bool (*emit_symbol)(void *user, const str
                 break;
 
             default:
-                symbol.bind = SYMBOL_LOCAL;
+                symbol.binding = SYMBOL_LOCAL;
                 break;
         }
 

@@ -43,6 +43,7 @@ struct archive
 
 struct archive_member
 {
+    struct archive *archive;    // pointer to the archive
     struct rb_node tree_node;   // entry in the archive index
     uint64_t member_id;         // generic member identifier (offset, index, ...)
     char *name;                 // name of the archive member (NOTE: may be NULL)
@@ -93,7 +94,7 @@ struct archive_symbol * archive_lookup_symbol(const struct archive *ar, const ch
  * If the object file is already loaded, the same reference
  * is returned.
  */
-struct objfile * archive_load_objfile(struct archive_member *member);
+struct objfile * archive_load_member_objfile(struct archive_member *member);
 
 
 /*

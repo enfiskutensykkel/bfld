@@ -41,8 +41,10 @@ struct archive_file
 struct linker_ctx
 {
     struct list_head input_files;
+    struct list_head processed_files;
     struct list_head archives;
-    struct rb_tree global_symtab;   // global symbol table
+    struct rb_tree global_symtab;       // global symbol table
+    struct list_head unresolved_syms;   // unresolved symbols
 };
 
 
@@ -60,13 +62,26 @@ static bool record_symbol(void *cb_data, const struct objfile *objfile, const st
     };
 
     fprintf(stdout, "%s: type=%s, binding=%s, size=%zu [%s]\n", 
-            objsym->name, type_names[objsym->type], binding_names[objsym->bind],
+            objsym->name, type_names[objsym->type], binding_names[objsym->binding],
             objsym->size,
             objsym->defined ? "defined" : "extern");
 
-
-
     return true;
+}
+
+
+static struct input_file * insert_objfile(struct linker_ctx *ctx, struct objfile *objfile)
+{
+    struct input_file *handle = malloc(sizeof(struct input_file));
+    if (handle == NULL) {
+        return NULL;
+    }
+
+    handle->file = objfile;
+    rb_tree_init(&handle->symtab);
+    list_insert_tail(&ctx->input_files, &handle->list);
+    handle->ctx = ctx;
+    return handle;
 }
 
 
@@ -79,17 +94,11 @@ static struct input_file * try_open_input_file(struct linker_ctx *ctx, mfile *fi
         return NULL;
     }
 
-    struct input_file *handle = malloc(sizeof(struct input_file));
-    if (handle == NULL) {
+    struct input_file *f = insert_objfile(ctx, objfile);
+    if (f == NULL) {
         objfile_put(objfile);
-        return NULL;
     }
-
-    handle->file = objfile;
-    rb_tree_init(&handle->symtab);
-    list_insert_tail(&ctx->input_files, &handle->list);
-    handle->ctx = linker_ctx;
-    return handle;
+    return f;
 }
 
 
@@ -157,7 +166,9 @@ static struct linker_ctx * create_ctx(void)
     }
 
     list_head_init(&ctx->input_files);
+    list_head_init(&ctx->processed_files);
     list_head_init(&ctx->archives);
+    list_head_init(&ctx->unresolved_syms);
     rb_tree_init(&ctx->global_symtab);
 
     return ctx;
@@ -170,8 +181,11 @@ static void destroy_ctx(struct linker_ctx *ctx)
         close_input_file(file);
     }
 
+    list_for_each_entry_safe(file, &ctx->processed_files, struct input_file, list) {
+        close_input_file(file);
+    }
+
     list_for_each_entry_safe(file, &ctx->archives, struct archive_file, list) {
-        fprintf(stderr, "%s\n", file->file->name);
         close_archive(file);
     }
 
@@ -261,11 +275,27 @@ int main(int argc, char **argv)
         log_ctx_pop();
     }
 
-    // Build symbol tables
-    list_for_each_entry(inputfile, &ctx->input_files, struct input_file, list) {
-        int status = objfile_extract_symbols(inputfile->file, record_symbol, inputfile);
-        if (status != 0) {
-            log_fatal("Error while processing symbols");
+    while (!list_empty(&ctx->input_files)) {
+
+        list_for_each_entry_safe(inputfile, &ctx->input_files, struct input_file, list) {
+            int status = objfile_extract_symbols(inputfile->file, record_symbol, inputfile);
+            if (status != 0) {
+                log_fatal("Error while processing symbols");
+            }
+
+            list_remove(&inputfile->list);
+            list_insert_tail(&ctx->processed_files, &inputfile->list);
+        }
+
+        list_for_each_entry(ar, &ctx->archives, struct archive_file, list) {
+            struct archive_symbol *sym = archive_lookup_symbol(ar->file, "bar");
+            if (sym != NULL) {
+                fprintf(stderr, "Found symbol %s in archive %s\n", sym->name, ar->file->name);
+                struct objfile *file = archive_load_member_objfile(sym->member);
+                if (file != NULL) {
+                    insert_objfile(ctx, file);
+                }
+            }
         }
     }
 

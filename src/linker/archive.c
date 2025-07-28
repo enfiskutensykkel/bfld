@@ -57,8 +57,10 @@ const struct archive_loader * archive_loader_probe(const uint8_t *data, size_t s
 }
 
 
-static void archive_member_remove(struct archive *ar, struct archive_member *member)
+static void archive_member_remove(struct archive_member *member)
 {
+    struct archive *ar = member->archive;
+
     rb_remove(&ar->members, &member->tree_node);
 
     if (member->objfile != NULL) {
@@ -105,6 +107,7 @@ static int archive_member_create(struct archive *ar, uint64_t member_id, const c
         }
     }
 
+    member->archive = ar;
     member->member_id = member_id;
     member->size = size;
     member->offset = offset;
@@ -198,7 +201,6 @@ static int archive_symbol_create(struct archive *ar, const char *name, uint64_t 
         free(sym);
         return ENOMEM;
     }
-    log_debug("create %s %p", sym->name, sym);
 
     sym->member_id = member_id;
     sym->member = member;
@@ -219,7 +221,6 @@ void archive_put(struct archive *ar)
                 node != NULL; 
                 node = next, next = next != NULL ? rb_next(next) : NULL) {
             struct archive_symbol *sym = rb_entry(node, struct archive_symbol, tree_node);
-            log_debug("delete %s", sym->name);
             archive_symbol_remove(ar, sym);
         }
 
@@ -227,12 +228,13 @@ void archive_put(struct archive *ar)
                 node != NULL; 
                 node = next, next = next != NULL ? rb_next(next) : NULL) {
             struct archive_member *member = rb_entry(node, struct archive_member, tree_node);
-            archive_member_remove(ar, member);
+            archive_member_remove(member);
         }
 
         if (ar->loader != NULL && ar->loader->release != NULL) {
             ar->loader->release(ar->loader_data);
         }
+
         mfile_put(ar->file);
         free(ar->name);
         free(ar);
@@ -341,4 +343,39 @@ struct archive * archive_load(mfile *file, const struct archive_loader *loader)
 
     log_ctx_pop();
     return ar;
+}
+
+
+struct objfile * archive_load_member_objfile(struct archive_member *member)
+{
+    if (member->objfile != NULL) {
+        objfile_get(member->objfile);
+        return member->objfile;
+    }
+
+    struct archive *ar = member->archive;
+    struct archive_loader *loader = ar->loader;
+
+    int status = objfile_init(&member->objfile, ar->file, member->name != NULL ? member->name : "");
+    if (status != 0) {
+        return NULL;
+    }
+
+    log_ctx_push(LOG_CTX_FILE(ar->loader->name, member->objfile->name));
+
+    member->objfile->loader = ar->loader->member_loader;
+
+    status = loader->load_member(ar->loader_data, loader->member_loader, &(member->objfile->loader_data),
+                                 member->member_id, member->name, member->offset, member->size);
+    if (status != 0) {
+        log_error("Failed to load archive member");
+        log_ctx_pop();
+        objfile_put(member->objfile);
+        member->objfile = NULL;
+        return NULL;
+    }
+
+    log_ctx_pop();
+    objfile_get(member->objfile);
+    return member->objfile;
 }

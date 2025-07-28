@@ -62,6 +62,19 @@ struct archive_loader
                               bool (*emit_symbol)(void *callback_data, const char *name, uint64_t member_id),
                               void *callback_data);
 
+
+    /*
+     * Load specified archive member.
+     */
+    int (*load_member)(void *archive_loader_data,
+                       const struct objfile_loader *loader,
+                       void **objfile_loader_data,
+                       uint64_t member_id,
+                       const char *name,
+                       size_t offset,
+                       size_t size);
+                       
+
     /*
      * Release the private data associated with the file; we're done with the file.
      */
