@@ -4,7 +4,7 @@ int a_weak_symbol __attribute__((weak));
 
 extern uint32_t *an_external_pointer;
 
-static uint8_t a_local_array[16];
+static uint16_t a_local_array[16];
 
 static void a_static_function(void)
 {

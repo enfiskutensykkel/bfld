@@ -157,19 +157,31 @@ void list_splice_tail(struct list_head *head, struct list_head *old_head)
 }
 
 
-/*
- * Helper macro to iterate a list forwards.
- */
 #define list_for_each(iterator, head_ptr) \
+    for (struct list_head *__it = (head_ptr)->next, *iterator = __it; \
+            (void*) __it != (void*) (head_ptr); \
+            __it = __it->next);
+
+
+/*
+ * Helper macro to iterate a list forwards in a manner safe for removal.
+ */
+#define list_for_each_safe(iterator, head_ptr) \
     for (struct list_head *__it = (head_ptr)->next, *__next = __it->next, *iterator = __it; \
             (void*) __it != (void*) (head_ptr); \
             __it = __next, __next = (__next)->next, iterator = __it)
 
 
+
+#define list_for_each_reverse(iterator, head_ptr) \
+    for (struct list_head *__it = (head_ptr)->prev, *iterator = __it; \
+            (void*) __it != (void*) (head_ptr); \
+            __it = __it->prev);
+
 /*
  * Helper macro to iterate a list in reverse.
  */
-#define list_for_each_reverse(iterator, head_ptr) \
+#define list_for_each_reverse_safe(iterator, head_ptr) \
     for (struct list_head *__it = (head_ptr)->prev, *__next = __it->prev, *iterator = __it; \
             (void*) __it != (void*) (head_ptr); \
             __it = __next, __next = (__next)->prev, iterator = __it)
@@ -237,6 +249,15 @@ void list_splice_tail(struct list_head *head, struct list_head *old_head)
  * Helper macro to iterate a list entries of given type.
  */
 #define list_for_each_entry(iterator, head_ptr, type, member) \
+    for (type* __it = (void*) (head_ptr)->next, *iterator = list_entry((void*) __it, type, member); \
+            (void*) __it != (void*) (head_ptr); \
+            __it = (type*) ((struct list_head*) __it)->next, iterator = list_entry((void*) __it, type, member))
+
+
+/*
+ * Helper macro to iterate a list entries of given type in a manner safe for removal.
+ */
+#define list_for_each_entry_safe(iterator, head_ptr, type, member) \
     for (type* __it = (void*) (head_ptr)->next, *__next = (type*) ((struct list_head*) __it)->next, *iterator = list_entry((void*) __it, type, member); \
             (void*) __it != (void*) (head_ptr); \
             __it = __next, __next = (type*) ((struct list_head*) __next)->next, iterator = list_entry((void*) __it, type, member))

@@ -7,6 +7,8 @@ extern "C" {
 #include <stddef.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <stdlib.h>
+#include <string.h>
 
 
 typedef struct {
@@ -40,7 +42,15 @@ static inline
 void log_ctx_push(log_ctx_t ctx)
 {
     if (__log_ctx_idx < LOG_CTX_NUM - 1) {
-        __log_ctx[++__log_ctx_idx] = ctx;
+        log_ctx_t new_ctx = {
+            .name = ctx.name != NULL ? strdup(ctx.name) : NULL,
+            .file = ctx.file != NULL ? strdup(ctx.file) : NULL,
+            .section = ctx.section != NULL ? strdup(ctx.section) : NULL,
+            .offset = ctx.offset,
+            .lineno = ctx.lineno
+        };
+
+        __log_ctx[++__log_ctx_idx] = new_ctx;
     }
 }
 
@@ -49,7 +59,16 @@ static inline
 void log_ctx_pop(void)
 {
     if (__log_ctx_idx > 0) {
-        --__log_ctx_idx;
+        log_ctx_t *ctx = &__log_ctx[__log_ctx_idx--];
+        if (ctx->name != NULL) {
+            free((void*) ctx->name);
+        }
+        if (ctx->file != NULL) {
+            free((void*) ctx->file);
+        }
+        if (ctx->section != NULL) {
+            free((void*) ctx->section);
+        }
     }
 }
 
@@ -70,13 +89,13 @@ void log_message(int level, const char *fmt, ...)
         const log_ctx_t *ctx = &__log_ctx[__log_ctx_idx];
 
         if (ctx->file != NULL) {
-            fprintf(stderr, "[%s", ctx->file ? ctx->file : "unknown");
+            fprintf(stderr, "[%s", ctx->file);
 
             if (ctx->section != NULL) {
                 fprintf(stderr, ":%s", ctx->section);
             }
 
-            if (ctx->offset) {
+            if (ctx->offset > 0) {
                 fprintf(stderr, "+0x%zx", ctx->offset);
             }
 
@@ -114,31 +133,31 @@ void log_message(int level, const char *fmt, ...)
 
 
 #define log_trace(fmt, ...) \
-    log_message(LOG_TRACE, fmt, ##__VA_ARGS__);
+    log_message(LOG_TRACE, fmt, ##__VA_ARGS__)
 
 
 #define log_debug(fmt, ...) \
-    log_message(LOG_DEBUG, fmt, ##__VA_ARGS__);
+    log_message(LOG_DEBUG, fmt, ##__VA_ARGS__)
 
 
 #define log_info(fmt, ...) \
-    log_message(LOG_INFO, fmt, ##__VA_ARGS__);
+    log_message(LOG_INFO, fmt, ##__VA_ARGS__)
 
 
 #define log_notice(fmt, ...) \
-    log_message(LOG_NOTICE, fmt, ##__VA_ARGS__);
+    log_message(LOG_NOTICE, fmt, ##__VA_ARGS__)
 
 
 #define log_warning(fmt, ...) \
-    log_message(LOG_WARNING, fmt, ##__VA_ARGS__);
+    log_message(LOG_WARNING, fmt, ##__VA_ARGS__)
 
 
 #define log_error(fmt, ...) \
-    log_message(LOG_ERROR, fmt, ##__VA_ARGS__);
+    log_message(LOG_ERROR, fmt, ##__VA_ARGS__)
 
 
 #define log_fatal(fmt, ...) \
-    log_message(LOG_FATAL, fmt, ##__VA_ARGS__);
+    log_message(LOG_FATAL, fmt, ##__VA_ARGS__)
 
 
 #ifdef __cplusplus

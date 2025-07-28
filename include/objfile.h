@@ -4,8 +4,10 @@
 extern "C" {
 #endif
 
+#include "objfilesym.h"
 #include "mfile.h"
 #include "utils/rbtree.h"
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -58,13 +60,22 @@ void objfile_put(struct objfile *objfile);
 struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader);
 
 
-
 /*
  * Extract all symbols from the object file.
+ *
+ * Invokes the callback for each symbol in the file.
+ *
+ * If the callback returns anything but true, the processing
+ * will stop and ECANCELED is returned.
+ *
+ * Otherwise, if parsing of symbols failed by the underlying
+ * object file loader, EBADF is returned.
+ *
+ * On success, this function returns 0.
  */
 int objfile_extract_symbols(struct objfile* objfile,
-                            struct rb_tree *global_symtab,
-                            struct rb_tree *local_symtab);
+                            bool (*callback)(void *callback_data, const struct objfile*, const struct objfile_symbol*),
+                            void *callback_data);
 
 
 

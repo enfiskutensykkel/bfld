@@ -129,7 +129,7 @@ static int parse_elf_file(void **ctx_data, const uint8_t *data, size_t size)
 }
 
 
-static int parse_elf_symtab(void *ctx, int (*emit_symbol)(void *user, const struct objfile_symbol*), void *user)
+static int parse_elf_symtab(void *ctx, bool (*emit_symbol)(void *user, const struct objfile_symbol*), void *user)
 {
     struct elf_file *ef = (struct elf_file*) ctx;
 
@@ -191,9 +191,8 @@ static int parse_elf_symtab(void *ctx, int (*emit_symbol)(void *user, const stru
                 continue;  // skip section type
         }
 
-        if (emit_symbol(user, &symbol) < 0) {
-            log_fatal("Fatal error while processing symbols, aborting further processing");
-            return -1;
+        if (!emit_symbol(user, &symbol)) {
+            return ECANCELED;
         }
     }
 

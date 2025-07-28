@@ -15,7 +15,7 @@
 
 int __log_verbosity = 5;
 int __log_ctx_idx = 0;
-log_ctx_t __log_ctx[LOG_CTX_NUM];
+log_ctx_t __log_ctx[LOG_CTX_NUM] = {0};
 
 
 struct input_file
@@ -41,9 +41,9 @@ struct linker_ctx
 };
 
 
-static void dump_symtab(struct rb_tree *symtab)
+static bool record_symbol(void *cb_data, const struct objfile *file, const struct objfile_symbol *objsym)
 {
-    struct rb_node *node = rb_first(symtab);
+    struct linker_ctx *ctx = cb_data;
 
     const char *binding_names[SYMBOL_WEAK + 1] = {
         "LOCAL", "GLOBAL", "WEAK"
@@ -52,16 +52,12 @@ static void dump_symtab(struct rb_tree *symtab)
     const char *type_names[SYMBOL_FUNCTION + 1] = {
         "UNDEFINED", "NOTYPE", "DATA", "FUNCTION"
     };
+    fprintf(stdout, "%s: type=%s, binding=%s, size=%zu [%s]\n", 
+            objsym->name, type_names[objsym->type], binding_names[objsym->bind],
+            objsym->size,
+            objsym->defined ? "defined" : "extern");
 
-    while (node != NULL) {
-        struct symbol *sym = rb_entry(node, struct symbol, tree_node);
-        fprintf(stdout, "%s: type=%s, binding=%s, size=%zu [%s]\n", 
-                sym->name, type_names[sym->type], binding_names[sym->binding],
-                sym->size,
-                sym->defined ? "defined" : "extern");
-
-        node = rb_next(node);
-    }
+    return true;
 }
 
 
@@ -159,11 +155,12 @@ static struct linker_ctx * create_ctx(void)
 
 static void destroy_ctx(struct linker_ctx *ctx)
 {
-    list_for_each_entry(file, &ctx->input_files, struct input_file, list) {
+    list_for_each_entry_safe(file, &ctx->input_files, struct input_file, list) {
         close_input_file(file);
     }
 
-    list_for_each_entry(file, &ctx->archives, struct archive_file, list) {
+    list_for_each_entry_safe(file, &ctx->archives, struct archive_file, list) {
+        fprintf(stderr, "%s\n", file->file->name);
         close_archive(file);
     }
 
@@ -255,20 +252,11 @@ int main(int argc, char **argv)
 
     // Build symbol tables
     list_for_each_entry(inputfile, &ctx->input_files, struct input_file, list) {
-        int status = objfile_extract_symbols(inputfile->file, &ctx->global_symtab, &inputfile->symtab);
+        int status = objfile_extract_symbols(inputfile->file, record_symbol, ctx);
         if (status != 0) {
-            log_fatal("Fatal error occurred while loading symbols");
-            destroy_ctx(ctx);
-            exit(3);
+            log_fatal("Error while processing symbols");
         }
-
-        fprintf(stdout, "Local symbol table for %s\n", inputfile->file->name);
-        dump_symtab(&inputfile->symtab);
-        fprintf(stdout, "\n");
     }
-
-    fprintf(stdout, "Global symbol table\n");
-    dump_symtab(&ctx->global_symtab);
 
     destroy_ctx(ctx);
     exit(0);

@@ -5,25 +5,10 @@ extern "C" {
 #endif
 
 #include "symtypes.h"
+#include "objfilesym.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-
-
-/*
- * Representation of a symbol detected in the object file.
- */
-struct objfile_symbol
-{
-    const char          *name;      // symbol name
-    uint64_t            value;      // value of the symbol
-    enum symbol_binding bind;       // symbol binding
-    enum symbol_type    type;       // symbol type
-    bool                defined;    // is the symbol defined?
-    uint64_t            sect_idx;   // section index (if defined)
-    size_t              size;       // size of the defined symbol
-    size_t              offset;     // offset within the section (if defined)
-};
 
 
 /*
@@ -70,21 +55,11 @@ struct objfile_loader
      * index and section offset (if the symbol is defined in
      * the current input file).
      *
-     * If symbol type is other than SYMBOL_UNDEFINED, the symbol
-     * is assumed to be defined in the specified section (given by
-     * sect_idx) and offset. If symbol type is SYMBOL_UNDEFINED,
-     * sect_idx and sect_offset are ignored.
-     *
      * The return value of the emit_symbol callback indicates
-     * the following:
-     *  0 - the symbol was added to the symbol table, 
-     *      continue parsing
-     * >0 - the symbol was rejected, but this was handled,
-     *      continue parsing
-     * <0 - fatal error, stop parsing
+     * whether processing should continue (true) or stop (false).
      */
     int (*extract_symbols)(void *objfile_loader_data,
-                           int (*emit_symbol)(void *callback_data, const struct objfile_symbol*),
+                           bool (*emit_symbol)(void *callback_data, const struct objfile_symbol*),
                            void *callback_data);
                             
 

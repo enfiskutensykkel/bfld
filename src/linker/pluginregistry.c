@@ -55,7 +55,7 @@ int plugin_register(struct list_head *registry, const char *name, const void *pl
 
 void plugin_clear_registry(struct list_head *registry)
 {
-    list_for_each_entry(entry, registry, struct plugin_registry_entry, list_node) {
+    list_for_each_entry_safe(entry, registry, struct plugin_registry_entry, list_node) {
         plugin_unregister(entry);
     }
 }

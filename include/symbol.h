@@ -5,6 +5,7 @@ extern "C" {
 #endif
 
 #include <symtypes.h>
+#include <utils/list.h>
 #include <utils/rbtree.h>
 #include <stddef.h>
 #include <stdbool.h>
@@ -18,25 +19,33 @@ struct objfile;
 
 
 /*
- * Intermediate representation of a symbol declaration.
+ * Intermediate representation of a defined symbol.
  */
 struct symbol
 {
-    const char *name;
+    char *name;
     struct rb_node tree_node;
     enum symbol_binding binding;
     enum symbol_type type;  // Defaults to SYMBOL_NOTYPE
 
     uint64_t addr;          // absolute for an executable, relative (to base address) for a shared library
 
+    bool defined;
     struct objfile *source; // object file this symbol came from
-    
-    bool defined;           // Is the symbol defined?
-    struct objfile *definition; // object file where the symbol definition comes from
+    struct objfile *definition; // object file this symbol came from
+
     uint64_t sect_idx;      // Section index
     size_t offset;          // offset into the section to definition
     size_t size;            // size of the symbol
 };
+
+
+struct unresolved_symbol
+{
+    struct list_head list_node;
+    struct symbol *sym;
+};
+
 
 
 /*
