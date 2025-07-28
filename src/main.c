@@ -18,8 +18,12 @@ int __log_ctx_idx = 0;
 log_ctx_t __log_ctx[LOG_CTX_NUM] = {0};
 
 
+struct linker_ctx;
+
+
 struct input_file
 {
+    struct linker_ctx *ctx;
     struct list_head list;
     struct objfile *file;
     struct rb_tree symtab;  // local symbol table
@@ -28,6 +32,7 @@ struct input_file
 
 struct archive_file
 {
+    struct linker_ctx *ctx;
     struct list_head list;
     struct archive *file;
 };
@@ -41,9 +46,10 @@ struct linker_ctx
 };
 
 
-static bool record_symbol(void *cb_data, const struct objfile *file, const struct objfile_symbol *objsym)
+static bool record_symbol(void *cb_data, const struct objfile *objfile, const struct objfile_symbol *objsym)
 {
-    struct linker_ctx *ctx = cb_data;
+    struct input_file *file = cb_data;
+    struct linker_ctx *ctx = file->ctx;
 
     const char *binding_names[SYMBOL_WEAK + 1] = {
         "LOCAL", "GLOBAL", "WEAK"
@@ -52,10 +58,13 @@ static bool record_symbol(void *cb_data, const struct objfile *file, const struc
     const char *type_names[SYMBOL_FUNCTION + 1] = {
         "UNDEFINED", "NOTYPE", "DATA", "FUNCTION"
     };
+
     fprintf(stdout, "%s: type=%s, binding=%s, size=%zu [%s]\n", 
             objsym->name, type_names[objsym->type], binding_names[objsym->bind],
             objsym->size,
             objsym->defined ? "defined" : "extern");
+
+
 
     return true;
 }
@@ -79,6 +88,7 @@ static struct input_file * try_open_input_file(struct linker_ctx *ctx, mfile *fi
     handle->file = objfile;
     rb_tree_init(&handle->symtab);
     list_insert_tail(&ctx->input_files, &handle->list);
+    handle->ctx = linker_ctx;
     return handle;
 }
 
@@ -100,6 +110,7 @@ static struct archive_file * try_open_archive(struct linker_ctx *ctx, mfile *fil
 
     handle->file = ar;
     list_insert_tail(&ctx->archives, &handle->list);
+    handle->ctx = ctx;
     return handle;
 }
 
@@ -252,7 +263,7 @@ int main(int argc, char **argv)
 
     // Build symbol tables
     list_for_each_entry(inputfile, &ctx->input_files, struct input_file, list) {
-        int status = objfile_extract_symbols(inputfile->file, record_symbol, ctx);
+        int status = objfile_extract_symbols(inputfile->file, record_symbol, inputfile);
         if (status != 0) {
             log_fatal("Error while processing symbols");
         }

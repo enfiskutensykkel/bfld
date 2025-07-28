@@ -18,7 +18,7 @@ struct objfile_symbol
 {
     const char          *name;      // symbol name
     uint64_t            value;      // value of the symbol
-    enum symbol_binding bind;       // symbol binding
+    enum symbol_binding binding;    // symbol binding
     enum symbol_type    type;       // symbol type
     bool                defined;    // is the symbol defined?
     uint64_t            sect_idx;   // section index (if defined)

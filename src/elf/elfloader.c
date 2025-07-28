@@ -148,15 +148,15 @@ static int parse_elf_symtab(void *ctx, bool (*emit_symbol)(void *user, const str
 
         switch (bind) {
             case STB_LOCAL:
-                symbol.bind = SYMBOL_LOCAL;
+                symbol.binding = SYMBOL_LOCAL;
                 break;
 
             case STB_GLOBAL:
-                symbol.bind = SYMBOL_GLOBAL;
+                symbol.binding = SYMBOL_GLOBAL;
                 break;
 
             case STB_WEAK:
-                symbol.bind = SYMBOL_WEAK;
+                symbol.binding = SYMBOL_WEAK;
                 break;
 
             default:
@@ -184,11 +184,11 @@ static int parse_elf_symtab(void *ctx, bool (*emit_symbol)(void *user, const str
             case STT_COMMON:
                 // treat as weak, uninitialized data
                 symbol.type = SYMBOL_NOTYPE;
-                symbol.bind = SYMBOL_WEAK;
+                symbol.binding = SYMBOL_WEAK;
                 break;
 
             default:
-                continue;  // skip section type
+                continue;   
         }
 
         if (!emit_symbol(user, &symbol)) {

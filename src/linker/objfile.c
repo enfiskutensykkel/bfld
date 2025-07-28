@@ -173,7 +173,6 @@ static bool _emit_symbol(void *cb_data, const struct objfile_symbol *sym)
 }
 
 
-
 int objfile_extract_symbols(struct objfile* objfile, bool (*callback)(void *user, const struct objfile*, const struct objfile_symbol*), void *user)
 {
     if (objfile->loader == NULL || objfile->loader->extract_symbols == NULL) {
