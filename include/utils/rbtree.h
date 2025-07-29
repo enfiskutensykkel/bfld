@@ -61,12 +61,44 @@ struct rb_node
 
 
 /*
+ * Check if the tree is empty.
+ */
+static inline
+bool rb_tree_empty(const struct rb_tree *tree)
+{
+    return tree->root == NULL;
+}
+
+
+/*
+ * Initialize an empty node that's not part of a tree.
+ */
+static inline 
+void rb_node_init(struct rb_node *node)
+{
+    node->parent = node;
+    node->left = node->right = NULL;
+}
+
+
+
+/*
  * Initialize an empty tree.
  */
 static inline
 void rb_tree_init(struct rb_tree *tree)
 {
     tree->root = NULL;
+}
+
+
+/*
+ * Is the node inserted into a tree?
+ */
+static inline
+bool rb_node_is_inserted(const struct rb_node *node)
+{
+    return node->parent != node;
 }
 
 

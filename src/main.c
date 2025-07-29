@@ -3,7 +3,7 @@
 #include <mfile.h>
 #include <objfile.h>
 #include <objfile_loader.h>
-#include <symbol.h>
+#include <symtab.h>
 #include <utils/list.h>
 #include <utils/rbtree.h>
 #include <stddef.h>
@@ -11,6 +11,7 @@
 #include <string.h>
 #include <getopt.h>
 #include <errno.h>
+#include <assert.h>
 
 
 int __log_verbosity = 5;
@@ -26,7 +27,7 @@ struct input_file
     struct linker_ctx *ctx;
     struct list_head list;
     struct objfile *file;
-    struct rb_tree symtab;  // local symbol table
+    struct symtab *symtab;  // local symbol table
 };
 
 
@@ -41,30 +42,114 @@ struct archive_file
 struct linker_ctx
 {
     struct list_head input_files;
-    struct list_head processed_files;
     struct list_head archives;
-    struct rb_tree global_symtab;       // global symbol table
-    struct list_head unresolved_syms;   // unresolved symbols
+    struct symtab *symtab;              // global symbol table
+    struct list_head unresolved;        // queue of unresolved symbols
 };
 
 
-static bool record_symbol(void *cb_data, const struct objfile *objfile, const struct objfile_symbol *objsym)
+struct unresolved
+{
+    struct list_head list;
+    struct symbol *symbol;
+};
+
+
+static bool record_symbol(void *cb_data, struct objfile *objfile, const struct objfile_symbol *objsym)
 {
     struct input_file *file = cb_data;
     struct linker_ctx *ctx = file->ctx;
 
-    const char *binding_names[SYMBOL_WEAK + 1] = {
-        "LOCAL", "GLOBAL", "WEAK"
-    };
+    if (objsym->binding == SYMBOL_LOCAL && !objsym->defined) {
+        log_error("Undefined symbol '%s' in %s is a local symbol",
+                objsym->name, objfile->name);
+        return false;
+    }
 
-    const char *type_names[SYMBOL_FUNCTION + 1] = {
-        "UNDEFINED", "NOTYPE", "DATA", "FUNCTION"
-    };
+    if (objsym->binding == SYMBOL_LOCAL) {
+        int rc;
+        struct symbol *sym;
 
-    fprintf(stdout, "%s: type=%s, binding=%s, size=%zu [%s]\n", 
-            objsym->name, type_names[objsym->type], binding_names[objsym->binding],
-            objsym->size,
-            objsym->defined ? "defined" : "extern");
+        rc = symbol_alloc(&sym, objfile, objfile->name, false);
+        if (rc != 0) {
+            return false;
+        }
+
+        rc = symbol_resolve(sym, objfile, objsym->sect_idx, objsym->offset,
+                            objsym->type, objsym->size);
+        assert(rc == 0);
+
+        rc = symtab_insert_symbol(file->symtab, sym, NULL);
+        if (rc != 0) {
+            log_error("Symbol '%s' is defined multiple times in %s",
+                    sym->name, objfile->name);
+            symbol_free(sym);
+            return false;
+        }
+
+        return true;
+    }
+
+    struct symbol *symbol = symtab_find_symbol(ctx->symtab, objsym->name);
+    if (symbol == NULL) {
+        // This is a new global symbol
+
+        int rc = symbol_alloc(&symbol, objfile, objsym->name, objsym->binding == SYMBOL_WEAK);
+        if (rc != 0) {
+            return false;
+        }
+
+        struct symbol *exist;
+        rc = symtab_insert_symbol(ctx->symtab, symbol, &exist);
+        if (rc == EEXIST) {
+            if (!exist->weak) {
+                log_error("Multiple definitions for symbol '%s'; both %s and %s define it",
+                        symbol->name, objfile->name, symbol_referer(exist)->name);
+                symbol_free(symbol);
+                return false;
+            }
+
+            log_debug("Replacing weak symbol '%s' with definition from %s",
+                    symbol->name, objfile->name);
+
+            // The existing symbol is weak, replace it
+            symtab_replace_symbol(ctx->symtab, exist, symbol);
+            symbol_free(exist);
+
+        } else if (rc != 0) {
+            // Something else went wrong
+            symbol_free(symbol);
+            return false;
+        }
+    }
+
+    if (objsym->defined) {
+        // This is a symbol definition, attempt to resolve it
+        int rc = symbol_resolve(symbol, objfile, objsym->sect_idx, objsym->offset,
+                                objsym->type, objsym->size);
+        if (rc != 0) {
+            log_error("Multiple definitions for symbol '%s'; both %s and %s define it",
+                    symbol->name, objfile->name, symbol->definer->name);
+            return false;
+        }
+
+    } else {
+        // This is a symbol reference, if we didn't just create it, 
+        // add ourselves as a referer. Otherwise, add it to the list
+        // of unresolved symbols
+        if (symbol_referer(symbol) != objfile) {
+            symbol_add_reference(symbol, objfile);
+
+        } else if (!symbol_is_resolved(symbol)) {
+            struct unresolved *unresolved = malloc(sizeof(struct unresolved));
+            if (unresolved == NULL) {
+                return false;
+            }
+            
+            unresolved->symbol = symbol;
+            list_insert_tail(&ctx->unresolved, &unresolved->list);
+        }
+    }
 
     return true;
 }
@@ -72,15 +157,27 @@ static bool record_symbol(void *cb_data, const struct objfile *objfile, const st
 
 static struct input_file * insert_objfile(struct linker_ctx *ctx, struct objfile *objfile)
 {
+    if (objfile == NULL) {
+        return NULL;
+    }
+
     struct input_file *handle = malloc(sizeof(struct input_file));
     if (handle == NULL) {
+        objfile_put(objfile);
+        return NULL;
+    }
+
+    int status = symtab_init(&handle->symtab, objfile->name);
+    if (status != 0) {
+        free(handle);
+        objfile_put(objfile);
         return NULL;
     }
 
     handle->file = objfile;
-    rb_tree_init(&handle->symtab);
     list_insert_tail(&ctx->input_files, &handle->list);
     handle->ctx = ctx;
+
     return handle;
 }
 
@@ -94,11 +191,7 @@ static struct input_file * try_open_input_file(struct linker_ctx *ctx, mfile *fi
         return NULL;
     }
 
-    struct input_file *f = insert_objfile(ctx, objfile);
-    if (f == NULL) {
-        objfile_put(objfile);
-    }
-    return f;
+    return insert_objfile(ctx, objfile);
 }
 
 
@@ -132,27 +225,10 @@ static void close_archive(struct archive_file *file)
 }
 
 
-static void destroy_symtab(struct rb_tree *symtab)
-{
-    struct rb_node *node = rb_first(symtab);
-
-    while (node != NULL) {
-        struct symbol *sym = rb_entry(node, struct symbol, tree_node);
-        struct rb_node *next = rb_next(node);
-
-        symbol_remove(symtab, &sym);
-
-        node = next;
-    }
-
-    rb_tree_init(symtab);
-}
-
-
 static void close_input_file(struct input_file *file)
 {
     list_remove(&file->list);
-    destroy_symtab(&file->symtab);
+    symtab_put(file->symtab);
     objfile_put(file->file);
     free(file);
 }
@@ -165,12 +241,15 @@ static struct linker_ctx * create_ctx(void)
         return NULL;
     }
 
-    list_head_init(&ctx->input_files);
-    list_head_init(&ctx->processed_files);
-    list_head_init(&ctx->archives);
-    list_head_init(&ctx->unresolved_syms);
-    rb_tree_init(&ctx->global_symtab);
+    int status = symtab_init(&ctx->symtab, "global");
+    if (status != 0) {
+        free(ctx);
+        return NULL;
+    }
 
+    list_head_init(&ctx->input_files);
+    list_head_init(&ctx->archives);
+    list_head_init(&ctx->unresolved);
     return ctx;
 }
 
@@ -181,15 +260,16 @@ static void destroy_ctx(struct linker_ctx *ctx)
         close_input_file(file);
     }
 
-    list_for_each_entry_safe(file, &ctx->processed_files, struct input_file, list) {
-        close_input_file(file);
-    }
-
     list_for_each_entry_safe(file, &ctx->archives, struct archive_file, list) {
         close_archive(file);
     }
 
-    destroy_symtab(&ctx->global_symtab);
+    list_for_each_entry_safe(unresolved, &ctx->unresolved, struct unresolved, list) {
+        list_remove(&unresolved->list);
+        free(unresolved);
+    }
+
+    symtab_put(ctx->symtab);
     free(ctx);
 }
 
@@ -275,28 +355,69 @@ int main(int argc, char **argv)
         log_ctx_pop();
     }
 
-    while (!list_empty(&ctx->input_files)) {
+    // Extract symbols and build symbol tables
+    list_for_each_entry(ifile, &ctx->input_files, struct input_file, list) {
+        log_ctx_push(LOG_CTX_FILE(NULL, ifile->file->name));
+        int status = objfile_extract_symbols(ifile->file, record_symbol, ifile);
+        if (status != 0) {
+            log_fatal("Failed to extract symbols");
+            log_ctx_pop();
+            destroy_ctx(ctx);
+            exit(1);
+        }
+        log_ctx_pop();
+    }
 
-        list_for_each_entry_safe(inputfile, &ctx->input_files, struct input_file, list) {
-            int status = objfile_extract_symbols(inputfile->file, record_symbol, inputfile);
-            if (status != 0) {
-                log_fatal("Error while processing symbols");
-            }
+    // Resolve undefined symbols
+    while (!list_empty(&ctx->unresolved)) {
+        struct unresolved *unresolved = list_first_entry(&ctx->unresolved, struct unresolved, list);
 
-            list_remove(&inputfile->list);
-            list_insert_tail(&ctx->processed_files, &inputfile->list);
+        // This is necessary for the first pass since we've only gone through the object files once
+        if (symbol_is_resolved(unresolved->symbol)) {
+            // symbol is no longer unresolved, just ignore it
+            list_remove(&unresolved->list);
+            free(unresolved);
+            continue;
         }
 
+        log_ctx_push(LOG_CTX_FILE(NULL, symbol_referer(unresolved->symbol)->name));
+
+        // Try to look up symbol in any of the archives
         list_for_each_entry(ar, &ctx->archives, struct archive_file, list) {
-            struct archive_symbol *sym = archive_lookup_symbol(ar->file, "bar");
-            if (sym != NULL) {
-                fprintf(stderr, "Found symbol %s in archive %s\n", sym->name, ar->file->name);
-                struct objfile *file = archive_load_member_objfile(sym->member);
-                if (file != NULL) {
-                    insert_objfile(ctx, file);
+            struct archive_symbol *found = archive_lookup_symbol(ar->file, unresolved->symbol->name);
+            if (found) {
+                log_debug("Found unresolved symbol '%s' in %s",
+                        unresolved->symbol->name, ar->file->name);
+
+                struct input_file *file = insert_objfile(ctx, archive_load_member_objfile(found->member));
+                if (file == NULL) {
+                    log_error("Failed to load archive member");
+                    continue;
                 }
+
+                int status = objfile_extract_symbols(file->file, record_symbol, file);
+                if (status != 0) {
+                    log_fatal("Failed to extract symbols");
+                    destroy_ctx(ctx);
+                    continue;
+                }
+                break;
             }
         }
+
+        if (!symbol_is_resolved(unresolved->symbol)) {
+            log_fatal("Reference to undefined symbol '%s'", 
+                    unresolved->symbol->name);
+            log_ctx_pop();
+            destroy_ctx(ctx);
+            exit(1);
+
+        } else {
+            list_remove(&unresolved->list);
+            free(unresolved);
+        }
+
+        log_ctx_pop();
     }
 
     destroy_ctx(ctx);

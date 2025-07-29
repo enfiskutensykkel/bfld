@@ -33,7 +33,7 @@ add_library(linkerlib SHARED
     src/linker/objfile.c 
     src/linker/archive.c
     src/linker/section.c
-    src/linker/symbol.c
+    src/linker/symtab.c
 )
 target_include_directories(linkerlib PUBLIC include)  # also includes "include/utils"
 target_include_directories(linkerlib PRIVATE include/utils)

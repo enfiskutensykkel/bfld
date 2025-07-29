@@ -1,4 +1,3 @@
-#include "symbol.h"
 #include "section.h"
 #include "objfile.h"
 #include <stdlib.h>

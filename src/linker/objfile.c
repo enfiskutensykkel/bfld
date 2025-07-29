@@ -4,7 +4,6 @@
 #include "objfile.h"
 #include "objfile_loader.h"
 #include "mfile.h"
-#include "symbol.h"
 #include "utils/list.h"
 #include "utils/rbtree.h"
 #include <stdlib.h>
@@ -21,7 +20,7 @@ struct objfile_callback_data
 {
     int status;
     struct objfile *objfile;
-    bool (*emit_symbol_cb)(void*, const struct objfile*, const struct objfile_symbol*);
+    bool (*emit_symbol_cb)(void*, struct objfile*, const struct objfile_symbol*);
     void *user_data;
 };
 
@@ -173,7 +172,7 @@ static bool _emit_symbol(void *cb_data, const struct objfile_symbol *sym)
 }
 
 
-int objfile_extract_symbols(struct objfile* objfile, bool (*callback)(void *user, const struct objfile*, const struct objfile_symbol*), void *user)
+int objfile_extract_symbols(struct objfile* objfile, bool (*callback)(void *user, struct objfile*, const struct objfile_symbol*), void *user)
 {
     if (objfile->loader == NULL || objfile->loader->extract_symbols == NULL) {
         log_error("Missing loader for object file");

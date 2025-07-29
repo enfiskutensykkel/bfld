@@ -30,7 +30,6 @@ enum symbol_binding
 
 enum symbol_type
 {
-    SYMBOL_UNDEFINED,
     SYMBOL_NOTYPE,
     SYMBOL_DATA,
     SYMBOL_FUNCTION

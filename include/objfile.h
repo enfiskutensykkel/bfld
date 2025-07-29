@@ -74,7 +74,7 @@ struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader);
  * On success, this function returns 0.
  */
 int objfile_extract_symbols(struct objfile* objfile,
-                            bool (*callback)(void *callback_data, const struct objfile*, const struct objfile_symbol*),
+                            bool (*callback)(void *callback_data, struct objfile*, const struct objfile_symbol*),
                             void *callback_data);
 
 

@@ -60,28 +60,14 @@
 #define rb_is_red(node_ptr) !rb_is_black(node_ptr)
 
 
+#define rb_is_cleared(node_ptr) ((node_ptr)->parent == (node_ptr))
+
+
 static inline void rb_set_black(struct rb_node *node)
 {
     if (node != NULL) {
         node->color = RB_BLACK;
     }
-}
-
-
-/*
- * Nodes that are known not to be inserted in a tree
- * are considered "cleared".
- */
-static inline bool rb_is_cleared(const struct rb_node *node)
-{
-    return node->parent == node;
-}
-
-
-static inline void rb_clear_node(struct rb_node *node)
-{
-    node->parent = node;
-    node->left = node->right = NULL;
 }
 
 
@@ -287,6 +273,7 @@ void rb_replace_node(struct rb_tree *tree,
     }
 
     rb_transplant(tree, parent, old_node, new_node);
+    rb_node_init(old_node);
 }
 
 
@@ -493,7 +480,7 @@ void rb_remove(struct rb_tree *tree, struct rb_node *node)
         rb_remove_fixup(tree, fixup);
     }
 
-    rb_clear_node(node);
+    rb_node_init(node);
 }
 
 
