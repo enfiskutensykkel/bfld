@@ -36,6 +36,12 @@ enum symbol_type
 };
 
 
+/* Forward declarations */
+struct symbol;
+struct symref;
+struct symtab;
+
+
 #ifdef __cplusplus
 }
 #endif

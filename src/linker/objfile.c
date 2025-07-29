@@ -1,6 +1,6 @@
 #include "logging.h"
 #include "symtypes.h"
-#include "objfilesym.h"
+#include "objtypes.h"
 #include "objfile.h"
 #include "objfile_loader.h"
 #include "mfile.h"
@@ -76,7 +76,11 @@ void objfile_put(struct objfile *objfile)
         if (objfile->loader != NULL && objfile->loader->release != NULL) {
             objfile->loader->release(objfile->loader_data);
         }
-        mfile_put(objfile->file);
+
+        if (objfile->file != NULL) {
+            mfile_put(objfile->file);
+        }
+
         free(objfile->name);
         free(objfile);
     }
@@ -89,9 +93,15 @@ void objfile_get(struct objfile *objfile)
 }
 
 
-int objfile_init(struct objfile **objfile, mfile *file, const char *name)
+bool _objfile_section_create(void *ctx, const struct objfile_section *sect)
 {
-        
+    return true;
+}
+
+
+int objfile_init(struct objfile **objfile, const struct objfile_loader *loader,
+                 const char *name, const uint8_t *data, size_t size)
+{
     struct objfile *obj = malloc(sizeof(struct objfile));
     if (obj == NULL) {
         return ENOMEM;
@@ -103,15 +113,42 @@ int objfile_init(struct objfile **objfile, mfile *file, const char *name)
         return ENOMEM;
     }
 
-    mfile_get(file);
-    obj->file = file;
+    obj->file = NULL;
     obj->refcnt = 1;
-    obj->loader_data = NULL;
-    obj->loader = NULL;
 
+    obj->loader = NULL;
+    obj->loader_data = NULL;
+
+    log_ctx_push(LOG_CTX_FILE(loader->name, name));
+
+    // Do the initial parsing of the file
+    int status = loader->parse_file(&obj->loader_data, data, size);
+    if (status != 0) {
+        // Loader wasn't happy with the file
+        log_error("Invalid file format or corrupt file");
+        objfile_put(obj);
+        log_ctx_pop();
+        return EINVAL;
+    }
+
+    obj->loader = loader;
+
+    // Read section metadata
+    status = loader->parse_sections(obj->loader_data, _objfile_section_create, obj);
+    if (status != 0) {
+        log_error("Unable to parse sections");
+        objfile_put(obj);
+        log_ctx_pop();
+        return EINVAL;
+    }
+
+    log_ctx_pop();
     *objfile = obj;
     return 0;
 }
+
+
+//static bool _objfile_create_section(void *callback, 
 
 
 struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader)
@@ -130,25 +167,14 @@ struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader)
     }
 
     struct objfile *objfile = NULL;
-    int status = objfile_init(&objfile, file, file->name);
+    int status = objfile_init(&objfile, loader, 
+                               file->name, file->data, file->size);
     if (status != 0) {
         return NULL;
     }
 
-    log_ctx_push(LOG_CTX_FILE(loader->name, file->name));
-
-    status = loader->parse_file(&objfile->loader_data, file->data, file->size);
-    if (status != 0) {
-        // Loader wasn't happy with the file
-        log_error("Invalid file format or corrupt file");
-        objfile_put(objfile);
-        log_ctx_pop();
-        return NULL;
-    }
-
-    objfile->loader = loader;
-
-    log_ctx_pop();
+    mfile_get(file);
+    objfile->file = file;
     return objfile;
 }
 

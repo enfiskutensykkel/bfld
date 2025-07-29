@@ -62,7 +62,8 @@ struct archive_symbol
 };
 
 
-int archive_init(struct archive **ar, mfile *file, const char *name);
+int archive_init(struct archive **ar, const struct archive_loader *loader,
+                 const char *name, const uint8_t *data, size_t size);
 
 
 /*

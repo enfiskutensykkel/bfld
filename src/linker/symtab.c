@@ -1,6 +1,5 @@
 #include "symtypes.h"
 #include "symtab.h"
-#include "section.h"
 #include "objfile.h"
 #include "utils/list.h"
 #include "utils/rbtree.h"

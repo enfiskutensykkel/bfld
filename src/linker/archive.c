@@ -235,7 +235,9 @@ void archive_put(struct archive *ar)
             ar->loader->release(ar->loader_data);
         }
 
-        mfile_put(ar->file);
+        if (ar->file != NULL) {
+            mfile_put(ar->file);
+        }
         free(ar->name);
         free(ar);
     }
@@ -245,35 +247,6 @@ void archive_put(struct archive *ar)
 void archive_get(struct archive *ar)
 {
     ++(ar->refcnt);
-}
-
-
-int archive_init(struct archive **ar, mfile *file, const char *name)
-{
-    *ar = NULL;
-
-    struct archive *a = malloc(sizeof(struct archive));
-    if (a == NULL) {
-        return ENOMEM;
-    }
-
-    a->name = strdup(name);
-    if (a->name == NULL) {
-        free(a);
-        return ENOMEM;
-    }
-
-    mfile_get(file);
-    a->file = file;
-    a->refcnt = 1;
-    a->loader_data = NULL;
-    a->loader = NULL;
-
-    rb_tree_init(&a->symbols);
-    rb_tree_init(&a->members);
-
-    *ar = a;
-    return 0;
 }
 
 
@@ -292,6 +265,64 @@ static bool _archive_symbol_create(void *ctx, const char *name, uint64_t member_
 }
 
 
+int archive_init(struct archive **ar, const struct archive_loader *loader,
+                 const char *name, const uint8_t *data, size_t size)
+{
+    *ar = NULL;
+
+    struct archive *a = malloc(sizeof(struct archive));
+    if (a == NULL) {
+        return ENOMEM;
+    }
+
+    a->name = strdup(name);
+    if (a->name == NULL) {
+        free(a);
+        return ENOMEM;
+    }
+
+    a->file = NULL;
+    a->refcnt = 1;
+    a->loader_data = NULL;
+    a->loader = NULL;
+
+    rb_tree_init(&a->symbols);
+    rb_tree_init(&a->members);
+
+    log_ctx_push(LOG_CTX_FILE(loader->name, name));
+
+    int status = loader->parse_file(&a->loader_data, data, size);
+    if (status != 0) {
+        log_error("Invalid file format or corrupt file");
+        archive_put(a);
+        log_ctx_pop();
+        return EINVAL;
+    }
+
+    a->loader = loader;
+
+    status = loader->parse_members(a->loader_data, _archive_member_create, a); 
+    if (status != 0) {
+        log_error("Failed to parse archive members");
+        archive_put(a);
+        log_ctx_pop();
+        return EINVAL;
+    }
+
+    status = loader->parse_symbol_index(a->loader_data, _archive_symbol_create, a);
+    if (status != 0) {
+        log_error("Failed to parse archive symbol index");
+        archive_put(a);
+        log_ctx_pop();
+        return EINVAL;
+    }
+
+    log_ctx_pop();
+    *ar = a;
+    return 0;
+}
+
+
 struct archive * archive_load(mfile *file, const struct archive_loader *loader)
 {
     if (file == NULL) {
@@ -306,42 +337,16 @@ struct archive * archive_load(mfile *file, const struct archive_loader *loader)
         return NULL;
     }
 
-    log_ctx_push(LOG_CTX_FILE(loader->name, file->name));
-
     struct archive *ar = NULL;
-    int status = archive_init(&ar, file, file->name);
+    int status = archive_init(&ar, loader, file->name,
+                              file->data, file->size);
     if (status != 0) {
-        log_ctx_pop();
         return NULL;
     }
 
-    status = loader->parse_file(&ar->loader_data, file->data, file->size);
-    if (status != 0) {
-        log_error("Invalid file format or corrupt file");
-        archive_put(ar);
-        log_ctx_pop();
-        return NULL;
-    }
-
-    ar->loader = loader;
-
-    status = ar->loader->parse_members(ar->loader_data, _archive_member_create, ar); 
-    if (status != 0) {
-        log_error("Could not parse archive members");
-        archive_put(ar);
-        log_ctx_pop();
-        return NULL;
-    }
-
-    status = ar->loader->parse_symbol_index(ar->loader_data, _archive_symbol_create, ar);
-    if (status != 0) {
-        log_error("Could not parse archive symbol index");
-        archive_put(ar);
-        log_ctx_pop();
-        return NULL;
-    }
-
-    log_ctx_pop();
+    mfile_get(file);
+    ar->file = file;
+    
     return ar;
 }
 
@@ -354,28 +359,19 @@ struct objfile * archive_load_member_objfile(struct archive_member *member)
     }
 
     struct archive *ar = member->archive;
-    struct archive_loader *loader = ar->loader;
+    const struct archive_loader *loader = ar->loader;
 
-    int status = objfile_init(&member->objfile, ar->file, member->name != NULL ? member->name : "");
+    int status = objfile_init(&member->objfile, loader->member_loader,
+                              member->name != NULL ? member->name : "",
+                              ((const uint8_t*) ar->file->data + member->offset),
+                              member->size);
     if (status != 0) {
         return NULL;
     }
 
-    log_ctx_push(LOG_CTX_FILE(ar->loader->name, member->objfile->name));
+    mfile_get(ar->file);
+    member->objfile->file = ar->file;
 
-    member->objfile->loader = ar->loader->member_loader;
-
-    status = loader->load_member(ar->loader_data, loader->member_loader, &(member->objfile->loader_data),
-                                 member->member_id, member->name, member->offset, member->size);
-    if (status != 0) {
-        log_error("Failed to load archive member");
-        log_ctx_pop();
-        objfile_put(member->objfile);
-        member->objfile = NULL;
-        return NULL;
-    }
-
-    log_ctx_pop();
     objfile_get(member->objfile);
     return member->objfile;
 }

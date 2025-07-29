@@ -17,10 +17,21 @@ struct elf_file
 {
     const Elf64_Ehdr *eh;       // pointer to the start of the ELF file (the ELF header)
     const char *strtab;         // symbol string table
-    uint64_t nsyms;               // number of symbols in the symbol table
+    uint64_t nsyms;             // number of symbols in the symbol table
     const Elf64_Sym *symtab;    // pointer to the symbol table
-    const Elf64_Sym *sect_syms[];// section symbol map, used for relocations
+    const Elf64_Sym **sect_syms;// section symbol map, used for relocations
+    const Elf64_Rel **rel;
+    const Elf64_Rela **rela;
 };
+
+
+static void release_elf_file(void *ctx)
+{
+    struct elf_file *file = ctx;
+
+    free(file->sect_syms);
+    free(file);
+}
 
 
 /*
@@ -95,6 +106,8 @@ static int parse_elf_file(void **ctx_data, const uint8_t *data, size_t size)
     }
 
     uint64_t nsyms = 0;
+    uint64_t nrela_sects = 0;
+    uint64_t nrel_sects = 0;
     const char *strtab = NULL;
     const Elf64_Sym *symtab = NULL;
 
@@ -106,6 +119,10 @@ static int parse_elf_file(void **ctx_data, const uint8_t *data, size_t size)
             nsyms = sh->sh_size / sh->sh_entsize;
             symtab = (const Elf64_Sym*) (((const uint8_t*) eh) + sh->sh_offset);
             strtab = (const char*) ((const uint8_t*) eh) + elf_section(eh, sh->sh_link)->sh_offset;
+        } else if (sh->sh_type == SHT_REL) {
+            nrel_sects++;
+        } else if (sh->sh_type == SHT_RELA) {
+            nrela_sects++;
         }
     }
 
@@ -113,18 +130,31 @@ static int parse_elf_file(void **ctx_data, const uint8_t *data, size_t size)
         log_fatal("Could not locate symbol table");
     }
 
-    struct elf_file *ctx = malloc(sizeof(struct elf_file) + sizeof(const Elf64_Sym*) * nsyms);
+    struct elf_file *ctx = malloc(sizeof(struct elf_file));
     if (ctx == NULL) {
         return ENOMEM;
     }
+
+    ctx->sect_syms = calloc(nsyms, sizeof(const Elf64_Sym*));
+    if (ctx->sect_syms == NULL) {
+        free(ctx);
+        return ENOMEM;
+    }
+
+    //ctx->sect_rela = calloc(sizeof(const Elf64_Rela*, 
 
     ctx->eh = eh;
     ctx->strtab = strtab;
     ctx->nsyms = nsyms;
     ctx->symtab = symtab;
-    memset(&ctx->sect_syms[0], 0, sizeof(const Elf64_Sym*) * ctx->nsyms);
 
     *ctx_data = ctx;
+    return 0;
+}
+
+
+static int parse_elf_sects(void *ctx, bool (*emit_section)(void *user, const struct objfile_section*), void *user)
+{
     return 0;
 }
 
@@ -204,8 +234,9 @@ const struct objfile_loader elf_loader = {
     .name = "elfloader",
     .probe = check_elf_header,
     .parse_file = parse_elf_file,
+    .parse_sections = parse_elf_sects,
     .extract_symbols = parse_elf_symtab,
-    .release = free,
+    .release = release_elf_file,
 };
 
 

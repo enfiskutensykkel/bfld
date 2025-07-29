@@ -4,7 +4,7 @@
 extern "C" {
 #endif
 
-#include "objfilesym.h"
+#include "objtypes.h"
 #include "mfile.h"
 #include "utils/rbtree.h"
 #include <stdbool.h>
@@ -27,14 +27,30 @@ struct objfile
 
 
 /*
+ * Representation of a section with content.
+ */
+struct section
+{
+    struct objfile *objfile; // Reference to the object file where the section came from
+    uint64_t sect_idx;  // Section index, used for identifying the section 
+    enum section_type type;  // Section type
+    uint64_t align;     // Memory alignment
+    uint64_t addr;      // Absolute or relative address of the loaded section
+    uint64_t size;      // Size of the content
+};
+
+
+
+/*
  * Allocate and initialize a object file handle.
- * 
+ *
  * This is a low level function which you probably 
  * should not be calling directly.
  *
  * Instead see objfile_load()
  */
-int objfile_init(struct objfile **objfile, mfile *file, const char *name);
+int objfile_init(struct objfile **objfile, const struct objfile_loader* loader,
+                 const char *name, const uint8_t *data, size_t size);
 
 
 /*
@@ -77,10 +93,6 @@ int objfile_extract_symbols(struct objfile* objfile,
                             bool (*callback)(void *callback_data, struct objfile*, const struct objfile_symbol*),
                             void *callback_data);
 
-
-
-//uint64_t objfile_num_sections(const struct objfile *objfile);
-//struct section * objfile_exctract_section(const struct objfile *objfile, uint64_t sect_idx);
 
 
 #ifdef __cplusplus

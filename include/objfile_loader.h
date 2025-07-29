@@ -4,8 +4,8 @@
 extern "C" {
 #endif
 
+#include "objtypes.h"
 #include "symtypes.h"
-#include "objfilesym.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -45,6 +45,11 @@ struct objfile_loader
     int (*parse_file)(void **objfile_loader_data, 
                       const uint8_t *file_data, 
                       size_t file_size);
+
+
+    int (*parse_sections)(void *objfile_loader_data,
+                          bool (*emit_section)(void *callback_data, const struct objfile_section*),
+                          void *callback_data);
     
     /* 
      * Extract symbol declarations from the input file.
