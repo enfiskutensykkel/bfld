@@ -45,14 +45,12 @@ void symtab_get(struct symtab *symtab)
 void symtab_put(struct symtab *symtab)
 {
     if (--(symtab->refcnt) == 0) {
-        struct rb_node *node = rb_first_postorder(&symtab->tree);
-
-        while (node != NULL) {
-            struct rb_node *next = rb_next_postorder(node);
+        while (symtab->tree.root != NULL) {
+            struct rb_node *node = symtab->tree.root;
             struct symbol *sym = rb_entry(node, struct symbol, tree_node);
+
             assert(sym->table == symtab);
             symbol_free(sym);
-            node = next;
         }
 
         if (symtab->name != NULL) {

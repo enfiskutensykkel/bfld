@@ -215,18 +215,15 @@ static int archive_symbol_create(struct archive *ar, const char *name, uint64_t 
 void archive_put(struct archive *ar)
 {
     if (--(ar->refcnt) == 0) {
-        struct rb_node *node, *next;
 
-        for (node = rb_first_postorder(&ar->symbols), next = rb_next_postorder(node); 
-                node != NULL; 
-                node = next, next = next != NULL ? rb_next_postorder(next) : NULL) {
+        while (ar->symbols.root != NULL) {
+            struct rb_node *node = ar->symbols.root;
             struct archive_symbol *sym = rb_entry(node, struct archive_symbol, tree_node);
             archive_symbol_remove(ar, sym);
         }
 
-        for (node = rb_first(&ar->members), next = rb_next(node); 
-                node != NULL; 
-                node = next, next = next != NULL ? rb_next(next) : NULL) {
+        while (ar->members.root != NULL) {
+            struct rb_node *node = ar->members.root;
             struct archive_member *member = rb_entry(node, struct archive_member, tree_node);
             archive_member_remove(member);
         }
