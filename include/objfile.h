@@ -30,12 +30,17 @@ struct objfile
 };
 
 
+/* Forward declaration of a merged section mapping */
+struct section_mapping;
+
+
 /*
  * Representation of a section with content.
  * Sections are associated with the object file they came from.
  */
 struct section
 {
+    struct section_mapping *merge_mapping; // Merged section this section is part of (NULL until merged)
     struct rb_node tree_node;
     struct objfile *objfile;// Reference to the object file where the section came from
     uint64_t key;           // Section identifier
@@ -93,10 +98,9 @@ struct syminfo
     bool global;            // is the symbol a global or local symbol?
     bool weak;              // is the symbol weak or strong
     enum symbol_type type;  // symbol type
-    bool relative;          // is the symbol address relative or absolute?
-    uint64_t addr;          // absolute or relative address
+    bool relative;          // is the offset relative to the section or an absolute address?
     struct section *section;// section the symbol is defined in
-    uint64_t offset;        // offset into the section to the definition
+    uint64_t offset;        // offset into the section to the definition or absolute address
 };
 
 

@@ -43,10 +43,9 @@ struct objfile_symbol
     enum symbol_binding binding;    // symbol binding
     enum symbol_type    type;       // symbol type
     bool                common;     // does this symbol refer to the common section?
-    bool                relative;   // is the address relative or absolute
-    uint64_t            addr;       // absolute or relative address
+    bool                relative;   // is the offset relative or an absolute address
     uint64_t            align;      // alignment requirements
-    uint64_t            offset;     // offset within section
+    uint64_t            offset;     // offset within section (or absolute address
     uint64_t            section;    // section index (0 = no section)
 
 };

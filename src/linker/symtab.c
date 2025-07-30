@@ -1,6 +1,7 @@
 #include "symtypes.h"
 #include "symtab.h"
 #include "objfile.h"
+#include "merge.h"
 #include "utils/list.h"
 #include "utils/rbtree.h"
 #include <stdlib.h>
@@ -10,6 +11,7 @@
 #include <string.h>
 #include <assert.h>
 #include "logging.h"
+#include "align.h"
 
 
 int symtab_init(struct symtab **symtab, const char *name)
@@ -173,7 +175,7 @@ void symbol_free(struct symbol *sym)
 
 
 int symbol_alloc(struct symbol **sym, struct objfile *referer,
-                 const char *name, bool weak)
+                 const char *name, bool weak, bool relative)
 {
     *sym = NULL;
 
@@ -199,9 +201,9 @@ int symbol_alloc(struct symbol **sym, struct objfile *referer,
     rb_node_init(&s->tree_node);
     s->weak = weak;
     s->type = SYMBOL_NOTYPE;
-    s->relative = true;
+    s->relative = relative;
     s->addr = 0;
-    s->align = 0;
+    s->align = 1;
     list_head_init(&s->refs);
 
     s->objfile = NULL;
@@ -220,18 +222,42 @@ int symbol_alloc(struct symbol **sym, struct objfile *referer,
 
 int symbol_link_definition(struct symbol *sym, struct section *sect, uint64_t offset)
 {
-    if (sect == NULL) {
+    if (sect == NULL || !sym->relative) {
         return EINVAL;
     }
 
     if (sym->section != NULL) {
-        return EEXIST;
+        return EALREADY;
     }
 
     sym->objfile = sect->objfile;
     objfile_get(sym->objfile);
     sym->section = sect;
     sym->offset = offset;
+
+    return 0;
+}
+
+
+int symbol_resolve_address(struct symbol *sym)
+{
+    if (!sym->relative) {
+        sym->addr = BFLD_ALIGN_ADDR(sym->offset, sym->align);
+
+    } else if (sym->section != NULL) {
+        const struct section_mapping *map = sym->section->merge_mapping;
+
+        if (map == NULL) {
+            return EINVAL;
+        }
+
+        struct merged_section *sect = map->merged_section;
+        sym->addr = BFLD_ALIGN_ADDR(sect->addr + map->offset + sym->offset, sym->align);
+
+    } else {
+        log_warning("Symbol '%s' is undefined", sym->name);
+        return EINVAL;
+    }
 
     return 0;
 }

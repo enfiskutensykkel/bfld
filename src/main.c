@@ -13,6 +13,7 @@
 #include <getopt.h>
 #include <errno.h>
 #include <assert.h>
+#include <align.h>
 
 
 int __log_verbosity = 1;
@@ -65,6 +66,25 @@ struct unresolved
 };
 
 
+static void resolve_symbols(struct symtab *symtab)
+{
+    struct rb_node *node = rb_first(&symtab->tree);
+
+    while (node != NULL) {
+        struct symbol *sym = rb_entry(node, struct symbol, tree_node);
+        int status = symbol_resolve_address(sym);
+        if (status != 0) {
+            log_error("Could not resolve symbol '%s' in symbol table %s",
+                        sym->name, symtab->name);
+        }
+        node = rb_next(node);
+
+        log_debug("Symbol '%s' finalized address 0x%lx", sym->name, sym->addr);
+    }
+}
+
+
+
 static bool record_symbol(void *cb_data, struct objfile *objfile, const struct syminfo *info)
 {
     // FIXME: treat hidden/internal as local
@@ -80,7 +100,7 @@ static bool record_symbol(void *cb_data, struct objfile *objfile, const struct s
         int rc;
         struct symbol *sym;
 
-        rc = symbol_alloc(&sym, objfile, objfile->name, info->weak);
+        rc = symbol_alloc(&sym, objfile, info->name, info->weak, info->relative);
         if (rc != 0) {
             return false;
         }
@@ -106,7 +126,7 @@ static bool record_symbol(void *cb_data, struct objfile *objfile, const struct s
     if (symbol == NULL) {
         // This is a new global symbol
 
-        int rc = symbol_alloc(&symbol, objfile, info->name, info->weak);
+        int rc = symbol_alloc(&symbol, objfile, info->name, info->weak, info->relative);
         if (rc != 0) {
             return false;
         }
@@ -144,6 +164,9 @@ static bool record_symbol(void *cb_data, struct objfile *objfile, const struct s
                     symbol->name, objfile->name, symbol->objfile->name);
             return false;
         }
+
+    } else if (!info->relative) {
+        symbol->offset = info->offset;
 
     } else {
         assert(info->is_reference);
@@ -295,7 +318,6 @@ static void destroy_ctx(struct linker_ctx *ctx)
 }
 
 
-
 /*
  * Basic linker operation
  * - Read input object files. Determine length and type of the contents and read symbols.
@@ -423,8 +445,6 @@ int main(int argc, char **argv)
         list_for_each_entry(ar, &ctx->archives, struct archive_file, list) {
             struct archive_symbol *found = archive_lookup_symbol(ar->file, unresolved->symbol->name);
             if (found) {
-                log_debug("Found unresolved symbol '%s' in %s",
-                        unresolved->symbol->name, ar->file->name);
 
                 struct input_file *file = insert_objfile(ctx, archive_load_member_objfile(found->member));
                 if (file == NULL) {
@@ -457,13 +477,13 @@ int main(int argc, char **argv)
         log_ctx_pop();
     }
 
-    // Merge sections of different types
+    // Merge sections of the same type
     enum section_type secttypes[] = {
-        SECTION_ZERO, SECTION_TEXT, SECTION_DATA, SECTION_RODATA
+        SECTION_TEXT, SECTION_RODATA, SECTION_DATA, SECTION_ZERO
     };
 
     const char *sectnames[] = {
-        ".bss", ".text", ".data", ".rodata"
+        ".text", ".rodata", ".data", ".bss"
     };
 
     for (size_t idx = 0; idx < sizeof(secttypes) / sizeof(enum section_type); ++idx) {
@@ -486,8 +506,8 @@ int main(int argc, char **argv)
         list_insert_tail(&ctx->output_sects, &outsect->list);
     }
 
+    uint64_t base_addr = 0x400000;
     list_for_each_entry(outsect, &ctx->output_sects, struct output_section, list) {
-
         list_for_each_entry(ifile, &ctx->input_files, struct input_file, list) {
             const struct objfile *objfile = ifile->file;
 
@@ -501,10 +521,19 @@ int main(int argc, char **argv)
                 node = rb_next(node);
             }
         }
+
+        outsect->sect->addr = BFLD_ALIGN_ADDR(base_addr, outsect->sect->align);
+        base_addr += outsect->sect->total_size;
+
+        log_debug("Section %s 0x%lx - 0x%lx (size: %lu, align: %lu)",
+                  outsect->sect->name, outsect->sect->addr,
+                  outsect->sect->addr + outsect->sect->total_size - 1,
+                  outsect->sect->total_size, outsect->sect->align);
     }
 
-    list_for_each_entry(outsect, &ctx->output_sects, struct output_section, list) {
-        fprintf(stderr, "%s total_size=%zu\n", outsect->sect->name, outsect->sect->total_size);
+    resolve_symbols(ctx->symtab);
+    list_for_each_entry(inputfile, &ctx->input_files, struct input_file, list) {
+        resolve_symbols(inputfile->symtab);
     }
 
     destroy_ctx(ctx);

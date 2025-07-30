@@ -30,6 +30,7 @@ struct merged_section
 
 struct section_mapping
 {
+    struct merged_section *merged_section;  // pointer to the merged section
     struct list_head list_node;
     struct objfile *objfile;    // object file reference
     struct section *section;    // section where the data comes from

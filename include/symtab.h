@@ -45,8 +45,8 @@ struct symbol
     struct rb_node tree_node;   // tree node for symbol table
     bool weak;                  // is this a weak symbol that can be later replaced with a strong definition
     enum symbol_type type;      // symbol type
-    bool relative;              // is the value in addr an offset or an absolute address
-    uint64_t addr;              // absolute or relative address
+    bool relative;              // is the offset relative to the base address or an absolute address
+    uint64_t addr;              // finalized address of the symbol
     uint64_t align;             // symbol address alignment requirement (addr must be a multiple of align)
     struct objfile *objfile;    // object file reference if symbol is defined or NULL if there is no definition
     struct section *section;    // section where the symbol is defined or NULL if there is no definition
@@ -161,7 +161,7 @@ int symtab_replace_symbol(struct symtab *symtab, struct symbol *victim,
  * Allocate a symbol definition.
  */
 int symbol_alloc(struct symbol **sym, struct objfile *referer, 
-                 const char *name, bool weak);
+                 const char *name, bool weak, bool relative);
 
 
 /*
@@ -174,6 +174,9 @@ void symbol_free(struct symbol *sym);
 
 /*
  * Link a symbol to its definition.
+ * Returns 0 if the symbol is linked to its definition,
+ * EINVAL if the symbol is absolute, and EALREADY if the
+ * symbol definition was already linked.
  */
 int symbol_link_definition(struct symbol *sym, struct section *sect, uint64_t offset);
                               
@@ -182,6 +185,12 @@ int symbol_link_definition(struct symbol *sym, struct section *sect, uint64_t of
  * Add the specified file to the list of where the symbol is referenced.
  */
 struct symref * symbol_add_reference(struct symbol *sym, struct objfile *file);
+
+
+/*
+ * Resolve symbol address.
+ */
+int symbol_resolve_address(struct symbol *sym);
 
 
 #ifdef __cplusplus

@@ -308,9 +308,8 @@ static bool _emit_symbol(void *cb_data, const struct objfile_symbol *sym)
         .weak = sym->binding == SYMBOL_WEAK,
         .type = sym->type,
         .relative = sym->relative,
-        .addr = sym->addr,
-        .section = sect,
-        .offset = sect != NULL ? sym->offset : 0
+        .section = sym->relative ? sect : NULL,
+        .offset = sym->offset,
     };
 
     bool _continue = cb->emit_symbol_cb(cb->user_data, objfile, &info);

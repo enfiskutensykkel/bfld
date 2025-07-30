@@ -8,6 +8,7 @@
 #include <errno.h>
 #include "logging.h"
 #include "align.h"
+#include <assert.h>
 
 
 int merged_init(struct merged_section **merged, const char *name, 
@@ -50,6 +51,9 @@ void merged_put(struct merged_section *merged)
     if (--(merged->refcnt) == 0) {
         
         list_for_each_entry_safe(map, &merged->mappings, struct section_mapping, list_node) {
+            assert(map->merged_section == merged);
+            assert(map->section->merge_mapping == map);
+            map->section->merge_mapping = NULL;
             list_remove(&map->list_node);
             objfile_put(map->objfile);
             free(map);
@@ -69,11 +73,16 @@ int merged_add_section(struct merged_section *merged, struct section *sect)
         return EINVAL;
     }
 
+    if (sect->merge_mapping != NULL) {
+        return EINVAL;
+    }
+
     struct section_mapping *map = malloc(sizeof(struct section_mapping));
     if (map == NULL) {
         return ENOMEM;
     }
 
+    map->merged_section = merged;
     map->objfile = sect->objfile;
     objfile_get(map->objfile);
     map->section = sect;
@@ -85,12 +94,13 @@ int merged_add_section(struct merged_section *merged, struct section *sect)
         merged->align = sect->align;
     }
 
+    sect->merge_mapping = map;
     list_insert_tail(&merged->mappings, &map->list_node);
 
     uint64_t offset = 0;
     list_for_each_entry(m, &merged->mappings, struct section_mapping, list_node) {
         m->offset = offset;
-        offset += merged->align > 1 ? BFLD_ALIGN_ADDR(merged->align, m->size) : m->size;
+        offset += merged->align > 1 ? BFLD_ALIGN_ADDR(m->size, merged->align) : m->size;
     }
     merged->total_size = offset;
 

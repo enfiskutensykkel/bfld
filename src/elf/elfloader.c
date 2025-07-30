@@ -150,7 +150,7 @@ static int parse_elf_file(void **ctx_data, const uint8_t *data, size_t size)
             case SHT_FINI_ARRAY:
             case SHT_PREINIT_ARRAY:
                 if (!(sh->sh_flags & SHF_ALLOC)) {
-                    log_debug("Section with data without SHF_ALLOC");
+                    log_trace("Section with data without SHF_ALLOC");
                 }
                 break;
 
@@ -227,11 +227,11 @@ static int parse_elf_sects(void *ctx, bool (*emit_section)(void *user, const str
                 case SHT_INIT_ARRAY:
                 case SHT_FINI_ARRAY:
                 case SHT_PREINIT_ARRAY:
-                    log_notice("Section %u with type %u is not implemented yet", shndx, sh->sh_type);
+                    log_warning("Section %u with type %u is not implemented yet", shndx, sh->sh_type);
                     break;
 
                 default:
-                    log_debug("Skipping section %u", shndx);
+                    log_trace("Skipping section %u with type %u", shndx, sh->sh_type);
                     break;
             }
 
@@ -250,6 +250,10 @@ static int parse_elf_sects(void *ctx, bool (*emit_section)(void *user, const str
 static int parse_elf_symtab(void *ctx, bool (*emit_symbol)(void *user, const struct objfile_symbol*), void *user)
 {
     struct elf_file *ef = (struct elf_file*) ctx;
+    const Elf64_Ehdr *eh = ef->eh;
+
+    log_ctx_push(LOG_CTX_FILE(NULL, NULL, 
+                .section = lookup_strtab_str(eh, (((const Elf64_Shdr*) &ef->symtab[0]) - 1)->sh_name)));
 
     for (uint32_t idx = 1; idx < ef->nsyms; ++idx) {
         const Elf64_Sym *sym = &ef->symtab[idx];
@@ -262,7 +266,6 @@ static int parse_elf_symtab(void *ctx, bool (*emit_symbol)(void *user, const str
             .type = SYMBOL_NOTYPE,
             .common = false,
             .relative = true,
-            .addr = 0,
             .align = 0,
             .offset = 0,
             .section = 0,
@@ -312,20 +315,23 @@ static int parse_elf_symtab(void *ctx, bool (*emit_symbol)(void *user, const str
                 break;
 
             default:
-                continue;   
+                continue;  // do not emit this
         }
 
         switch (sym->st_shndx) {
             case SHN_UNDEF:
+                symbol.section = 0;
                 break;
 
             case SHN_ABS:
                 symbol.relative = false;
-                symbol.addr = sym->st_value;
+                symbol.section = 0;
+                symbol.offset = sym->st_value;
                 break;
 
             case SHN_COMMON:
                 symbol.common = true;
+                symbol.section = 0;
                 symbol.align = sym->st_value;
                 break;
 
@@ -335,11 +341,14 @@ static int parse_elf_symtab(void *ctx, bool (*emit_symbol)(void *user, const str
                 break;
         }
 
+        log_trace("Extracting symbol '%s'", symbol.name);
         if (!emit_symbol(user, &symbol)) {
+            log_ctx_pop();
             return ECANCELED;
         }
     }
 
+    log_ctx_pop();
     return 0;
 }
 

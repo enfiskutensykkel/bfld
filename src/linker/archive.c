@@ -131,6 +131,8 @@ struct archive_symbol * archive_lookup_symbol(const struct archive *ar, const ch
 {
     const struct rb_node *node = ar->symbols.root;
 
+    log_ctx_push(LOG_CTX_FILE(NULL, ar->name));
+
     while (node != NULL) {
         struct archive_symbol *this = rb_entry(node, struct archive_symbol, tree_node);
         int result = strcmp(name, this->name);
@@ -140,10 +142,13 @@ struct archive_symbol * archive_lookup_symbol(const struct archive *ar, const ch
         } else if (result > 0) {
             node = node->right;
         } else {
+            log_trace("Found symbol '%s' in member %s", name, this->name);
+            log_ctx_pop();
             return this;
         }
     }
 
+    log_ctx_pop();
     return NULL;
 }
 
@@ -358,11 +363,16 @@ struct objfile * archive_load_member_objfile(struct archive_member *member)
     struct archive *ar = member->archive;
     const struct archive_loader *loader = ar->loader;
 
+    log_ctx_push(LOG_CTX_FILE(NULL, ar->name));
+
+    log_trace("Loading archive member %s", member->name);
+
     int status = objfile_init(&member->objfile, loader->member_loader,
                               member->name != NULL ? member->name : "",
                               ((const uint8_t*) ar->file->data + member->offset),
                               member->size);
     if (status != 0) {
+        log_ctx_pop();
         return NULL;
     }
 
@@ -370,5 +380,6 @@ struct objfile * archive_load_member_objfile(struct archive_member *member)
     member->objfile->file = ar->file;
 
     objfile_get(member->objfile);
+    log_ctx_pop();
     return member->objfile;
 }
