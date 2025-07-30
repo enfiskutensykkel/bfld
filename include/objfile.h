@@ -43,6 +43,7 @@ struct section
     enum section_type type; // Section type
     size_t size;            // Size of the section content
     uint64_t align;         // Memory alignment requirements
+    const uint8_t *content; // Pointer to section content
     size_t offset;          // Offset into the file to the start of the section, used internally only
 };
 

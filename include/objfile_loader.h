@@ -63,6 +63,7 @@ struct objfile_section
     enum section_type   type;       // section type (data, rodata, text, etc.)
     uint64_t            align;      // section alignment requirements
     size_t              size;       // size of the section
+    const uint8_t       *content;   // section content (if size > 0) or NULL
 };
 
 

@@ -129,6 +129,7 @@ static struct section * objfile_create_section(struct objfile *objfile,
         sect->name = strdup(name);
     }
     sect->type = SECTION_ZERO;
+    sect->content = NULL;
     sect->size = 0;
     sect->align = 0;
 
@@ -193,6 +194,7 @@ bool _add_section(void *ctx, const struct objfile_section *sect)
     s->size = sect->size;
     s->align = sect->align;
     s->offset = sect->offset;
+    s->content = sect->size > 0 ? sect->content : NULL;
     return true;
 }
 

@@ -1,3 +1,4 @@
+#include <merge.h>
 #include <archive.h>
 #include <logging.h>
 #include <mfile.h>
@@ -14,7 +15,7 @@
 #include <assert.h>
 
 
-int __log_verbosity = 5;
+int __log_verbosity = 1;
 int __log_ctx_idx = 0;
 log_ctx_t __log_ctx[LOG_CTX_NUM] = {0};
 
@@ -39,10 +40,19 @@ struct archive_file
 };
 
 
+struct output_section
+{
+    struct linker_ctx *ctx;
+    struct list_head list;
+    struct merged_section *sect;
+};
+
+
 struct linker_ctx
 {
     struct list_head input_files;
     struct list_head archives;
+    struct list_head output_sects;      // output sections (merged)
     struct symtab *symtab;              // global symbol table
     struct list_head unresolved;        // queue of unresolved symbols
 };
@@ -254,12 +264,19 @@ static struct linker_ctx * create_ctx(void)
     list_head_init(&ctx->input_files);
     list_head_init(&ctx->archives);
     list_head_init(&ctx->unresolved);
+    list_head_init(&ctx->output_sects);
     return ctx;
 }
 
 
 static void destroy_ctx(struct linker_ctx *ctx)
 {
+    list_for_each_entry_safe(sect, &ctx->output_sects, struct output_section, list) {
+        list_remove(&sect->list);
+        merged_put(sect->sect);
+        free(sect);
+    }
+
     list_for_each_entry_safe(file, &ctx->input_files, struct input_file, list) {
         close_input_file(file);
     }
@@ -294,24 +311,40 @@ int main(int argc, char **argv)
 {
     __log_ctx[0] = LOG_CTX(argv[0]);
     int c;
-    int idx = 0;
+    int idx = -1;
 
     static struct option options[] = {
         //{"vm", required_argument, 0, 'i'},
+        {"verbose", optional_argument, 0, 'v'},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}
     };
 
     //const char *vmpath = DEFAULT_BFVM;
 
-    while ((c = getopt_long_only(argc, argv, ":h", options, &idx)) != -1) {
+    while ((c = getopt_long_only(argc, argv, ":hv", options, &idx)) != -1) {
         switch (c) {
             //case 'i':
             //    vmpath = optarg;
             //    break;
 
+            case 'v':
+                if (optarg == NULL) {
+                    ++__log_verbosity;
+                } else {
+                    char *endptr = NULL;
+                    int verbosity = strtol(optarg, &endptr, 10);
+                    if (*endptr != '\0') {
+                        fprintf(stderr, "%d\n", idx);
+                        log_error("Invalid verbosity: %s", options[idx].name, optarg);
+                        exit(1);
+                    }
+                    __log_verbosity = verbosity;
+                }
+                break;
+
             case 'h':
-                fprintf(stdout, "Usage: %s [--vm objfile] objfile...\n", argv[0]);
+                fprintf(stdout, "Usage: %s [-v] [-vv] [-vvv] [--vm objfile] objfile...\n", argv[0]);
                 exit(0);
 
             case ':':
@@ -372,7 +405,7 @@ int main(int argc, char **argv)
         log_ctx_pop();
     }
 
-    // Resolve undefined symbols
+    // Resolve symbol definitions
     while (!list_empty(&ctx->unresolved)) {
         struct unresolved *unresolved = list_first_entry(&ctx->unresolved, struct unresolved, list);
 
@@ -414,7 +447,7 @@ int main(int argc, char **argv)
                     unresolved->symbol->name);
             log_ctx_pop();
             destroy_ctx(ctx);
-            exit(1);
+            exit(2);
 
         } else {
             list_remove(&unresolved->list);
@@ -422,6 +455,56 @@ int main(int argc, char **argv)
         }
 
         log_ctx_pop();
+    }
+
+    // Merge sections of different types
+    enum section_type secttypes[] = {
+        SECTION_ZERO, SECTION_TEXT, SECTION_DATA, SECTION_RODATA
+    };
+
+    const char *sectnames[] = {
+        ".bss", ".text", ".data", ".rodata"
+    };
+
+    for (size_t idx = 0; idx < sizeof(secttypes) / sizeof(enum section_type); ++idx) {
+        enum section_type type = secttypes[idx];
+        const char *name = sectnames[idx];
+
+        struct output_section *outsect = malloc(sizeof(struct output_section));
+        if (outsect == NULL) {
+            destroy_ctx(ctx);
+            exit(3);
+        }
+
+        int status = merged_init(&outsect->sect, name, type);
+        if (status != 0) {
+            free(outsect);
+            destroy_ctx(ctx);
+            exit(3);
+        }
+
+        list_insert_tail(&ctx->output_sects, &outsect->list);
+    }
+
+    list_for_each_entry(outsect, &ctx->output_sects, struct output_section, list) {
+
+        list_for_each_entry(ifile, &ctx->input_files, struct input_file, list) {
+            const struct objfile *objfile = ifile->file;
+
+            const struct rb_node *node = rb_first(&objfile->sections);
+
+            while (node != NULL) {
+                struct section *sect = rb_entry(node, struct section, tree_node);
+                if (sect->type == outsect->sect->type) {
+                    merged_add_section(outsect->sect, sect);
+                }
+                node = rb_next(node);
+            }
+        }
+    }
+
+    list_for_each_entry(outsect, &ctx->output_sects, struct output_section, list) {
+        fprintf(stderr, "%s total_size=%zu\n", outsect->sect->name, outsect->sect->total_size);
     }
 
     destroy_ctx(ctx);

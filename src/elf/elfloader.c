@@ -7,6 +7,7 @@
 #include <elf.h>
 #include <errno.h>
 #include <string.h>
+#include <assert.h>
 
 
 /*
@@ -92,6 +93,11 @@ static const char * lookup_strtab_str(const Elf64_Ehdr *ehdr, uint32_t offset)
         return NULL;
     }
 
+    const Elf64_Shdr *sh = elf_section(ehdr, ehdr->e_shstrndx);
+    if (sh->sh_type != SHT_STRTAB) {
+        log_warning("ELF section %u has incorrect type", ehdr->e_shstrndx);
+    }
+
     const char *strtab = ((const char*) ehdr) + elf_section(ehdr, ehdr->e_shstrndx)->sh_offset;
     return strtab + offset;
 }
@@ -123,12 +129,11 @@ static int parse_elf_file(void **ctx_data, const uint8_t *data, size_t size)
                     symtab = (const Elf64_Sym*) (((const uint8_t*) eh) + sh->sh_offset);
                     strtab = (const char*) ((const uint8_t*) eh) + elf_section(eh, sh->sh_link)->sh_offset;
                 } else {
-                    log_warning("Symbol table is ignored");
+                    log_warning("Unexpected additional symbol tables in file. Symbol table is ignored");
                 }
                 break;
 
             case SHT_STRTAB:
-                log_debug("String table");
                 break;
 
             case SHT_REL:
@@ -144,11 +149,8 @@ static int parse_elf_file(void **ctx_data, const uint8_t *data, size_t size)
             case SHT_INIT_ARRAY:
             case SHT_FINI_ARRAY:
             case SHT_PREINIT_ARRAY:
-                log_debug("Section is %u", sh->sh_type);
-                if (!!(sh->sh_flags & SHF_ALLOC)) {
-                    log_info("Section is not implemented");
-                } else {
-                    log_warning("Section is not SHF_ALLOC");
+                if (!(sh->sh_flags & SHF_ALLOC)) {
+                    log_debug("Section with data without SHF_ALLOC");
                 }
                 break;
 
@@ -201,8 +203,11 @@ static int parse_elf_sects(void *ctx, bool (*emit_section)(void *user, const str
                 .offset = sh->sh_offset,
                 .type = SECTION_ZERO,
                 .align = sh->sh_addralign,
-                .size = sh->sh_size
+                .size = sh->sh_type != SHT_NOBITS ? sh->sh_size : 0,
+                .content = sh->sh_type != SHT_NOBITS ? ((const uint8_t*) eh) + sh->sh_offset : NULL
             };
+
+            log_ctx_push(LOG_CTX_FILE(NULL, NULL, .section = lookup_strtab_str(eh, sh->sh_name)));
 
             switch (sh->sh_type) {
                 case SHT_PROGBITS:
@@ -233,6 +238,8 @@ static int parse_elf_sects(void *ctx, bool (*emit_section)(void *user, const str
             if (!emit_section(user, &sect)) {
                 return ECANCELED;
             }
+
+            log_ctx_pop();
         }
     }
 
