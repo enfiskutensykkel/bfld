@@ -65,10 +65,10 @@ void symtab_put(struct symtab *symtab)
 
 struct symbol * symtab_find_symbol(const struct symtab *symtab, const char *name)
 {
-    const struct rb_node *node = symtab->tree.root;
+    struct rb_node *node = symtab->tree.root;
 
     while (node != NULL) {
-        const struct symbol *sym = rb_entry(node, struct symbol, tree_node);
+        struct symbol *sym = rb_entry(node, struct symbol, tree_node);
 
         int result = strcmp(name, sym->name);
         if (result < 0) {
@@ -165,8 +165,8 @@ void symbol_free(struct symbol *sym)
         free(ref);
     }
 
-    if (sym->definer != NULL) {
-        objfile_put(sym->definer);
+    if (sym->objfile != NULL) {
+        objfile_put(sym->objfile);
     }
 
     free(sym->name);
@@ -201,11 +201,14 @@ int symbol_alloc(struct symbol **sym, struct objfile *referer,
     rb_node_init(&s->tree_node);
     s->weak = weak;
     s->type = SYMBOL_NOTYPE;
+    s->relative = true;
     s->addr = 0;
-    s->definer = NULL;
-    s->offset = 0;
-    s->size = 0;
+    s->align = 0;
     list_head_init(&s->refs);
+
+    s->objfile = NULL;
+    s->section = NULL;
+    s->offset = 0;
 
     list_insert_tail(&s->refs, &ref->list_node);
     objfile_get(referer);
@@ -217,21 +220,20 @@ int symbol_alloc(struct symbol **sym, struct objfile *referer,
 }
 
 
-int symbol_resolve(struct symbol *sym, struct objfile *objfile,
-                   uint64_t sect_idx, size_t offset, 
-                   enum symbol_type type, size_t size)
+int symbol_link_definition(struct symbol *sym, struct section *sect, uint64_t offset)
 {
-    if (sym->definer != NULL) {
+    if (sect == NULL) {
         return EINVAL;
     }
 
-    sym->definer = objfile;
-    objfile_get(objfile);
+    if (sym->section != NULL) {
+        return EEXIST;
+    }
 
-    sym->sect_idx = sect_idx;
+    sym->objfile = sect->objfile;
+    objfile_get(sym->objfile);
+    sym->section = sect;
     sym->offset = offset;
-    sym->type = type;
-    sym->size = size;
 
     return 0;
 }

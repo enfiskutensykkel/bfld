@@ -1,15 +1,16 @@
 #include "logging.h"
+#include "secttypes.h"
 #include "symtypes.h"
-#include "objtypes.h"
 #include "objfile.h"
 #include "objfile_loader.h"
 #include "mfile.h"
+#include "pluginregistry.h"
 #include "utils/list.h"
 #include "utils/rbtree.h"
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include "pluginregistry.h"
+#include <assert.h>
 
 
 /*
@@ -20,7 +21,7 @@ struct objfile_callback_data
 {
     int status;
     struct objfile *objfile;
-    bool (*emit_symbol_cb)(void*, struct objfile*, const struct objfile_symbol*);
+    objfile_syminfo_cb emit_symbol_cb;
     void *user_data;
 };
 
@@ -70,9 +71,97 @@ const struct objfile_loader * objfile_loader_probe(const uint8_t *data, size_t s
 }
 
 
+static struct section * objfile_find_section(const struct objfile *objfile, uint64_t key)
+{
+    if (key == 0) {
+        return NULL;
+    }
+
+    struct rb_node *node = objfile->sections.root;
+
+    while (node != NULL) {
+        struct section *sect = rb_entry(node, struct section, tree_node);
+
+        if (key < sect->key) {
+            node = node->left;
+        } else if (key > sect->key) {
+            node = node->right;
+        } else {
+            return sect;
+        }
+    }
+
+    return NULL;
+}
+
+
+static struct section * objfile_create_section(struct objfile *objfile, 
+                                               uint64_t key,
+                                               const char *name)
+{
+    if (key == 0) {
+        return NULL;
+    }
+
+    struct rb_node **pos = &(objfile->sections.root), *parent = NULL;
+
+    while (*pos != NULL) {
+        struct section *this = rb_entry(*pos, struct section, tree_node);
+        parent = *pos;
+        if (key < this->key) {
+            pos = &((*pos)->left);
+        } else if (key > this->key) {
+            pos = &((*pos)->right);
+        } else {
+            // Section with the same key already exist
+            return NULL;
+        }
+    }
+
+    struct section *sect = malloc(sizeof(struct section));
+    if (sect == NULL) {
+        return NULL;
+    }
+
+    sect->key = key;
+    sect->objfile = objfile;
+    if (name != NULL) {
+        sect->name = strdup(name);
+    }
+    sect->type = SECTION_ZERO;
+    sect->size = 0;
+    sect->align = 0;
+
+    rb_insert_node(&sect->tree_node, parent, pos);
+    rb_insert_fixup(&objfile->sections, &sect->tree_node);
+    ++(objfile->num_sections);
+    return sect;
+}
+
+
+static void objfile_remove_section(struct objfile *objfile, struct section *sect)
+{
+    assert(objfile != NULL && sect->objfile == objfile);
+
+    rb_remove(&objfile->sections, &sect->tree_node);
+
+    if (sect->name != NULL) {
+        free(sect->name);
+    }
+
+    free(sect);
+    --(objfile->num_sections);
+}
+
+
 void objfile_put(struct objfile *objfile)
 {
     if (--(objfile->refcnt) == 0) {
+        while (objfile->sections.root != NULL) {
+            struct section *sect = rb_entry(objfile->sections.root, struct section, tree_node);
+            objfile_remove_section(objfile, sect);
+        }
+
         if (objfile->loader != NULL && objfile->loader->release != NULL) {
             objfile->loader->release(objfile->loader_data);
         }
@@ -93,8 +182,17 @@ void objfile_get(struct objfile *objfile)
 }
 
 
-bool _objfile_section_create(void *ctx, const struct objfile_section *sect)
+bool _add_section(void *ctx, const struct objfile_section *sect)
 {
+    struct section *s = objfile_create_section(ctx, sect->index, sect->name);
+    if (s == NULL) {
+        return false;
+    } 
+
+    s->type = sect->type;
+    s->size = sect->size;
+    s->align = sect->align;
+    s->offset = sect->offset;
     return true;
 }
 
@@ -118,11 +216,19 @@ int objfile_init(struct objfile **objfile, const struct objfile_loader *loader,
 
     obj->loader = NULL;
     obj->loader_data = NULL;
+    obj->num_sections = 0;
+    rb_tree_init(&obj->sections);
+
+    struct section *common = objfile_create_section(obj, 0xdeadbeef, ".common");
+    if (common == NULL) {
+        objfile_put(obj);
+        return ENOMEM;
+    }
 
     log_ctx_push(LOG_CTX_FILE(loader->name, name));
 
     // Do the initial parsing of the file
-    int status = loader->parse_file(&obj->loader_data, data, size);
+    int status = loader->parse_file(&obj->loader_data, data, size);;
     if (status != 0) {
         // Loader wasn't happy with the file
         log_error("Invalid file format or corrupt file");
@@ -134,7 +240,7 @@ int objfile_init(struct objfile **objfile, const struct objfile_loader *loader,
     obj->loader = loader;
 
     // Read section metadata
-    status = loader->parse_sections(obj->loader_data, _objfile_section_create, obj);
+    status = loader->parse_sections(obj->loader_data, _add_section, obj);
     if (status != 0) {
         log_error("Unable to parse sections");
         objfile_put(obj);
@@ -146,9 +252,6 @@ int objfile_init(struct objfile **objfile, const struct objfile_loader *loader,
     *objfile = obj;
     return 0;
 }
-
-
-//static bool _objfile_create_section(void *callback, 
 
 
 struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader)
@@ -168,7 +271,7 @@ struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader)
 
     struct objfile *objfile = NULL;
     int status = objfile_init(&objfile, loader, 
-                               file->name, file->data, file->size);
+                              file->name, file->data, file->size);
     if (status != 0) {
         return NULL;
     }
@@ -179,17 +282,36 @@ struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader)
 }
 
 
-
 static bool _emit_symbol(void *cb_data, const struct objfile_symbol *sym)
 {
     struct objfile_callback_data *cb = cb_data;
+    struct objfile *objfile = cb->objfile;
 
     if (cb->emit_symbol_cb == NULL) {
         cb->status = ENOTRECOVERABLE;
         return false;
     }
 
-    bool _continue = cb->emit_symbol_cb(cb->user_data, cb->objfile, sym);
+    struct section *sect = NULL;
+    if (sym->common) {
+        sect = objfile_find_section(objfile, 0xdeadbeef);
+    } else {
+        sect = objfile_find_section(objfile, sym->section);
+    }
+
+    struct syminfo info = {
+        .name = sym->name,
+        .is_reference = sect == NULL && sym->relative,
+        .global = sym->binding != SYMBOL_LOCAL,
+        .weak = sym->binding == SYMBOL_WEAK,
+        .type = sym->type,
+        .relative = sym->relative,
+        .addr = sym->addr,
+        .section = sect,
+        .offset = sect != NULL ? sym->offset : 0
+    };
+
+    bool _continue = cb->emit_symbol_cb(cb->user_data, objfile, &info);
     if (!_continue) {
         cb->status = ECANCELED;
     }
@@ -198,7 +320,8 @@ static bool _emit_symbol(void *cb_data, const struct objfile_symbol *sym)
 }
 
 
-int objfile_extract_symbols(struct objfile* objfile, bool (*callback)(void *user, struct objfile*, const struct objfile_symbol*), void *user)
+int objfile_extract_symbols(struct objfile* objfile, objfile_syminfo_cb callback, 
+                            void *callback_data)
 {
     if (objfile->loader == NULL || objfile->loader->extract_symbols == NULL) {
         log_error("Missing loader for object file");
@@ -210,7 +333,7 @@ int objfile_extract_symbols(struct objfile* objfile, bool (*callback)(void *user
         .status = 0,
         .objfile = objfile,
         .emit_symbol_cb = callback,
-        .user_data = user
+        .user_data = callback_data
     };
 
     int status = objfile->loader->extract_symbols(objfile->loader_data, 

@@ -4,9 +4,11 @@
 extern "C" {
 #endif
 
-#include "objtypes.h"
+#include "secttypes.h"
+#include "symtypes.h"
 #include "mfile.h"
 #include "utils/rbtree.h"
+#include "utils/list.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -23,22 +25,26 @@ struct objfile
     mfile *file;            // reference to the underlying memory-map
     void *loader_data;      // private data for the object file loader
     const struct objfile_loader *loader;  // the underlying object file loader (front-end)
+    size_t num_sections;    // number of sections
+    struct rb_tree sections;// map of sections
 };
 
 
 /*
  * Representation of a section with content.
+ * Sections are associated with the object file they came from.
  */
 struct section
 {
-    struct objfile *objfile; // Reference to the object file where the section came from
-    uint64_t sect_idx;  // Section index, used for identifying the section 
-    enum section_type type;  // Section type
-    uint64_t align;     // Memory alignment
-    uint64_t addr;      // Absolute or relative address of the loaded section
-    uint64_t size;      // Size of the content
+    struct rb_node tree_node;
+    struct objfile *objfile;// Reference to the object file where the section came from
+    uint64_t key;           // Section identifier
+    char *name;             // Section name (can be NULL)
+    enum section_type type; // Section type
+    size_t size;            // Size of the section content
+    uint64_t align;         // Memory alignment requirements
+    size_t offset;          // Offset into the file to the start of the section, used internally only
 };
-
 
 
 /*
@@ -76,21 +82,47 @@ void objfile_put(struct objfile *objfile);
 struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader);
 
 
+/* 
+ * Symbol reference/definition found in the object file.
+ */
+struct syminfo
+{
+    const char *name;       // symbol name
+    bool is_reference;      // is this a symbol reference and not a symbol definition
+    bool global;            // is the symbol a global or local symbol?
+    bool weak;              // is the symbol weak or strong
+    enum symbol_type type;  // symbol type
+    bool relative;          // is the symbol address relative or absolute?
+    uint64_t addr;          // absolute or relative address
+    struct section *section;// section the symbol is defined in
+    uint64_t offset;        // offset into the section to the definition
+};
+
+
+/*
+ * Convenience type for symbol callback.
+ */
+typedef bool (*objfile_syminfo_cb)(void *callback_data, 
+                                   struct objfile*,
+                                   const struct syminfo*);
+
+
 /*
  * Extract all symbols from the object file.
  *
- * Invokes the callback for each symbol in the file.
+ * Parses the underlying object file and invokes 
+ * the supplied callback for each symbol in the file.
+ *
+ * On success, this function returns 0.
  *
  * If the callback returns anything but true, the processing
  * will stop and ECANCELED is returned.
  *
  * Otherwise, if parsing of symbols failed by the underlying
  * object file loader, EBADF is returned.
- *
- * On success, this function returns 0.
  */
 int objfile_extract_symbols(struct objfile* objfile,
-                            bool (*callback)(void *callback_data, struct objfile*, const struct objfile_symbol*),
+                            objfile_syminfo_cb,
                             void *callback_data);
 
 

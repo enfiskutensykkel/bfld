@@ -19,6 +19,12 @@ struct objfile;
 
 
 /*
+ * Forward declaration of a section from an object file.
+ */
+struct section;
+
+
+/*
  * Symbol table representation.
  */
 struct symtab
@@ -30,36 +36,36 @@ struct symtab
 
 
 /*
- * Representation of a defined symbol.
+ * Representation of a symbol.
  */
 struct symbol
 {
-    char *name;             // symbol name
-    struct symtab *table;   // symbol table this symbol is inserted into (can be NULL)
-    struct rb_node tree_node;
-
-    bool weak;              // is this a weak symbol?
-    enum symbol_type type;  // symbol type
-    uint64_t addr;          // absolute for an executable, relative (to base address) for a shared library
-
-    struct objfile *definer;  // object file where the symbol is defined
-    uint64_t sect_idx;      // Section index
-    size_t offset;          // offset into the section to definition
-    size_t size;            // size of the symbol
-
-    struct list_head refs;  // list of files that reference this symbol
+    char *name;                 // symbol name
+    struct symtab *table;       // symbol table this symbol is inserted into
+    struct rb_node tree_node;   // tree node for symbol table
+    bool weak;                  // is this a weak symbol that can be later replaced with a strong definition
+    enum symbol_type type;      // symbol type
+    bool relative;              // is the value in addr an offset or an absolute address
+    uint64_t addr;              // absolute or relative address
+    uint64_t align;             // symbol address alignment requirement (addr must be a multiple of align)
+    struct objfile *objfile;    // object file reference if symbol is defined or NULL if there is no definition
+    struct section *section;    // section where the symbol is defined or NULL if there is no definition
+    uint64_t offset;            // offset into the section to definition
+    struct list_head refs;      // list of files that reference this symbol
 };
 
 
-#define symbol_is_resolved(sym_ptr) ((sym_ptr)->definer != NULL)
+static inline
+bool symbol_is_undefined(const struct symbol *sym)
+{
+    return sym->section == NULL && sym->relative;
+}
 
 
 /*
- * Represents a symbol reference.
+ * Represents a symbol dependency.
  * Track which files reference a symbol.
- *
- * All symbols have at least one reference, 
- * which is where the symbol was defined.
+ * All symbols have at least one reference.
  */
 struct symref
 {
@@ -167,14 +173,9 @@ void symbol_free(struct symbol *sym);
 
 
 /*
- * Resolve a symbol definition by pointing it to where the definition is found.
- * Note that this also takes an object file reference.
- *
- * Returns EINVAL if the symbol definition was already resolved.
+ * Link a symbol to its definition.
  */
-int symbol_resolve(struct symbol *sym, struct objfile *objfile,
-                   uint64_t sect_idx, size_t offset, 
-                   enum symbol_type type, size_t size);
+int symbol_link_definition(struct symbol *sym, struct section *sect, uint64_t offset);
                               
 
 /*

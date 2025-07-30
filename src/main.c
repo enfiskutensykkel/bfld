@@ -55,29 +55,31 @@ struct unresolved
 };
 
 
-static bool record_symbol(void *cb_data, struct objfile *objfile, const struct objfile_symbol *objsym)
+static bool record_symbol(void *cb_data, struct objfile *objfile, const struct syminfo *info)
 {
+    // FIXME: treat hidden/internal as local
     struct input_file *file = cb_data;
     struct linker_ctx *ctx = file->ctx;
 
-    if (objsym->binding == SYMBOL_LOCAL && !objsym->defined) {
-        log_error("Undefined symbol '%s' in %s is a local symbol",
-                objsym->name, objfile->name);
+    if (!info->global && info->is_reference) {
+        log_error("Local symbol '%s' is undefined", info->name);
         return false;
     }
 
-    if (objsym->binding == SYMBOL_LOCAL) {
+    if (!info->global) {
         int rc;
         struct symbol *sym;
 
-        rc = symbol_alloc(&sym, objfile, objfile->name, false);
+        rc = symbol_alloc(&sym, objfile, objfile->name, info->weak);
         if (rc != 0) {
             return false;
         }
 
-        rc = symbol_resolve(sym, objfile, objsym->sect_idx, objsym->offset,
-                            objsym->type, objsym->size);
-        assert(rc == 0);
+        sym->type = info->type;
+        if (info->section != NULL) {
+            rc = symbol_link_definition(sym, info->section, info->offset);
+            assert(rc == 0);
+        }
 
         rc = symtab_insert_symbol(file->symtab, sym, NULL);
         if (rc != 0) {
@@ -90,11 +92,11 @@ static bool record_symbol(void *cb_data, struct objfile *objfile, const struct o
         return true;
     }
 
-    struct symbol *symbol = symtab_find_symbol(ctx->symtab, objsym->name);
+    struct symbol *symbol = symtab_find_symbol(ctx->symtab, info->name);
     if (symbol == NULL) {
         // This is a new global symbol
 
-        int rc = symbol_alloc(&symbol, objfile, objsym->name, objsym->binding == SYMBOL_WEAK);
+        int rc = symbol_alloc(&symbol, objfile, info->name, info->weak);
         if (rc != 0) {
             return false;
         }
@@ -109,6 +111,7 @@ static bool record_symbol(void *cb_data, struct objfile *objfile, const struct o
                 return false;
             }
 
+            // FIXME: prefer the largest one (because of common)
             log_debug("Replacing weak symbol '%s' with definition from %s",
                     symbol->name, objfile->name);
 
@@ -123,24 +126,25 @@ static bool record_symbol(void *cb_data, struct objfile *objfile, const struct o
         }
     }
 
-    if (objsym->defined) {
+    if (info->section != NULL) {
         // This is a symbol definition, attempt to resolve it
-        int rc = symbol_resolve(symbol, objfile, objsym->sect_idx, objsym->offset,
-                                objsym->type, objsym->size);
+        int rc = symbol_link_definition(symbol, info->section, info->offset);
         if (rc != 0) {
             log_error("Multiple definitions for symbol '%s'; both %s and %s define it",
-                    symbol->name, objfile->name, symbol->definer->name);
+                    symbol->name, objfile->name, symbol->objfile->name);
             return false;
         }
 
     } else {
+        assert(info->is_reference);
+
         // This is a symbol reference, if we didn't just create it, 
         // add ourselves as a referer. Otherwise, add it to the list
         // of unresolved symbols
         if (symbol_referer(symbol) != objfile) {
             symbol_add_reference(symbol, objfile);
 
-        } else if (!symbol_is_resolved(symbol)) {
+        } else if (symbol_is_undefined(symbol)) {
             struct unresolved *unresolved = malloc(sizeof(struct unresolved));
             if (unresolved == NULL) {
                 return false;
@@ -373,7 +377,7 @@ int main(int argc, char **argv)
         struct unresolved *unresolved = list_first_entry(&ctx->unresolved, struct unresolved, list);
 
         // This is necessary for the first pass since we've only gone through the object files once
-        if (symbol_is_resolved(unresolved->symbol)) {
+        if (!symbol_is_undefined(unresolved->symbol)) {
             // symbol is no longer unresolved, just ignore it
             list_remove(&unresolved->list);
             free(unresolved);
@@ -405,7 +409,7 @@ int main(int argc, char **argv)
             }
         }
 
-        if (!symbol_is_resolved(unresolved->symbol)) {
+        if (symbol_is_undefined(unresolved->symbol)) {
             log_fatal("Reference to undefined symbol '%s'", 
                     unresolved->symbol->name);
             log_ctx_pop();
