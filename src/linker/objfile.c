@@ -250,6 +250,8 @@ int objfile_init(struct objfile **objfile, const struct objfile_loader *loader,
 
     log_ctx_push(LOG_CTX_FILE(loader->name, name));
 
+    log_trace("Parsing object file");
+
     // Do the initial parsing of the file
     int status = loader->parse_file(&obj->loader_data, data, size);;
     if (status != 0) {

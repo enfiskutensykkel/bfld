@@ -50,7 +50,12 @@ struct archive_loader
      * Parse archive member metadata and emit them, one by one.
      */
     int (*parse_members)(void *archive_loader_data,
-                         bool (*emit_member)(void *callback_data, uint64_t member_id, const char *name, size_t offset, size_t size),
+                         bool (*emit_member)(void *callback_data, 
+                                             uint64_t member_id, 
+                                             const char *name, 
+                                             const uint8_t *content,
+                                             size_t offset, 
+                                             size_t size),
                          void *callback_data);
 
 

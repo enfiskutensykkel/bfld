@@ -47,7 +47,8 @@ struct archive_member
     struct rb_node tree_node;   // entry in the archive index
     uint64_t member_id;         // generic member identifier (offset, index, ...)
     char *name;                 // name of the archive member (NOTE: may be NULL)
-    size_t offset;              // offset into the archive file
+    size_t offset;              // offset into the archive file, used internally for identifying the member
+    const uint8_t *content;     // pointer to member content
     size_t size;                // size of the member
     struct objfile *objfile;    // lazily loaded object file this member refers to
 };

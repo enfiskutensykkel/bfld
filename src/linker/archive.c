@@ -96,7 +96,7 @@ static void archive_member_remove(struct archive_member *member)
 
 
 static int archive_member_create(struct archive *ar, uint64_t member_id, const char *name,
-                                 size_t offset, size_t size)
+                                 size_t offset, const uint8_t *content, size_t size)
 {
     struct rb_node **pos = &(ar->members.root), *parent = NULL;
 
@@ -131,6 +131,7 @@ static int archive_member_create(struct archive *ar, uint64_t member_id, const c
     member->member_id = member_id;
     member->size = size;
     member->offset = offset;
+    member->content = content;
     member->objfile = NULL;
 
     rb_insert_node(&member->tree_node, parent, pos);
@@ -273,9 +274,9 @@ void archive_get(struct archive *ar)
 
 
 static bool _archive_member_create(void *ctx, uint64_t member_id, const char *name,
-                                   size_t offset, size_t size)
+                                   const uint8_t *ptr, size_t offset, size_t size)
 {
-    int status = archive_member_create(ctx, member_id, name, offset, size);
+    int status = archive_member_create(ctx, member_id, name, offset, ptr, size);
     return status == 0;
 }
 
@@ -312,6 +313,8 @@ int archive_init(struct archive **ar, const struct archive_loader *loader,
     rb_tree_init(&a->members);
 
     log_ctx_push(LOG_CTX_FILE(loader->name, name));
+
+    log_trace("Parsing archive file");
 
     int status = loader->parse_file(&a->loader_data, data, size);
     if (status != 0) {
@@ -394,8 +397,7 @@ struct objfile * archive_load_member_objfile(struct archive_member *member)
     // of a member.
     int status = objfile_init(&member->objfile, loader->member_loader,
                               member->name != NULL ? member->name : "",
-                              ((const uint8_t*) ar->file->data + member->offset),
-                              member->size);
+                              member->content, member->size);
     if (status != 0) {
         log_ctx_pop();
         return NULL;

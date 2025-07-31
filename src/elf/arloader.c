@@ -133,7 +133,7 @@ static int init(void **ctx, const uint8_t *ptr, size_t size)
 }
 
 
-static int parse_ranlib_index(void *ctxptr, bool (*emit)(void *user, const char*, uint64_t), void *user)
+static int parse_ranlib_index(void *ctxptr, bool (*emit)(void *cb_data, const char*, uint64_t), void *cb_data)
 {
     struct ar_file *ctx = ctxptr;
 
@@ -147,7 +147,7 @@ static int parse_ranlib_index(void *ctxptr, bool (*emit)(void *user, const char*
     const char *symtab = (const char*) (offsets + num_entries + 1);
 
     for (uint32_t i = 0; i < num_entries; ++i) {
-        emit(user, symtab, ntohl(offsets[i + 1]));
+        emit(cb_data, symtab, ntohl(offsets[i + 1]));
         symtab += strlen(symtab) + 1;
     }
 
@@ -155,7 +155,7 @@ static int parse_ranlib_index(void *ctxptr, bool (*emit)(void *user, const char*
 }
 
 
-static int parse_members(void *ctx, bool (*emit)(void *user, uint64_t, const char*, size_t, size_t), void *user)
+static int parse_members(void *ctx, bool (*emit)(void *cb_data, uint64_t, const char*, const uint8_t *, size_t, size_t), void *cb_data)
 {
     struct ar_file *ctx_data = ctx;
     const uint8_t *ptr = ctx_data->start;
@@ -190,7 +190,8 @@ static int parse_members(void *ctx, bool (*emit)(void *user, uint64_t, const cha
         } else {
             char *name = NULL;
             get_member_name(hdr, ctx_data->strtab, &name);
-            emit(user, offset, name, offset + sizeof(struct ar_header), size);
+            emit(cb_data, offset, name, ptr + offset + sizeof(struct ar_header), 
+                    offset + sizeof(struct ar_header), size);
             if (name != NULL) {
                 free(name);
             }
