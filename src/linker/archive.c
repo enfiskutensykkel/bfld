@@ -376,6 +376,7 @@ struct archive * archive_load(mfile *file, const struct archive_loader *loader)
 }
 
 
+// TODO: take in expected_arch
 struct objfile * archive_load_member_objfile(struct archive_member *member)
 {
     if (member->objfile != NULL) {

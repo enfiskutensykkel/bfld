@@ -82,9 +82,11 @@ const struct objfile_loader * objfile_loader_find(const char *name)
 
 const struct objfile_loader * objfile_loader_probe(const uint8_t *data, size_t size)
 {
+    enum arch_type arch = ARCH_UNKNOWN;
+
     list_for_each_entry(loader_entry, &objfile_loaders, struct plugin_registry_entry, list_node) {
         const struct objfile_loader *loader = loader_entry->plugin;
-        if (loader->probe(data, size)) {
+        if (loader->probe(data, size, &arch)) {
             return loader;
         }
     }
@@ -236,7 +238,12 @@ int objfile_init(struct objfile **objfile, const struct objfile_loader *loader,
         return ENOMEM;
     }
 
-    obj->arch = ARCH_UNKNOWN;
+    if (!loader->probe(data, size, &obj->arch)) {
+        free(obj->name);
+        free(obj);
+        return EINVAL;
+    }
+
     obj->file = NULL;
     obj->refcnt = 1;
 
@@ -256,7 +263,8 @@ int objfile_init(struct objfile **objfile, const struct objfile_loader *loader,
     log_trace("Parsing object file");
 
     // Do the initial parsing of the file
-    int status = loader->parse_file(&obj->loader_data, data, size, &obj->arch);
+    int status = loader->parse_file(&obj->loader_data, data, size, 
+                                    &obj->handler);
     if (status != 0) {
         // Loader wasn't happy with the file
         log_error("Invalid file format or corrupt file");

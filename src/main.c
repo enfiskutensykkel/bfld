@@ -52,7 +52,7 @@ struct output_section
 struct linker_ctx
 {
     struct list_head input_files;
-    struct list_head archives;
+    struct list_head archives;          // list of archives to pull members from
     struct list_head output_sects;      // output sections (merged)
     struct symtab *symtab;              // global symbol table
     struct list_head unresolved;        // queue of unresolved symbols
@@ -86,11 +86,8 @@ static void resolve_symbols(struct symtab *symtab)
 
 static bool record_reloc(void *cb_data, struct objfile *objfile, const struct relinfo *info)
 {
-    if (info->symbol_name) {
-        log_debug("Reloc %s", info->symbol_name);
-    } else {
-        log_debug("Reloc %s", info->section_ref->name);
-    }
+    
+
     return true;
 }
 
@@ -515,10 +512,7 @@ int main(int argc, char **argv)
         }
 
         list_insert_tail(&ctx->output_sects, &outsect->list);
-    }
 
-    uint64_t base_addr = 0x400000;
-    list_for_each_entry(outsect, &ctx->output_sects, struct output_section, list) {
         list_for_each_entry(ifile, &ctx->input_files, struct input_file, list) {
             const struct objfile *objfile = ifile->file;
 
@@ -532,6 +526,26 @@ int main(int argc, char **argv)
                 node = rb_next(node);
             }
         }
+    }
+
+    // Extract relocations
+    list_for_each_entry(ifile, &ctx->input_files, struct input_file, list) {
+        struct objfile *objfile = ifile->file;
+        log_ctx_push(LOG_CTX_FILE(NULL, ifile->file->name));
+        
+        int status = objfile_extract_relocations(objfile, record_reloc, ifile);
+        if (status != 0) {
+            log_fatal("Failed to extract relocations");
+            log_ctx_pop();
+            exit(4);
+        }
+
+        log_ctx_pop();
+    }
+
+    // Resolve addresses
+    uint64_t base_addr = 0x400000;
+    list_for_each_entry(outsect, &ctx->output_sects, struct output_section, list) {
 
         merged_set_base_address(outsect->sect, BFLD_ALIGN(base_addr, outsect->sect->align));
         base_addr = outsect->sect->addr + outsect->sect->total_size;
@@ -545,20 +559,6 @@ int main(int argc, char **argv)
     resolve_symbols(ctx->symtab);
     list_for_each_entry(inputfile, &ctx->input_files, struct input_file, list) {
         resolve_symbols(inputfile->symtab);
-    }
-
-    list_for_each_entry(ifile, &ctx->input_files, struct input_file, list) {
-        const struct objfile *objfile = ifile->file;
-        log_ctx_push(LOG_CTX_FILE(NULL, ifile->file->name));
-        
-        int status = objfile_extract_relocations(objfile, record_reloc, ifile);
-        if (status != 0) {
-            log_fatal("Failed to extract relocations");
-            log_ctx_pop();
-            exit(4);
-        }
-
-        log_ctx_pop();
     }
 
     destroy_ctx(ctx);

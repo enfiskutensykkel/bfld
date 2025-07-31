@@ -31,6 +31,10 @@ int plugin_register(struct list_head *registry, const char *name, const void *pl
 {
     struct plugin_registry_entry *entry;
 
+    if (name == NULL) {
+        return EINVAL;
+    }
+
     entry = plugin_find_entry(registry, name);
     if (entry != NULL) {
         return EEXIST;

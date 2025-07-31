@@ -15,6 +15,14 @@ extern "C" {
 #include <stdint.h>
 
 
+/* Forward declaration of architecture handler */
+struct arch_handler;
+
+
+/* Forward declaration of objfile_loader */
+struct objfile_loader;
+
+
 /*
  * Representation of an object file.
  * Object files are input files to the linker.
@@ -22,11 +30,12 @@ extern "C" {
 struct objfile
 {
     char *name;             // filename used when opening the object file
-    enum arch_type arch;    // architecture type (x86, x86_64, AARCH64, etc.)
+    enum arch_type arch;    // architecture type
     int refcnt;             // reference counter
     mfile *file;            // reference to the underlying memory-map
     void *loader_data;      // private data for the object file loader
     const struct objfile_loader *loader;  // the underlying object file loader (front-end)
+    const struct arch_handler *handler;  // callback function for handling relocations for symbols from this file
     size_t num_sections;    // number of sections
     struct rb_tree sections;// map of sections
 };
@@ -143,8 +152,7 @@ struct relinfo
     uint64_t offset;            // offset within section to relocation
     const char *symbol_name;    // symbol the relocation refers to or NULL if section_ref is set
     const struct section *section_ref; // section the relocation refers to or NULL
-    // FIXME: make abstraction/IR for relocation types
-    uint8_t type;               // relocation type
+    uint32_t type;              // relocation type
     int64_t addend;
 };
 

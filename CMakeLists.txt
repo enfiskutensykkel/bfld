@@ -34,6 +34,7 @@ add_library(linkerlib SHARED
     src/linker/archive.c
     src/linker/symtab.c
     src/linker/merge.c
+    src/linker/arch.c
 )
 target_include_directories(linkerlib PUBLIC include)  # also includes "include/utils"
 target_include_directories(linkerlib PRIVATE include/utils)
@@ -47,6 +48,7 @@ set_target_properties(linkerlib PROPERTIES OUTPUT_NAME bfld)
 
 add_executable(bfld src/main.c)
 add_subdirectory(src/elf)
+add_subdirectory(src/arch)
 
 #target_compile_definitions(bfld PUBLIC DEFAULT_BFVM="$<TARGET_FILE:bfvm>")
 target_compile_definitions(bfld PUBLIC DEFAULT_BFVM="NOFILE")

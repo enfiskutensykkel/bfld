@@ -94,7 +94,7 @@ struct objfile_relocation
     uint64_t            sectionref; // if != 0, the relocation refers to a section and not a symbol
     bool                commonref;  // if true, the relocation refers to the common section
     const char          *symbol;    // symbol name (if sectionref = 0 and common = false)
-    uint8_t             type;       // relocation type FIXME: abstract this
+    uint32_t            type;       // relocation type
     int64_t             addend;     // relocation addend
 };
 
@@ -119,10 +119,12 @@ struct objfile_loader
      * Determine if the memory mapped file is a format
      * that is supported by the file loader.
      */
-    bool (*probe)(const uint8_t *file_data, size_t file_size);
+    bool (*probe)(const uint8_t *file_data, size_t file_size,
+                  enum arch_type *detected_arch);
 
     /*
-     * Parse the file data and allocate a private file data (if needed).
+     * Parse the file data and allocate a private file data (if needed),
+     * and set the architecture specific handler structure.
      *
      * This function should set up necessary pointers and handles
      * to avoid parsing the file later.
@@ -133,7 +135,7 @@ struct objfile_loader
     int (*parse_file)(void **objfile_loader_data, 
                       const uint8_t *file_data, 
                       size_t file_size,
-                      enum arch_type *arch);
+                      const struct arch_handler **arch_handler);
 
     /*
      * Parse section headers and emit section metadata.
