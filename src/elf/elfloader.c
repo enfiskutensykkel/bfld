@@ -8,30 +8,50 @@
 #include <errno.h>
 #include <string.h>
 #include <assert.h>
+#include "utils/list.h"
 
 
 /*
  * Hold some information about the ELF file, in order to do fast
  * lookup at a later point.
  */
-struct elf_file
+struct elf_context
 {
     const Elf64_Ehdr *eh;       // pointer to the start of the ELF file (the ELF header)
     const char *strtab;         // symbol string table
     uint64_t nsyms;             // number of symbols in the symbol table
     const Elf64_Sym *symtab;    // pointer to the symbol table
-    const Elf64_Sym **sect_syms;// section symbol map, used for relocations
-    const Elf64_Rel **rel;
-    const Elf64_Rela **rela;
+    uint64_t nreltabs;
+    const Elf64_Shdr **relsects; // sections with relocations
 };
 
 
-static void release_elf_file(void *ctx)
+static struct elf_context * create_elf_context(const uint8_t *ptr)
 {
-    struct elf_file *file = ctx;
+    struct elf_context *ctx = malloc(sizeof(struct elf_context));
+    if (ctx == NULL) {
+        return NULL;
+    }
 
-    free(file->sect_syms);
-    free(file);
+    ctx->eh = (const Elf64_Ehdr*) ptr;
+    ctx->strtab = NULL;
+    ctx->nsyms = 0;
+    ctx->symtab = NULL;
+    ctx->nreltabs = 0;
+    ctx->relsects = NULL;
+
+    return ctx;
+}
+
+
+static void release_elf_context(void *ctx_data)
+{
+    if (ctx_data != NULL) {
+        struct elf_context *ctx = ctx_data;
+
+        free(ctx->relsects);
+        free(ctx);
+    }
 }
 
 
@@ -70,6 +90,16 @@ static bool check_elf_header(const uint8_t *ptr, size_t size)
         return false;
     }
 
+    // Only allow architectures we support
+    switch (ehdr->e_machine) {
+        case EM_X86_64:
+            break;
+
+        default:
+            // Unsupported architecture
+            return false;
+    }
+
     return true;
 }
 
@@ -103,45 +133,47 @@ static const char * lookup_strtab_str(const Elf64_Ehdr *ehdr, uint32_t offset)
 }
 
 
-static int parse_elf_file(void **ctx_data, const uint8_t *data, size_t size)
+static int parse_elf_file(void **ctx_data, const uint8_t *data, size_t size, enum arch_type *arch)
 {
-    const Elf64_Ehdr *eh = (const Elf64_Ehdr*) data;
-
     if (!check_elf_header(data, size)) {
         return EBADF;
     }
 
-    uint64_t nsyms = 0;
-    const char *strtab = NULL;
-    const Elf64_Sym *symtab = NULL;
+    struct elf_context *ctx = create_elf_context(data);
+    if (ctx == NULL) {
+        return ENOMEM;
+    }
 
-    // Find the symbol section
-    for (uint64_t shndx = 0; shndx < eh->e_shnum; ++shndx) {
-        const Elf64_Shdr *sh = elf_section(eh, shndx);
+    log_trace("First pass");
 
-        log_ctx_push(LOG_CTX_FILE(NULL, NULL, .section = lookup_strtab_str(eh, sh->sh_name)));
+    for (uint64_t shndx = 0; shndx < ctx->eh->e_shnum; ++shndx) {
+        const Elf64_Shdr *sh = elf_section(ctx->eh, shndx);
+
+        log_ctx_push(LOG_CTX_FILE(NULL, NULL, .section = lookup_strtab_str(ctx->eh, sh->sh_name)));
 
         switch (sh->sh_type) {
             case SHT_SYMTAB:
-                // Symbol table
-                if (symtab == NULL) {
-                    nsyms = sh->sh_size / sh->sh_entsize;
-                    symtab = (const Elf64_Sym*) (((const uint8_t*) eh) + sh->sh_offset);
-                    strtab = (const char*) ((const uint8_t*) eh) + elf_section(eh, sh->sh_link)->sh_offset;
+                if (ctx->symtab == NULL) {
+                    log_trace("Symbol table section %lu", shndx);
+
+                    ctx->nsyms = sh->sh_size / sh->sh_entsize;
+                    ctx->symtab = (const Elf64_Sym*) (((const uint8_t*) ctx->eh) + sh->sh_offset);
+                    ctx->strtab = (const char*) ((const uint8_t*) ctx->eh) + elf_section(ctx->eh, sh->sh_link)->sh_offset;
                 } else {
                     log_warning("Unexpected additional symbol tables in file. Symbol table is ignored");
                 }
                 break;
 
             case SHT_STRTAB:
-                break;
-
-            case SHT_REL:
-                log_debug("Relocation table");
+                if (ctx->eh->e_shstrndx != shndx) {
+                    log_trace("String table section %lu", shndx);
+                }
                 break;
 
             case SHT_RELA:
-                log_debug("Relocation table");
+            case SHT_REL:
+                log_trace("Relocation table section %lu", shndx);
+                ++(ctx->nreltabs);
                 break;
 
             case SHT_PROGBITS:
@@ -150,7 +182,7 @@ static int parse_elf_file(void **ctx_data, const uint8_t *data, size_t size)
             case SHT_FINI_ARRAY:
             case SHT_PREINIT_ARRAY:
                 if (!(sh->sh_flags & SHF_ALLOC)) {
-                    log_trace("Section with data without SHF_ALLOC");
+                    log_debug("Section with data without SHF_ALLOC");
                 }
                 break;
 
@@ -161,40 +193,57 @@ static int parse_elf_file(void **ctx_data, const uint8_t *data, size_t size)
         log_ctx_pop();
     }
 
-    if (symtab == NULL) {
-        log_fatal("Could not locate symbol table");
+    if (ctx->symtab == NULL) {
+        log_error("Could not locate symbol table");
+        release_elf_context(ctx);
+        return EINVAL;
     }
 
-    struct elf_file *ctx = malloc(sizeof(struct elf_file));
-    if (ctx == NULL) {
+    ctx->relsects = calloc(ctx->nreltabs, sizeof(const Elf64_Shdr*));
+    if (ctx->relsects == NULL) {
+        release_elf_context(ctx);
         return ENOMEM;
     }
 
-    ctx->sect_syms = calloc(nsyms, sizeof(const Elf64_Sym*));
-    if (ctx->sect_syms == NULL) {
-        free(ctx);
-        return ENOMEM;
+    switch (ctx->eh->e_machine) {
+        case EM_X86_64:
+            *arch = ARCH_x86_64;
+            break;
+
+        default:
+            release_elf_context(ctx);
+            return EINVAL;
     }
-
-    //ctx->sect_rela = calloc(sizeof(const Elf64_Rela*, 
-
-    ctx->eh = eh;
-    ctx->strtab = strtab;
-    ctx->nsyms = nsyms;
-    ctx->symtab = symtab;
 
     *ctx_data = ctx;
     return 0;
 }
 
 
-static int parse_elf_sects(void *ctx, bool (*emit_section)(void *cb_data, const struct objfile_section*), void *cb_data)
+static int parse_elf_sects(void *ctx_data, bool (*emit_section)(void *cb_data, const struct objfile_section*), void *cb_data)
 {
-    struct elf_file *file = ctx;
-    const Elf64_Ehdr *eh = file->eh;
+    struct elf_context *ctx = ctx_data;
+    const Elf64_Ehdr *eh = ctx->eh;
+    uint64_t reltabndx = 0;
+
+    log_trace("Second pass");
 
     for (uint64_t shndx = 0; shndx < eh->e_shnum; ++shndx) {
         const Elf64_Shdr *sh = elf_section(eh, shndx);
+
+        switch (sh->sh_type) {
+            case SHT_SYMTAB:
+            case SHT_STRTAB:
+                continue;
+
+            case SHT_REL:
+            case SHT_RELA:
+                ctx->relsects[reltabndx++] = sh;
+                continue;  // do not continue to parse these now
+
+            default:
+                break;
+        }
 
         if (!!(sh->sh_flags & SHF_ALLOC)) {
             struct objfile_section sect = {
@@ -227,11 +276,15 @@ static int parse_elf_sects(void *ctx, bool (*emit_section)(void *cb_data, const 
                 case SHT_INIT_ARRAY:
                 case SHT_FINI_ARRAY:
                 case SHT_PREINIT_ARRAY:
-                    log_warning("Section %u with type %u is not implemented yet", shndx, sh->sh_type);
+                    log_warning("Section %lu with type %u is not implemented yet", shndx, sh->sh_type);
+                    break;
+
+                case SHT_NOTE:
+                    log_debug("Skipping note section %lu with SHF_ALLOC", shndx);
                     break;
 
                 default:
-                    log_trace("Skipping section %u with type %u", shndx, sh->sh_type);
+                    log_notice("Skipping section %lu with SHF_ALLOC flag with type %u", shndx, sh->sh_type);
                     break;
             }
 
@@ -247,21 +300,23 @@ static int parse_elf_sects(void *ctx, bool (*emit_section)(void *cb_data, const 
 }
 
 
-static int parse_elf_symtab(void *ctx, bool (*emit_symbol)(void *cb_data, const struct objfile_symbol*), void *cb_data)
+static int parse_elf_symtab(void *ctx_data, bool (*emit_symbol)(void *cb_data, const struct objfile_symbol*), void *cb_data)
 {
-    struct elf_file *ef = (struct elf_file*) ctx;
-    const Elf64_Ehdr *eh = ef->eh;
+    struct elf_context *ctx = (struct elf_context*) ctx_data;
+    const Elf64_Ehdr *eh = ctx->eh;
 
     log_ctx_push(LOG_CTX_FILE(NULL, NULL, 
-                .section = lookup_strtab_str(eh, (((const Elf64_Shdr*) &ef->symtab[0]) - 1)->sh_name)));
+                .section = lookup_strtab_str(eh, (((const Elf64_Shdr*) &ctx->symtab[0]) - 1)->sh_name)));
 
-    for (uint32_t idx = 1; idx < ef->nsyms; ++idx) {
-        const Elf64_Sym *sym = &ef->symtab[idx];
+    log_trace("Parsing symbol table");
+
+    for (uint32_t idx = 1; idx < ctx->nsyms; ++idx) {
+        const Elf64_Sym *sym = &ctx->symtab[idx];
         uint8_t type = ELF64_ST_TYPE(sym->st_info);
         uint8_t bind = ELF64_ST_BIND(sym->st_info);
 
         struct objfile_symbol symbol = {
-            .name = ef->strtab + sym->st_name,
+            .name = ctx->strtab + sym->st_name,
             .binding = SYMBOL_LOCAL,
             .type = SYMBOL_NOTYPE,
             .common = false,
@@ -304,16 +359,13 @@ static int parse_elf_symtab(void *ctx, bool (*emit_symbol)(void *cb_data, const 
                 symbol.type = SYMBOL_OBJECT;
                 break;
 
-            case STT_SECTION:
-                ef->sect_syms[idx] = sym;
-                continue;  // do not emit section type
-
             case STT_COMMON:
                 // treat as weak, uninitialized data
                 symbol.type = SYMBOL_NOTYPE;
                 symbol.binding = SYMBOL_WEAK;
                 break;
 
+            case STT_SECTION:
             default:
                 continue;  // do not emit this
         }
@@ -353,9 +405,94 @@ static int parse_elf_symtab(void *ctx, bool (*emit_symbol)(void *cb_data, const 
 }
 
 
-static int parse_elf_relocs(void *ctx, bool (*emit_reloc)(void *cb_data, const struct objfile_relocation*), void *cb_data)
+static int parse_elf_relocs(void *ctx_data, bool (*emit_reloc)(void *cb_data, const struct objfile_relocation*), void *cb_data)
 {
-    struct elf_file *ef = ctx;
+    struct elf_context *ctx = ctx_data;
+
+    for (uint64_t idx = 0; idx < ctx->nreltabs; ++idx) {
+        const Elf64_Shdr *sh = ctx->relsects[idx];
+        const Elf64_Rel *reltab = NULL;
+        const Elf64_Rela *relatab = NULL;
+
+        log_ctx_push(LOG_CTX_FILE(NULL, NULL, .section = lookup_strtab_str(ctx->eh, sh->sh_name)));
+
+        log_trace("Parsing relocation table");
+
+        switch (sh->sh_type) {
+            case SHT_REL:
+                reltab = (const Elf64_Rel*) (((const uint8_t*) ctx->eh) + sh->sh_offset);
+                assert(sh->sh_entsize == sizeof(Elf64_Rel));
+                break;
+
+            case SHT_RELA:
+                relatab = (const Elf64_Rela*) (((const uint8_t*) ctx->eh) + sh->sh_offset);
+                assert(sh->sh_entsize == sizeof(Elf64_Rela));
+                break;
+
+            default:
+                log_error("Invalid section type %u", sh->sh_type);
+                log_ctx_pop();
+                continue;
+        }
+
+        for (uint64_t idx = 0; idx < sh->sh_size / sh->sh_entsize; ++idx) {
+            struct objfile_relocation rel = {
+                .section = sh->sh_info,
+                .offset = 0,
+                .sectionref = 0,
+                .commonref = false,
+                .symbol = NULL,
+                .type = 0,
+                .addend = 0
+            };
+
+            const Elf64_Sym *sym = NULL;
+
+            if (relatab != NULL) {
+                const Elf64_Rela *r = &relatab[idx];
+                
+                rel.offset = r->r_offset;
+                rel.type = ELF64_R_TYPE(r->r_info);
+                rel.addend = r->r_addend;
+                sym = &ctx->symtab[ELF64_R_SYM(r->r_info)];
+                
+            } else {
+                const Elf64_Rel *r = &reltab[idx];
+
+                rel.offset = r->r_offset;
+                rel.type = ELF64_R_TYPE(r->r_info);
+                sym = &ctx->symtab[ELF64_R_SYM(r->r_info)];
+            }
+
+            switch (ELF64_ST_TYPE(sym->st_info)) {
+                case STT_SECTION:
+                    rel.sectionref = sym->st_shndx;
+                    break;
+
+                case STT_COMMON:
+                    rel.commonref = true;
+                    break;
+
+                case STT_NOTYPE:
+                case STT_FUNC:
+                case STT_OBJECT:
+                    rel.symbol = ctx->strtab + sym->st_name;
+                    break;
+
+                default:
+                    log_error("Unsupported relocation");
+                    continue;
+            }
+
+            if (!emit_reloc(cb_data, &rel)) {
+                log_ctx_pop();
+                return ECANCELED;
+            }
+
+            log_ctx_pop();
+        }
+    }
+
     return 0;
 }
 
@@ -367,7 +504,7 @@ const struct objfile_loader elf_loader = {
     .parse_sections = parse_elf_sects,
     .extract_symbols = parse_elf_symtab,
     .extract_relocations = parse_elf_relocs,
-    .release = release_elf_file,
+    .release = release_elf_context,
 };
 
 

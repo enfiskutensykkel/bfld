@@ -1,3 +1,4 @@
+#include "arch.h"
 #include "logging.h"
 #include "secttypes.h"
 #include "symtypes.h"
@@ -22,7 +23,8 @@ struct objfile_callback_data
     int status;
     struct objfile *objfile;
     objfile_syminfo_cb emit_symbol_cb;
-    void *user_data;
+    objfile_relinfo_cb emit_reloc_cb;
+    void *cb_data;
 };
 
 
@@ -234,6 +236,7 @@ int objfile_init(struct objfile **objfile, const struct objfile_loader *loader,
         return ENOMEM;
     }
 
+    obj->arch = ARCH_UNKNOWN;
     obj->file = NULL;
     obj->refcnt = 1;
 
@@ -253,7 +256,7 @@ int objfile_init(struct objfile **objfile, const struct objfile_loader *loader,
     log_trace("Parsing object file");
 
     // Do the initial parsing of the file
-    int status = loader->parse_file(&obj->loader_data, data, size);;
+    int status = loader->parse_file(&obj->loader_data, data, size, &obj->arch);
     if (status != 0) {
         // Loader wasn't happy with the file
         log_error("Invalid file format or corrupt file");
@@ -312,11 +315,6 @@ static bool _emit_symbol(void *cb_data, const struct objfile_symbol *sym)
     struct objfile_callback_data *cb = cb_data;
     struct objfile *objfile = cb->objfile;
 
-    if (cb->emit_symbol_cb == NULL) {
-        cb->status = ENOTRECOVERABLE;
-        return false;
-    }
-
     struct section *sect = NULL;
     if (sym->common) {
         sect = objfile_find_section(objfile, 0xdeadbeef);
@@ -335,7 +333,7 @@ static bool _emit_symbol(void *cb_data, const struct objfile_symbol *sym)
         .offset = sym->offset,
     };
 
-    bool _continue = cb->emit_symbol_cb(cb->user_data, objfile, &info);
+    bool _continue = cb->emit_symbol_cb(cb->cb_data, objfile, &info);
     if (!_continue) {
         cb->status = ECANCELED;
     }
@@ -344,20 +342,65 @@ static bool _emit_symbol(void *cb_data, const struct objfile_symbol *sym)
 }
 
 
-int objfile_extract_symbols(struct objfile* objfile, objfile_syminfo_cb callback, 
+static bool _emit_reloc(void *cb_data, const struct objfile_relocation *rel)
+{
+    struct objfile_callback_data *cb = cb_data;
+    struct objfile *objfile = cb->objfile;
+
+    struct section *sect = objfile_find_section(objfile, rel->section);
+    if (sect == NULL) {
+        log_error("Invalid section in relocation");
+        cb->status = EBADF;
+        return false;
+    }
+
+    struct relinfo info = {
+        .section = sect,
+        .offset = rel->offset,
+        .symbol_name = NULL,
+        .section_ref = NULL,
+        .type = rel->type,
+        .addend = rel->addend
+    };
+
+    if (rel->sectionref != 0) {
+        struct section *ref = objfile_find_section(objfile, rel->sectionref);
+        if (ref == NULL) {
+            log_error("Invalid section reference in relocation");
+            cb->status = EBADF;
+            return false;
+        }
+
+        info.section_ref = ref;
+    } else if (rel->commonref) {
+        struct section *ref = objfile_find_section(objfile, 0xdeadbeef);
+        info.section_ref = ref;
+    } else {
+        info.symbol_name = rel->symbol;
+    }
+
+    bool _continue = cb->emit_reloc_cb(cb->cb_data, objfile, &info);
+    if (!_continue) {
+        cb->status = ECANCELED;
+    }
+
+    return true;
+}
+
+
+int objfile_extract_symbols(struct objfile *objfile, objfile_syminfo_cb callback, 
                             void *callback_data)
 {
-    if (objfile->loader == NULL || objfile->loader->extract_symbols == NULL) {
-        log_error("Missing loader for object file");
-        return EBADF;
-    }
+    assert(objfile->loader != NULL && objfile->loader->extract_symbols != NULL);
+
     log_ctx_push(LOG_CTX_FILE(objfile->loader->name, objfile->name));
 
     struct objfile_callback_data cbdata = {
         .status = 0,
         .objfile = objfile,
         .emit_symbol_cb = callback,
-        .user_data = callback_data
+        .emit_reloc_cb = NULL,
+        .cb_data = callback_data
     };
 
     int status = objfile->loader->extract_symbols(objfile->loader_data, 
@@ -369,7 +412,41 @@ int objfile_extract_symbols(struct objfile* objfile, objfile_syminfo_cb callback
     }
 
     if (status != 0) {
-        log_error("Could not extract symbols");
+        log_error("Extracting symbols failed");
+        log_ctx_pop();
+        return EBADF;
+    }
+
+    log_ctx_pop();
+    return 0;
+}
+
+
+int objfile_extract_relocations(struct objfile *objfile, objfile_relinfo_cb callback,
+                                void *callback_data)
+{
+    assert(objfile->loader != NULL && objfile->loader->extract_relocations != NULL);
+
+    log_ctx_push(LOG_CTX_FILE(objfile->loader->name, objfile->name));
+
+    struct objfile_callback_data cbdata = {
+        .status = 0,
+        .objfile = objfile,
+        .emit_symbol_cb = NULL,
+        .emit_reloc_cb = callback,
+        .cb_data = callback_data
+    };
+
+    int status = objfile->loader->extract_relocations(objfile->loader_data,
+                                                      _emit_reloc,
+                                                      &cbdata);
+    if (cbdata.status != 0) {
+        log_ctx_pop();
+        return cbdata.status;
+    }
+
+    if (status != 0) {
+        log_error("Extracting relocations failed");
         log_ctx_pop();
         return EBADF;
     }

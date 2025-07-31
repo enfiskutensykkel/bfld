@@ -4,6 +4,7 @@
 extern "C" {
 #endif
 
+#include "arch.h"
 #include "secttypes.h"
 #include "symtypes.h"
 #include "mfile.h"
@@ -21,6 +22,7 @@ extern "C" {
 struct objfile
 {
     char *name;             // filename used when opening the object file
+    enum arch_type arch;    // architecture type (x86, x86_64, AARCH64, etc.)
     int refcnt;             // reference counter
     mfile *file;            // reference to the underlying memory-map
     void *loader_data;      // private data for the object file loader
@@ -105,7 +107,7 @@ struct syminfo
 
 
 /*
- * Convenience type for symbol callback.
+ * Convenience type for symbol extraction callback.
  */
 typedef bool (*objfile_syminfo_cb)(void *callback_data, 
                                    struct objfile*,
@@ -113,7 +115,7 @@ typedef bool (*objfile_syminfo_cb)(void *callback_data,
 
 
 /*
- * Extract all symbols from the object file.
+ * Extract symbols from the object file.
  *
  * Parses the underlying object file and invokes 
  * the supplied callback for each symbol in the file.
@@ -133,13 +135,45 @@ int objfile_extract_symbols(struct objfile* objfile,
 
 /*
  * Relocation information.
+ * Relocations can apply to either symbols or sections.
  */
-struct relocinfo
+struct relinfo
 {
-    const char *symbol_name;
-    uint64_t offset;
+    struct section *section;    // section the relocation applies
+    uint64_t offset;            // offset within section to relocation
+    const char *symbol_name;    // symbol the relocation refers to or NULL if section_ref is set
+    const struct section *section_ref; // section the relocation refers to or NULL
+    // FIXME: make abstraction/IR for relocation types
+    uint8_t type;               // relocation type
     int64_t addend;
 };
+
+
+/*
+ * Convenience type for relocation extraction callback.
+ */
+typedef bool (*objfile_relinfo_cb)(void *callback_data,
+                                   struct objfile*,
+                                   const struct relinfo*);
+
+
+/*
+ * Extract relocations from the object file.
+ *
+ * Parses the underlying object file and invokes the
+ * supplied callback for each relocation in the file.
+ *
+ * On success, this function returns 0.
+ *
+ * If the callback returns anything but true, the processing
+ * will stop and ECANCELED is returned.
+ *
+ * Otherwise, if parsing of symbols failed by the underlying
+ * object file loader, EBADF is returned.
+ */
+int objfile_extract_relocations(struct objfile *objfile,
+                                objfile_relinfo_cb,
+                                void *callback_data);
 
 
 #ifdef __cplusplus

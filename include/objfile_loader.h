@@ -4,7 +4,7 @@
 extern "C" {
 #endif
 
-#include "reloctypes.h"
+#include "arch.h"
 #include "secttypes.h"
 #include "symtypes.h"
 #include <stddef.h>
@@ -82,14 +82,19 @@ struct objfile_section
  * Represents a relocation entry found in the object file's
  * relocation tables.
  *
- * Relocations apply to either symbols or sections.
+ * Relocations refer to either symbols or sections.
+ * If the relocation refers to a section, then sectionref
+ * is set to non-zero and symbol is set to NULL. Otherwise,
+ * symbol contains the symbol name.
  */
 struct objfile_relocation
 {
-    uint64_t            section;    // section index (if >0)
-    const char          *symbol;    // symbol name (if section = 0)
-    enum relocation_type type;      // relocation type
+    uint64_t            section;    // section index of the section where the relocation is applied
     uint64_t            offset;     // offset within section to relocation
+    uint64_t            sectionref; // if != 0, the relocation refers to a section and not a symbol
+    bool                commonref;  // if true, the relocation refers to the common section
+    const char          *symbol;    // symbol name (if sectionref = 0 and common = false)
+    uint8_t             type;       // relocation type FIXME: abstract this
     int64_t             addend;     // relocation addend
 };
 
@@ -127,7 +132,8 @@ struct objfile_loader
      */
     int (*parse_file)(void **objfile_loader_data, 
                       const uint8_t *file_data, 
-                      size_t file_size);
+                      size_t file_size,
+                      enum arch_type *arch);
 
     /*
      * Parse section headers and emit section metadata.
