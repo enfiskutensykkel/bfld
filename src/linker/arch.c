@@ -1,8 +1,10 @@
 #include "arch.h"
+#include "reloc.h"
 #include "utils/list.h"
 #include "pluginregistry.h"
 #include <errno.h>
 #include <stdint.h>
+#include "logging.h"
 
 
 static struct list_head arch_handlers = LIST_HEAD_INIT(arch_handlers);
@@ -33,9 +35,15 @@ int arch_handler_register(const struct arch_handler *handler)
 }
 
 
-void arch_emit_relocation(const struct arch_handler *handler, uint64_t addr, 
-                          uint8_t *content, uint64_t offset,
-                          uint32_t type, int64_t addend)
+void arch_apply_relocation(const struct arch_handler *handler,
+                           const struct relocation *reloc,
+                           uint64_t base_addr,
+                           uint8_t *content)
 {
-    handler->emit_relocation(addr, content, offset, type, addend);
+    if (reloc->type == 0 || reloc->type > 255) {
+        log_error("Invalid relocation type 0x%x", reloc->type);
+        return;
+    }
+
+    handler->apply_relocation(reloc, content);
 }

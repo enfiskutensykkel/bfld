@@ -4,14 +4,15 @@
 extern "C" {
 #endif
 
-
-/* Forward declaration of symbol */
-struct symbol;
+#include <stdint.h>
 
 
 struct relocation
+{
+    uint32_t type;          // relocation type
+    uint64_t addr;          // symbol address (finalized)
     uint64_t offset;        // offset within section
-    struct symbol *symbol;  // the symbol the relocation applies for (target symbol)
+    int64_t addend;         // relocation addend (if applicable)
 };
 
 

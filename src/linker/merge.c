@@ -53,6 +53,12 @@ void merged_put(struct merged_section *merged)
         list_for_each_entry_safe(map, &merged->mappings, struct section_mapping, list_node) {
             assert(map->merged_section == merged);
             assert(map->section->merge_mapping == map);
+
+            list_for_each_entry_safe(reloc, &map->relocations, struct section_relocation, list_node) {
+                list_remove(&reloc->list_node);
+                free(reloc);
+            }
+
             map->section->merge_mapping = NULL;
             list_remove(&map->list_node);
             objfile_put(map->objfile);
@@ -89,6 +95,7 @@ int merged_add_section(struct merged_section *merged, struct section *sect)
     map->offset = 0;
     map->content = sect->content;
     map->size = sect->size;
+    list_head_init(&map->relocations);
 
     if (sect->align > merged->align) {
         merged->align = sect->align;
@@ -99,7 +106,6 @@ int merged_add_section(struct merged_section *merged, struct section *sect)
 
     return 0;
 }
-
 
 
 int merged_set_base_address(struct merged_section *merged, uint64_t base_addr)

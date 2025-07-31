@@ -6,6 +6,7 @@ extern "C" {
 
 #include <stddef.h>
 #include <stdint.h>
+#include "reloc.h"
 
 
 enum arch_type
@@ -14,6 +15,9 @@ enum arch_type
     ARCH_x86_64,
     ARCH_AARCH64
 };
+
+
+
 
 
 /*
@@ -33,8 +37,9 @@ struct arch_handler
 
     size_t got_entry_size;
 
-    void (*emit_relocation)(uint64_t addr, uint8_t *content, uint64_t offset, 
-                            uint32_t type, int64_t addend);
+    void (*apply_relocation)(const struct relocation *reloc, 
+                             uint64_t base_addr,
+                             uint8_t *content);
 };
 
 
@@ -42,9 +47,10 @@ struct arch_handler
 int arch_handler_register(const struct arch_handler *handler);
 
 
-void arch_emit_relocation(const struct arch_handler *handler, uint64_t addr, 
-                          uint8_t *content, uint64_t offset,
-                          uint32_t type, int64_t addend);
+void arch_applu_relocation(const struct arch_handler *handler,
+                           const struct relocation *reloc,
+                           uint64_t base_addr,
+                           uint8_t *content);
 
 
 
