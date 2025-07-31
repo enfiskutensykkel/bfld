@@ -12,16 +12,17 @@ extern "C" {
 #include <stdint.h>
 
 
-/*
- * Forward declaration of object file.
- */
+/* Forward declaration of object file. */
 struct objfile;
 
 
-/*
- * Forward declaration of a section from an object file.
- */
+/* Forward declaration of a section from an object file. */
 struct section;
+
+
+/* Forward declaration of a merged section and a section mapping. */
+struct merged_section;
+struct section_mapping;
 
 
 /*
@@ -188,7 +189,17 @@ struct symref * symbol_add_reference(struct symbol *sym, struct objfile *file);
 
 
 /*
- * Resolve symbol address.
+ * Look up the merged section of a symbol.
+ *
+ * This does not take a merged section reference (does not increase
+ * the reference count).
+ */
+struct merged_section * symbol_lookup_merged_section(const struct symbol *sym);
+
+
+/*
+ * Find out which merged section the symbol is in (from its source
+ * section), and resolve symbol address.
  */
 int symbol_resolve_address(struct symbol *sym);
 

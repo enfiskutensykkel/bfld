@@ -41,6 +41,26 @@ static void unregister_loaders(void)
 
 int objfile_loader_register(const struct objfile_loader *loader)
 {
+    if (loader == NULL) {
+        return EINVAL;
+    }
+
+    if (loader->name == NULL) {
+        return EINVAL;
+    }
+
+    if (loader->probe == NULL) {
+        return EINVAL;
+    }
+
+    if (loader->parse_file == NULL || loader->parse_sections == NULL || loader->release == NULL) {
+        return EINVAL;
+    }
+
+    if (loader->extract_symbols == NULL || loader->extract_relocations == NULL) {
+        return EINVAL;
+    }
+
     return plugin_register(&objfile_loaders, loader->name, loader);
 }
 
@@ -100,6 +120,7 @@ static struct section * objfile_create_section(struct objfile *objfile,
                                                const char *name)
 {
     if (key == 0) {
+        log_error("Section identifier can not be 0");
         return NULL;
     }
 
@@ -185,7 +206,7 @@ void objfile_get(struct objfile *objfile)
 
 bool _add_section(void *ctx, const struct objfile_section *sect)
 {
-    struct section *s = objfile_create_section(ctx, sect->index, sect->name);
+    struct section *s = objfile_create_section(ctx, sect->section, sect->name);
     if (s == NULL) {
         return false;
     } 

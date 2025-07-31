@@ -131,6 +131,16 @@ int objfile_extract_symbols(struct objfile* objfile,
                             void *callback_data);
 
 
+/*
+ * Relocation information.
+ */
+struct relocinfo
+{
+    const char *symbol_name;
+    uint64_t offset;
+    int64_t addend;
+};
+
 
 #ifdef __cplusplus
 }

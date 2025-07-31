@@ -188,7 +188,7 @@ static int parse_elf_file(void **ctx_data, const uint8_t *data, size_t size)
 }
 
 
-static int parse_elf_sects(void *ctx, bool (*emit_section)(void *user, const struct objfile_section*), void *user)
+static int parse_elf_sects(void *ctx, bool (*emit_section)(void *cb_data, const struct objfile_section*), void *cb_data)
 {
     struct elf_file *file = ctx;
     const Elf64_Ehdr *eh = file->eh;
@@ -199,7 +199,7 @@ static int parse_elf_sects(void *ctx, bool (*emit_section)(void *user, const str
         if (!!(sh->sh_flags & SHF_ALLOC)) {
             struct objfile_section sect = {
                 .name = lookup_strtab_str(eh, sh->sh_name),
-                .index = shndx,
+                .section = shndx,
                 .offset = sh->sh_offset,
                 .type = SECTION_ZERO,
                 .align = sh->sh_addralign,
@@ -235,7 +235,7 @@ static int parse_elf_sects(void *ctx, bool (*emit_section)(void *user, const str
                     break;
             }
 
-            if (!emit_section(user, &sect)) {
+            if (!emit_section(cb_data, &sect)) {
                 return ECANCELED;
             }
 
@@ -247,7 +247,7 @@ static int parse_elf_sects(void *ctx, bool (*emit_section)(void *user, const str
 }
 
 
-static int parse_elf_symtab(void *ctx, bool (*emit_symbol)(void *user, const struct objfile_symbol*), void *user)
+static int parse_elf_symtab(void *ctx, bool (*emit_symbol)(void *cb_data, const struct objfile_symbol*), void *cb_data)
 {
     struct elf_file *ef = (struct elf_file*) ctx;
     const Elf64_Ehdr *eh = ef->eh;
@@ -342,7 +342,7 @@ static int parse_elf_symtab(void *ctx, bool (*emit_symbol)(void *user, const str
         }
 
         log_trace("Extracting symbol '%s'", symbol.name);
-        if (!emit_symbol(user, &symbol)) {
+        if (!emit_symbol(cb_data, &symbol)) {
             log_ctx_pop();
             return ECANCELED;
         }
@@ -353,12 +353,20 @@ static int parse_elf_symtab(void *ctx, bool (*emit_symbol)(void *user, const str
 }
 
 
+static int parse_elf_relocs(void *ctx, bool (*emit_reloc)(void *cb_data, const struct objfile_relocation*), void *cb_data)
+{
+    struct elf_file *ef = ctx;
+    return 0;
+}
+
+
 const struct objfile_loader elf_loader = {
     .name = "elfloader",
     .probe = check_elf_header,
     .parse_file = parse_elf_file,
     .parse_sections = parse_elf_sects,
     .extract_symbols = parse_elf_symtab,
+    .extract_relocations = parse_elf_relocs,
     .release = release_elf_file,
 };
 

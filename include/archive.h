@@ -92,8 +92,12 @@ struct archive_symbol * archive_lookup_symbol(const struct archive *ar, const ch
 
 /*
  * Load the specified archive member as an object file.
+ *
  * If the object file is already loaded, the same reference
- * is returned.
+ * is returned (but reference count is increased).
+ *
+ * Note that this takes an objfile reference (reference count),
+ * and you should call objfile_put() on it to release it.
  */
 struct objfile * archive_load_member_objfile(struct archive_member *member);
 

@@ -239,15 +239,38 @@ int symbol_link_definition(struct symbol *sym, struct section *sect, uint64_t of
 }
 
 
+static struct section_mapping * symbol_lookup_section_mapping(const struct symbol *sym)
+{
+    if (sym->section != NULL) {
+        return sym->section->merge_mapping;
+    }
+
+    return NULL;
+}
+
+
+struct merged_section * symbol_lookup_merged_section(const struct symbol *sym)
+{
+    const struct section_mapping *map = symbol_lookup_section_mapping(sym);
+
+    if (map == NULL) {
+        return NULL;
+    }
+
+    return map->merged_section;
+}
+
+
 int symbol_resolve_address(struct symbol *sym)
 {
     if (!sym->relative) {
         sym->addr = BFLD_ALIGN(sym->offset, sym->align);
 
     } else if (sym->section != NULL) {
-        const struct section_mapping *map = sym->section->merge_mapping;
+        const struct section_mapping *map = symbol_lookup_section_mapping(sym);
 
         if (map == NULL) {
+            // sections have not been merged yet
             return EINVAL;
         }
 

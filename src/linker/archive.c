@@ -27,6 +27,26 @@ static void unregister_loaders(void)
 
 int archive_loader_register(const struct archive_loader *loader)
 {
+    if (loader == NULL) {
+        return EINVAL;
+    }
+
+    if (loader->name == NULL) {
+        return EINVAL;
+    }
+
+    if (loader->member_loader == NULL) {
+        return EINVAL;
+    }
+
+    if (loader->probe == NULL || loader->release == NULL || loader->parse_file == NULL) {
+        return EINVAL;
+    }
+
+    if (loader->parse_members == NULL || loader->parse_symbol_index == NULL) {
+        return EINVAL;
+    }
+
     return plugin_register(&archive_loaders, loader->name, loader);
 }
 
@@ -367,6 +387,11 @@ struct objfile * archive_load_member_objfile(struct archive_member *member)
 
     log_trace("Loading archive member %s", member->name);
 
+    // Load archive member directly.
+    // This assumes that members can be loaded with just an offset
+    // into the file, which may be too naive. We could create a
+    // archive_loader function for getting the pointer and size
+    // of a member.
     int status = objfile_init(&member->objfile, loader->member_loader,
                               member->name != NULL ? member->name : "",
                               ((const uint8_t*) ar->file->data + member->offset),

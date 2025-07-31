@@ -4,6 +4,7 @@
 extern "C" {
 #endif
 
+#include "reloctypes.h"
 #include "secttypes.h"
 #include "symtypes.h"
 #include <stddef.h>
@@ -35,7 +36,13 @@ enum symbol_binding
 
 
 /*
- * Representation of a symbol detected in the object file.
+ * Symbol metadata representation.
+ *
+ * Contains information about a symbol or a symbol reference
+ * (undefined symbol), i.e., its name, what kind of binding 
+ * it has, what type it is, optional section index and offset 
+ * within that section (if the symbol is defined in the current 
+ * input file).
  */
 struct objfile_symbol
 {
@@ -46,29 +53,49 @@ struct objfile_symbol
     bool                relative;   // is the offset relative or an absolute address
     uint64_t            align;      // alignment requirements
     uint64_t            offset;     // offset within section (or absolute address
-    uint64_t            section;    // section index (0 = no section)
+    uint64_t            section;    // section index (0 = no section) where section is defined
 
 };
 
 
 /*
- * Metadata bout a a section found in an object file.
+ * Section representation.
+ *
+ * Contains information about sections,
+ * e.g., BSS, DATA, RODATA, TEXT, etc.
  */
 struct objfile_section
 {
     const char          *name;      // name of the section
-    uint64_t            index;      // section index
+    uint64_t            section;    // section index (must be >0)
     size_t              offset;     // offset from file start (if applicable)
     enum section_type   type;       // section type (data, rodata, text, etc.)
     uint64_t            align;      // section alignment requirements
     size_t              size;       // size of the section
-    const uint8_t       *content;   // section content (if size > 0) or NULL
+    const uint8_t       *content;   // section content pointer (if size > 0) or NULL
 };
 
 
+/*
+ * Relocation representation.
+ *
+ * Represents a relocation entry found in the object file's
+ * relocation tables.
+ *
+ * Relocations apply to either symbols or sections.
+ */
+struct objfile_relocation
+{
+    uint64_t            section;    // section index (if >0)
+    const char          *symbol;    // symbol name (if section = 0)
+    enum relocation_type type;      // relocation type
+    uint64_t            offset;     // offset within section to relocation
+    int64_t             addend;     // relocation addend
+};
+
 
 /*
- * Represents an object file loader.
+ * Object file loader.
  *
  * bfld supports different front-ends for loading object files in
  * different formats (i.e., ELF, Mach-O, etc).
@@ -105,8 +132,8 @@ struct objfile_loader
     /*
      * Parse section headers and emit section metadata.
      *
-     * For each BSS, DATA, RODATA, TEXT, section, the function
-     * is expected to invoke the 
+     * For each section, the function is expected to invoke
+     * the emit_section callback with section information.
      * The return value of the emit_section indicates whether
      * processing should continue (true) or stop (false).
      *
@@ -123,10 +150,8 @@ struct objfile_loader
      * Parse symbols and emit symbol information.
      *
      * For each symbol, the function is expected to invoke the
-     * emit_symbol callback with the symbol name, what binding
-     * it has, what type the symbol is and an optional section
-     * index and section offset (if the symbol is defined in
-     * the current input file).
+     * emit_symbol callback with symbol information (symbol name, 
+     * what binding it has, what type the symbol is etc.).
      *
      * The return value of the emit_symbol callback indicates
      * whether processing should continue (true) or stop (false).
@@ -141,9 +166,15 @@ struct objfile_loader
                            void *callback_data);
                             
 
-    //int (*load_sections)(struct objfile *file, ...);
-    
-    //int (*load_relocations)(struct objfile *file, ...);
+    /*
+     * Parse relocation tables and emit relocation information.
+     *
+     * For each relocation, the function is expected to invoke the
+     * emit_reloc callback with 
+     */
+    int (*extract_relocations)(void *objfile_loader_data,
+                               bool (*emit_reloc)(void *callback_data, const struct objfile_relocation*),
+                               void *callback_data);
     
     /*
      * Release the private data associated with the file; we're done with the file.
