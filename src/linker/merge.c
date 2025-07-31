@@ -32,7 +32,7 @@ int merged_init(struct merged_section **merged, const char *name,
     m->type = type;
     list_head_init(&m->mappings);
     m->addr = 0;
-    m->align = 0;
+    m->align = 1;
     m->total_size = 0;
 
     *merged = m;
@@ -97,12 +97,27 @@ int merged_add_section(struct merged_section *merged, struct section *sect)
     sect->merge_mapping = map;
     list_insert_tail(&merged->mappings, &map->list_node);
 
+    return 0;
+}
+
+
+
+int merged_set_base_address(struct merged_section *merged, uint64_t base_addr)
+{
+    if (base_addr != BFLD_ALIGN(base_addr, merged->align)) {
+        log_error("Base address 0x%lx is not aligned to 0x%lx",
+                base_addr, merged->align);
+        return EINVAL;
+    }
+
+    merged->addr = base_addr;
+
     uint64_t offset = 0;
     list_for_each_entry(m, &merged->mappings, struct section_mapping, list_node) {
         m->offset = offset;
-        offset += merged->align > 1 ? BFLD_ALIGN_ADDR(m->size, merged->align) : m->size;
+        offset += merged->align > 1 ? BFLD_ALIGN(m->size, merged->align) : m->size;
     }
-    merged->total_size = offset;
 
+    merged->total_size = offset;
     return 0;
 }

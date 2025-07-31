@@ -242,7 +242,7 @@ int symbol_link_definition(struct symbol *sym, struct section *sect, uint64_t of
 int symbol_resolve_address(struct symbol *sym)
 {
     if (!sym->relative) {
-        sym->addr = BFLD_ALIGN_ADDR(sym->offset, sym->align);
+        sym->addr = BFLD_ALIGN(sym->offset, sym->align);
 
     } else if (sym->section != NULL) {
         const struct section_mapping *map = sym->section->merge_mapping;
@@ -252,7 +252,7 @@ int symbol_resolve_address(struct symbol *sym)
         }
 
         struct merged_section *sect = map->merged_section;
-        sym->addr = BFLD_ALIGN_ADDR(sect->addr + map->offset + sym->offset, sym->align);
+        sym->addr = BFLD_ALIGN(sect->addr + map->offset + sym->offset, sym->align);
 
     } else {
         log_warning("Symbol '%s' is undefined", sym->name);

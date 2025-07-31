@@ -522,8 +522,8 @@ int main(int argc, char **argv)
             }
         }
 
-        outsect->sect->addr = BFLD_ALIGN_ADDR(base_addr, outsect->sect->align);
-        base_addr += outsect->sect->total_size;
+        merged_set_base_address(outsect->sect, BFLD_ALIGN(base_addr, outsect->sect->align));
+        base_addr = outsect->sect->addr + outsect->sect->total_size;
 
         log_debug("Section %s 0x%lx - 0x%lx (size: %lu, align: %lu)",
                   outsect->sect->name, outsect->sect->addr,

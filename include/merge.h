@@ -57,6 +57,12 @@ void merged_put(struct merged_section *merged);
 int merged_add_section(struct merged_section *merged, struct section *sect);
                        
 
+/*
+ * Set the merged section's base address and calculate all offsets.
+ */
+int merged_set_base_address(struct merged_section *merged, uint64_t addr);
+
+
 #ifdef __cplusplus
 }
 #endif

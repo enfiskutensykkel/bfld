@@ -5,10 +5,10 @@
 
 
 /* 
- * Convenience macro for aligning addresses to a specified alignment.
- * Alignment must be a power of two.
+ * Convenience macro for aligning addresses and sizes to a specified alignment.
+ * Alignment must be a power of two and greater than 0.
  */
-#define BFLD_ALIGN_ADDR(size, alignment) \
+#define BFLD_ALIGN(size, alignment) \
     (((uint64_t) (size) + (alignment) - 1) & ~(((uint64_t) (alignment) - 1)))
 
 
