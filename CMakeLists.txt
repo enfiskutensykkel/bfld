@@ -28,13 +28,12 @@ endif ()
 # Create shared library of the linker code
 add_library(linkerlib SHARED 
     src/utils/rbtree.c
-    src/linker/pluginregistry.c
     src/linker/mfile.c 
     src/linker/objfile.c 
     src/linker/archive.c
     src/linker/symtab.c
     src/linker/merge.c
-    src/linker/arch.c
+    src/linker/arch_handler.c
 )
 target_include_directories(linkerlib PUBLIC include)  # also includes "include/utils"
 target_include_directories(linkerlib PRIVATE include/utils)

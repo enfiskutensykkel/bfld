@@ -63,37 +63,29 @@ struct unresolved
 {
     struct list_head list;
     struct symbol *symbol;
+    struct objfile *objfile;
 };
 
 
-static void resolve_symbols(struct symtab *symtab)
-{
-    struct rb_node *node = rb_first(&symtab->tree);
-
-    while (node != NULL) {
-        struct symbol *sym = rb_entry(node, struct symbol, tree_node);
-        int status = symbol_resolve_address(sym);
-        if (status != 0) {
-            log_error("Could not resolve symbol '%s' in symbol table %s",
-                        sym->name, symtab->name);
-        }
-        node = rb_next(node);
-
-        log_debug("Symbol '%s' finalized address 0x%lx", sym->name, sym->addr);
-    }
-}
-
-
-static bool record_reloc(void *cb_data, struct objfile *objfile, const struct relinfo *info)
-{
-    
-
-    return true;
-}
+//static void resolve_symbols(struct symtab *symtab)
+//{
+//    struct rb_node *node = rb_first(&symtab->tree);
+//
+//    while (node != NULL) {
+//        struct symbol *sym = rb_entry(node, struct symbol, tree_node);
+//        int status = symbol_resolve_address(sym);
+//        if (status != 0) {
+//            log_error("Could not resolve symbol '%s' in symbol table %s",
+//                        sym->name, symtab->name);
+//        }
+//        node = rb_next(node);
+//
+//        log_debug("Symbol '%s' finalized address 0x%lx", sym->name, sym->addr);
+//    }
+//}
 
 
-
-static bool record_symbol(void *cb_data, struct objfile *objfile, const struct syminfo *info)
+static bool record_symbol(void *cb_data, struct objfile *objfile, const struct symbol_info *info)
 {
     // FIXME: treat hidden/internal as local
     struct input_file *file = cb_data;
@@ -108,7 +100,7 @@ static bool record_symbol(void *cb_data, struct objfile *objfile, const struct s
         int rc;
         struct symbol *sym;
 
-        rc = symbol_alloc(&sym, objfile, info->name, info->weak, info->relative);
+        rc = symbol_alloc(&sym, info->name, info->weak, info->relative);
         if (rc != 0) {
             return false;
         }
@@ -134,7 +126,7 @@ static bool record_symbol(void *cb_data, struct objfile *objfile, const struct s
     if (symbol == NULL) {
         // This is a new global symbol
 
-        int rc = symbol_alloc(&symbol, objfile, info->name, info->weak, info->relative);
+        int rc = symbol_alloc(&symbol, info->name, info->weak, info->relative);
         if (rc != 0) {
             return false;
         }
@@ -143,15 +135,15 @@ static bool record_symbol(void *cb_data, struct objfile *objfile, const struct s
         rc = symtab_insert_symbol(ctx->symtab, symbol, &exist);
         if (rc == EEXIST) {
             if (!exist->weak) {
-                log_error("Multiple definitions for symbol '%s'; both %s and %s define it",
-                        symbol->name, objfile->name, symbol_referer(exist)->name);
+                log_error("Multiple definitions for symbol '%s'; first defined in %s",
+                        symbol->name, symbol->objfile->name);
                 symbol_free(symbol);
                 return false;
             }
 
             // FIXME: prefer the largest one (because of common)
-            log_debug("Replacing weak symbol '%s' with definition from %s",
-                    symbol->name, objfile->name);
+            log_debug("Replacing weak symbol '%s' previously defined in %s",
+                    symbol->name, symbol->objfile->name);
 
             // The existing symbol is weak, replace it
             symtab_replace_symbol(ctx->symtab, exist, symbol);
@@ -164,34 +156,29 @@ static bool record_symbol(void *cb_data, struct objfile *objfile, const struct s
         }
     }
 
-    if (info->section != NULL) {
+    if (info->section != NULL || !info->relative) {
         // This is a symbol definition, attempt to resolve it
         int rc = symbol_link_definition(symbol, info->section, info->offset);
         if (rc != 0) {
-            log_error("Multiple definitions for symbol '%s'; both %s and %s define it",
-                    symbol->name, objfile->name, symbol->objfile->name);
+            log_error("Multiple definitions for symbol '%s'; first defined in %s",
+                    symbol->name, symbol->objfile->name);
             return false;
         }
-
-    } else if (!info->relative) {
-        symbol->offset = info->offset;
 
     } else {
         assert(info->is_reference);
 
-        // This is a symbol reference, if we didn't just create it, 
-        // add ourselves as a referer. Otherwise, add it to the list
-        // of unresolved symbols
-        if (symbol_referer(symbol) != objfile) {
-            symbol_add_reference(symbol, objfile);
-
-        } else if (symbol_is_undefined(symbol)) {
+        // This is a symbol reference
+        // If the symbol is undefined, add it to the list of unresolved symbols
+        if (symbol_is_undefined(symbol)) {
             struct unresolved *unresolved = malloc(sizeof(struct unresolved));
             if (unresolved == NULL) {
                 return false;
             }
             
             unresolved->symbol = symbol;
+            unresolved->objfile = objfile;
+            objfile_get(objfile);
             list_insert_tail(&ctx->unresolved, &unresolved->list);
         }
     }
@@ -318,6 +305,7 @@ static void destroy_ctx(struct linker_ctx *ctx)
 
     list_for_each_entry_safe(unresolved, &ctx->unresolved, struct unresolved, list) {
         list_remove(&unresolved->list);
+        objfile_put(unresolved->objfile);
         free(unresolved);
     }
 
@@ -427,7 +415,6 @@ int main(int argc, char **argv)
         log_ctx_push(LOG_CTX_FILE(NULL, ifile->file->name));
         int status = objfile_extract_symbols(ifile->file, record_symbol, ifile);
         if (status != 0) {
-            log_fatal("Failed to extract symbols");
             log_ctx_pop();
             destroy_ctx(ctx);
             exit(1);
@@ -443,11 +430,12 @@ int main(int argc, char **argv)
         if (!symbol_is_undefined(unresolved->symbol)) {
             // symbol is no longer unresolved, just ignore it
             list_remove(&unresolved->list);
+            objfile_put(unresolved->objfile);
             free(unresolved);
             continue;
         }
 
-        log_ctx_push(LOG_CTX_FILE(NULL, symbol_referer(unresolved->symbol)->name));
+        log_ctx_push(LOG_CTX_FILE(NULL, unresolved->objfile->name));
 
         // Try to look up symbol in any of the archives
         list_for_each_entry(ar, &ctx->archives, struct archive_file, list) {
@@ -479,6 +467,7 @@ int main(int argc, char **argv)
 
         } else {
             list_remove(&unresolved->list);
+            objfile_put(unresolved->objfile);
             free(unresolved);
         }
 
@@ -523,31 +512,17 @@ int main(int argc, char **argv)
                 if (sect->type == outsect->sect->type) {
                     merged_add_section(outsect->sect, sect);
                 }
+
                 node = rb_next(node);
             }
         }
-    }
-
-    // Extract relocations
-    list_for_each_entry(ifile, &ctx->input_files, struct input_file, list) {
-        struct objfile *objfile = ifile->file;
-        log_ctx_push(LOG_CTX_FILE(NULL, ifile->file->name));
-        
-        int status = objfile_extract_relocations(objfile, record_reloc, ifile);
-        if (status != 0) {
-            log_fatal("Failed to extract relocations");
-            log_ctx_pop();
-            exit(4);
-        }
-
-        log_ctx_pop();
     }
 
     // Resolve addresses
     uint64_t base_addr = 0x400000;
     list_for_each_entry(outsect, &ctx->output_sects, struct output_section, list) {
 
-        merged_set_base_address(outsect->sect, BFLD_ALIGN(base_addr, outsect->sect->align));
+        merged_calculate_offsets(outsect->sect, BFLD_ALIGN(base_addr, outsect->sect->align));
         base_addr = outsect->sect->addr + outsect->sect->total_size;
 
         log_debug("Section %s 0x%lx - 0x%lx (size: %lu, align: %lu)",
@@ -556,10 +531,10 @@ int main(int argc, char **argv)
                   outsect->sect->total_size, outsect->sect->align);
     }
 
-    resolve_symbols(ctx->symtab);
-    list_for_each_entry(inputfile, &ctx->input_files, struct input_file, list) {
-        resolve_symbols(inputfile->symtab);
-    }
+//    resolve_symbols(ctx->symtab);
+//    list_for_each_entry(inputfile, &ctx->input_files, struct input_file, list) {
+//        resolve_symbols(inputfile->symtab);
+//    }
 
     destroy_ctx(ctx);
     exit(0);

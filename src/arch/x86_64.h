@@ -7,7 +7,4 @@
 #define RELOC_X86_64_ABS32  0x10
 #define RELOC_X86_64_ABS32S 0x11
 
-
-extern const struct arch_handler x86_64_handler;
-
 #endif

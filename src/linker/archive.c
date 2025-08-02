@@ -9,29 +9,31 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include "pluginregistry.h"
 
 
-/*
- * List of archive file loaders.
- */
-static struct list_head archive_loaders = LIST_HEAD_INIT(archive_loaders);
+struct loader_entry
+{
+    struct list_head node;
+    const struct archive_loader *loader;
+};
+
+
+static struct list_head loaders = LIST_HEAD_INIT(loaders);
 
 
 __attribute__((destructor(65535)))
-static void unregister_loaders(void)
+static void teardown_loaders(void)
 {
-    plugin_clear_registry(&archive_loaders);
+    list_for_each_entry_safe(entry, &loaders, struct loader_entry, node) {
+        list_remove(&entry->node);
+        free(entry);
+    }
 }
 
 
 int archive_loader_register(const struct archive_loader *loader)
 {
-    if (loader == NULL) {
-        return EINVAL;
-    }
-
-    if (loader->name == NULL) {
+    if (loader == NULL || loader->name == NULL) {
         return EINVAL;
     }
 
@@ -39,7 +41,7 @@ int archive_loader_register(const struct archive_loader *loader)
         return EINVAL;
     }
 
-    if (loader->probe == NULL || loader->release == NULL || loader->parse_file == NULL) {
+    if (loader->probe == NULL || loader->scan_file == NULL || loader->release == NULL) {
         return EINVAL;
     }
 
@@ -47,27 +49,22 @@ int archive_loader_register(const struct archive_loader *loader)
         return EINVAL;
     }
 
-    return plugin_register(&archive_loaders, loader->name, loader);
-}
-
-
-const struct archive_loader * archive_loader_find(const char *name)
-{
-    struct plugin_registry_entry *entry;
-    entry = plugin_find_entry(&archive_loaders, name);
-
+    struct loader_entry *entry = malloc(sizeof(struct loader_entry));
     if (entry == NULL) {
-        return NULL;
+        return ENOMEM;
     }
 
-    return (struct archive_loader*) entry->plugin;
+    entry->loader = loader;
+    list_insert_tail(&loaders, &entry->node);
+    return 0;
 }
 
 
 const struct archive_loader * archive_loader_probe(const uint8_t *data, size_t size)
 {
-    list_for_each_entry(loader_entry, &archive_loaders, struct plugin_registry_entry, list_node) {
-        const struct archive_loader *loader = loader_entry->plugin;
+    list_for_each_entry(loader_entry, &loaders, struct loader_entry, node) {
+        const struct archive_loader *loader = loader_entry->loader;
+
         if (loader->probe(data, size)) {
             return loader;
         }
@@ -316,7 +313,7 @@ int archive_init(struct archive **ar, const struct archive_loader *loader,
 
     log_trace("Parsing archive file");
 
-    int status = loader->parse_file(&a->loader_data, data, size);
+    int status = loader->scan_file(&a->loader_data, data, size);
     if (status != 0) {
         log_error("Invalid file format or corrupt file");
         archive_put(a);
@@ -376,7 +373,6 @@ struct archive * archive_load(mfile *file, const struct archive_loader *loader)
 }
 
 
-// TODO: take in expected_arch
 struct objfile * archive_load_member_objfile(struct archive_member *member)
 {
     if (member->objfile != NULL) {

@@ -4,7 +4,7 @@
 extern "C" {
 #endif
 
-#include "arch.h"
+#include "archtypes.h"
 #include "secttypes.h"
 #include "symtypes.h"
 #include "mfile.h"
@@ -13,10 +13,6 @@ extern "C" {
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-
-
-/* Forward declaration of architecture handler */
-struct arch_handler;
 
 
 /* Forward declaration of objfile_loader */
@@ -29,39 +25,64 @@ struct objfile_loader;
  */
 struct objfile
 {
-    char *name;             // filename used when opening the object file
-    enum arch_type arch;    // architecture type
-    int refcnt;             // reference counter
-    mfile *file;            // reference to the underlying memory-map
-    void *loader_data;      // private data for the object file loader
-    const struct objfile_loader *loader;  // the underlying object file loader (front-end)
-    const struct arch_handler *handler;  // callback function for handling relocations for symbols from this file
-    size_t num_sections;    // number of sections
-    struct rb_tree sections;// map of sections
+    char *name;                 // Filename used when opening the object file
+    enum arch_type arch;        // Architecture type
+    int refcnt;                 // Reference counter
+    mfile *file;                // Reference to the underlying memory map
+    const struct objfile_loader *loader;  // Underlying object file loader (front-end)
+    void *loader_data;          // Private data for the object file loader
+    size_t num_sections;        // Number of sections
+    struct rb_tree sections;    // Sections (ordered by section key)
 };
-
-
-/* Forward declaration of a merged section mapping */
-struct section_mapping;
 
 
 /*
- * Representation of a section with content.
- * Sections are associated with the object file they came from.
+ * Represents a section with content, i.e., code or variable data.
+ *
+ * Sections are always associated with the object file they came from.
  */
 struct section
 {
-    struct section_mapping *merge_mapping; // Merged section this section is part of (NULL until merged)
-    struct rb_node tree_node;
-    struct objfile *objfile;// Reference to the object file where the section came from
-    uint64_t key;           // Section identifier
-    char *name;             // Section name (can be NULL)
-    enum section_type type; // Section type
-    size_t size;            // Size of the section content
-    uint64_t align;         // Memory alignment requirements
-    const uint8_t *content; // Pointer to section content
-    size_t offset;          // Offset into the file to the start of the section, used internally only
+    struct rb_node tree_node;   // Section entry in the object file
+    struct objfile *objfile;    // Weak reference to the object file where the section came from
+    unsigned key;               // Section identifier
+    const char *name;           // Section name
+    enum section_type type;     // Section type
+    size_t size;                // Size of the section content
+    uint64_t align;             // Memory alignment requirements
+    const uint8_t *content;     // Pointer to section content
+    size_t offset;              // Offset into the file to the start of the section
 };
+
+
+/*
+ * Represents a relocation that should be applied to a given section.
+ *
+ * A relocation is a "hole" within in a section that needs to be patched
+ * with a resolved address (of a symbol or another section), or the "target".
+ */
+struct relocation
+{
+    struct rb_node tree_node;
+    struct section *section;    // Weak reference to the section the relocation applies to (the section that must be patched)
+    const char *symbol_name;    // Name of the symbol the relocation refers to (or NULL if it refers to a section)
+    const struct section *target_section; // Pointer to the section the relocation refers to (or NULL if it refers to a symbol)
+    uint64_t offset;            // Offset within section to relocation
+    uint32_t type;              // Relocation type (which kind of "patch" to apply)
+    int64_t addend;             // Relocation addend
+};
+
+
+/*
+ * Is the relocation target a symbol?
+ */
+#define reloc_target_is_symbol(reloc) ((reloc)->symbol_name != NULL)
+
+
+/*
+ * Is the relocation target a section?
+ */
+#define reloc_target_is_section(reloc) !reloc_target_is_symbol(reloc)
 
 
 /*
@@ -102,7 +123,7 @@ struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader);
 /* 
  * Symbol reference/definition found in the object file.
  */
-struct syminfo
+struct symbol_info
 {
     const char *name;       // symbol name
     bool is_reference;      // is this a symbol reference and not a symbol definition
@@ -113,14 +134,6 @@ struct syminfo
     struct section *section;// section the symbol is defined in
     uint64_t offset;        // offset into the section to the definition or absolute address
 };
-
-
-/*
- * Convenience type for symbol extraction callback.
- */
-typedef bool (*objfile_syminfo_cb)(void *callback_data, 
-                                   struct objfile*,
-                                   const struct syminfo*);
 
 
 /*
@@ -138,51 +151,8 @@ typedef bool (*objfile_syminfo_cb)(void *callback_data,
  * object file loader, EBADF is returned.
  */
 int objfile_extract_symbols(struct objfile* objfile,
-                            objfile_syminfo_cb,
+                            bool (*callback)(void *callback_data, struct objfile*, const struct symbol_info*),
                             void *callback_data);
-
-
-/*
- * Relocation information.
- * Relocations can apply to either symbols or sections.
- */
-struct relinfo
-{
-    struct section *section;    // section the relocation applies
-    uint64_t offset;            // offset within section to relocation
-    const char *symbol_name;    // symbol the relocation refers to or NULL if section_ref is set
-    const struct section *section_ref; // section the relocation refers to or NULL
-    uint32_t type;              // relocation type
-    int64_t addend;
-};
-
-
-/*
- * Convenience type for relocation extraction callback.
- */
-typedef bool (*objfile_relinfo_cb)(void *callback_data,
-                                   struct objfile*,
-                                   const struct relinfo*);
-
-
-/*
- * Extract relocations from the object file.
- *
- * Parses the underlying object file and invokes the
- * supplied callback for each relocation in the file.
- *
- * On success, this function returns 0.
- *
- * If the callback returns anything but true, the processing
- * will stop and ECANCELED is returned.
- *
- * Otherwise, if parsing of symbols failed by the underlying
- * object file loader, EBADF is returned.
- */
-int objfile_extract_relocations(struct objfile *objfile,
-                                objfile_relinfo_cb,
-                                void *callback_data);
-
 
 #ifdef __cplusplus
 }

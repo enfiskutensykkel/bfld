@@ -55,6 +55,7 @@ dkms.conf
 
 # cmake stuff
 **/CMakeCache.txt
+**/DartConfiguration.tcl
 **/Makefile
 **/cmake_install.cmake
 **/CTestTestfile.cmake

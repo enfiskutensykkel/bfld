@@ -1,6 +1,9 @@
+include(CTest)
 
 # Convenience macro to add test programs
-# Usage: add_test_executable(NAME name FILES file...
+# Usage: add_test_executable(target_name
+#                            FILES file...
+#                            [OUTPUT_NAME name]
 #                            [COMMAND command...] 
 #                            [CLI_ARGS arg...])
 #
@@ -12,20 +15,14 @@
 #
 # By default, this macro creates a with running the executable as the
 # test command. This can be overridden by specifying COMMAND, for example
-# if the test is to run your program using `time`. Note that the name of 
-# the executable is prefixed with "test_". Also note that by setting COMMAND,
-# CLI_ARGS are ignored.
+# if the test is to run your program using `time`. Note that by setting 
+# COMMAND, CLI_ARGS are ignored.
 
-macro(add_test_executable)
-    cmake_parse_arguments(ARG "" "NAME;COMMAND" "FILES;CLI_ARGS" ${ARGN})
+macro(add_test_executable target_name)
+    cmake_parse_arguments(ARG "" "OUTPUT_NAME;COMMAND" "FILES;CLI_ARGS" ${ARGN})
 
-    if(NOT ARG_NAME)
-        message(FATAL_ERROR "add_test_executable must have a non-empty NAME")
-    endif()
-
-    string(FIND "${ARG_NAME}" "test_" _prefix_pos)
-    if(NOT _prefix_pos EQUAL 0)
-        string(PREPEND ARG_NAME "test_")
+    if("${ARG_OUTPUT_NAME}" STREQUAL "")
+        set(ARG_OUTPUT_NAME "${target_name}")
     endif()
 
     if(NOT ARG_FILES)
@@ -33,15 +30,17 @@ macro(add_test_executable)
     endif()
 
     if(NOT ARG_COMMAND)
-        set(ARG_COMMAND "${ARG_NAME}" ${ARG_CLI_ARGS})
+        set(ARG_COMMAND "${ARG_OUTPUT_NAME}" ${ARG_CLI_ARGS})
     elseif(ARG_CLI_ARGS)
         message(WARNING "add_test_executable is invoked with COMMAND, CLI_ARGS is ignored.")
     endif()
 
     if(BUILD_TESTING)
-        add_executable(${ARG_NAME} ${ARG_FILES})
-        target_link_libraries(${ARG_NAME} utilslib)
-        add_test(NAME ${ARG_NAME} COMMAND ${ARG_COMMAND})
+        add_executable(${target_name} ${ARG_FILES})
+        set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${ARG_OUTPUT_NAME})
+        add_test(NAME ${target_name} COMMAND ${ARG_COMMAND})
+    else()
+        add_custom_target(${ARG_NAME})
     endif()
 endmacro()
 

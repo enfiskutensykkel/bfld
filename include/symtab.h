@@ -52,39 +52,31 @@ struct symbol
     struct objfile *objfile;    // object file reference if symbol is defined or NULL if there is no definition
     struct section *section;    // section where the symbol is defined or NULL if there is no definition
     uint64_t offset;            // offset into the section to definition
-    struct list_head refs;      // list of files that reference this symbol
 };
 
 
 static inline
 bool symbol_is_undefined(const struct symbol *sym)
 {
-    return sym->section == NULL && sym->relative;
+    return (sym->section == NULL && sym->relative)
+        || (!sym->relative && sym->offset == 0);
 }
 
 
-/*
- * Represents a symbol dependency.
- * Track which files reference a symbol.
- * All symbols have at least one reference.
- */
-struct symref
-{
-    struct symbol *symbol;      // pointer to the symbol that is referenced
-    struct list_head list_node;
-    struct objfile *referer;
-    // FIXME: more information?
-};
-
-
-/*
- * Convenience function to get the first refererer to a symbol.
- */
-static inline
-const struct objfile * symbol_referer(const struct symbol *sym)
-{
-    return list_first_entry(&sym->refs, struct symref, list_node)->referer;
-}
+///*
+// * Represents a symbol dependency.
+// * Track which files reference a symbol.
+// * All symbols have at least one reference.
+// *
+// * FIXME: we should create these from relocations
+// */
+//struct symref
+//{
+//    struct symbol *symbol;      // pointer to the symbol that is referenced
+//    struct list_head list_node;
+//    struct objfile *referer;
+//    // FIXME: more information?
+//};
 
 
 /*
@@ -161,8 +153,8 @@ int symtab_replace_symbol(struct symtab *symtab, struct symbol *victim,
 /*
  * Allocate a symbol definition.
  */
-int symbol_alloc(struct symbol **sym, struct objfile *referer, 
-                 const char *name, bool weak, bool relative);
+int symbol_alloc(struct symbol **sym, const char *name, 
+                 bool weak, bool relative);
 
 
 /*
@@ -181,12 +173,6 @@ void symbol_free(struct symbol *sym);
  */
 int symbol_link_definition(struct symbol *sym, struct section *sect, uint64_t offset);
                               
-
-/*
- * Add the specified file to the list of where the symbol is referenced.
- */
-struct symref * symbol_add_reference(struct symbol *sym, struct objfile *file);
-
 
 /*
  * Look up the merged section of a symbol.

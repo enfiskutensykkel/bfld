@@ -68,7 +68,7 @@ static void release_elf_context(void *ctx_data)
 /*
  * Check if the file has the magic ELF64 signature.
  */
-static bool check_elf_header(const uint8_t *ptr, size_t size, enum arch_type *detected_arch)
+static bool check_elf_header(const uint8_t *ptr, size_t size)
 {
     const Elf64_Ehdr *ehdr = (const Elf64_Ehdr*) ptr;
 
@@ -98,17 +98,6 @@ static bool check_elf_header(const uint8_t *ptr, size_t size, enum arch_type *de
     // Only allow .o files
     if (ehdr->e_type != ET_REL) {
         return false;
-    }
-
-    // Only allow architectures we support
-    switch (ehdr->e_machine) {
-        case EM_X86_64:
-            *detected_arch = ARCH_x86_64;
-            break;
-
-        default:
-            // Unsupported architecture
-            return false;
     }
 
     return true;
@@ -144,13 +133,26 @@ static const char * lookup_strtab_str(const Elf64_Ehdr *ehdr, uint32_t offset)
 }
 
 
-static int parse_elf_file(void **ctx_data, const uint8_t *data, size_t size,
-                          const struct arch_handler **arch_handler)
+static int parse_elf_file(void **ctx_data, const uint8_t *data, size_t size, 
+                          enum arch_type *detected_arch)
 {
     struct elf_context *ctx = create_elf_context(data);
     if (ctx == NULL) {
         return ENOMEM;
     }
+
+    // Only allow architectures we support
+    switch (ctx->eh->e_machine) {
+        case EM_X86_64:
+            *detected_arch = ARCH_x86_64;
+            break;
+
+        default:
+            // Unsupported architecture
+            release_elf_context(ctx);
+            return EINVAL;
+    }
+
 
     log_trace("First pass");
 
@@ -213,7 +215,6 @@ static int parse_elf_file(void **ctx_data, const uint8_t *data, size_t size,
         return ENOMEM;
     }
 
-    *arch_handler = &x86_64_handler;
     *ctx_data = ctx;
     return 0;
 }
@@ -504,8 +505,8 @@ static int parse_elf_relocs(void *ctx_data, bool (*emit_reloc)(void *cb_data, co
 const struct objfile_loader elf_loader = {
     .name = "elf64loader",
     .probe = check_elf_header,
-    .parse_file = parse_elf_file,
-    .parse_sections = parse_elf_sects,
+    .scan_file = parse_elf_file,
+    .extract_sections = parse_elf_sects,
     .extract_symbols = parse_elf_symtab,
     .extract_relocations = parse_elf_relocs,
     .release = release_elf_context,

@@ -4,7 +4,6 @@
 extern "C" {
 #endif
 
-#include "reloc.h"
 #include "secttypes.h"
 #include "objfile.h"
 #include "utils/list.h"
@@ -26,6 +25,7 @@ struct merged_section
     uint64_t addr;              // base address
     uint64_t align;             // required alignment
     uint64_t total_size;        // total size of the merged section
+    uint8_t *content;           // NULL until 
 };
 
 
@@ -38,14 +38,6 @@ struct section_mapping
     uint64_t offset;            // offset in merged section
     const uint8_t *content;     // section content pointer
     size_t size;                // size of the section content
-    struct list_head relocations; // relocations
-};
-
-
-struct section_relocation
-{
-    struct list_head list_node;
-    struct relocation relocation;
 };
 
 
@@ -66,13 +58,14 @@ void merged_put(struct merged_section *merged);
 int merged_add_section(struct merged_section *merged, struct section *sect);
 
 
-int merged_add_relocation(struct section_mapping *mapping, const struct relocation *reloc);
-
-                       
 /*
  * Set the merged section's base address and calculate all offsets.
  */
-int merged_set_base_address(struct merged_section *merged, uint64_t addr);
+int merged_calculate_offsets(struct merged_section *merged, uint64_t base_addr);
+
+
+
+int merged_load_contents(struct merged_section *merged);
 
 
 #ifdef __cplusplus

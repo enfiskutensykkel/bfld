@@ -41,9 +41,9 @@ struct archive_loader
      * If this function returns anything but 0, it is assumed
      * to mean that a fatal error occurred and parsing is aborted.
      */
-    int (*parse_file)(void **archive_loader_data,
-                      const uint8_t *file_data,
-                      size_t file_size);
+    int (*scan_file)(void **archive_loader_data,
+                     const uint8_t *file_data,
+                     size_t file_size);
 
 
     /*
@@ -78,12 +78,6 @@ struct archive_loader
  * Register an archive file loader.
  */
 int archive_loader_register(const struct archive_loader *loader);
-
-
-/*
- * Try to look up an archive file loader by its name.
- */
-const struct archive_loader * archive_loader_find(const char *name);
 
 
 /*

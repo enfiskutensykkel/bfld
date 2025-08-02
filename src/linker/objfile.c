@@ -1,11 +1,9 @@
-#include "arch.h"
 #include "logging.h"
 #include "secttypes.h"
 #include "symtypes.h"
 #include "objfile.h"
 #include "objfile_loader.h"
 #include "mfile.h"
-#include "pluginregistry.h"
 #include "utils/list.h"
 #include "utils/rbtree.h"
 #include <stdlib.h>
@@ -22,71 +20,64 @@ struct objfile_callback_data
 {
     int status;
     struct objfile *objfile;
-    objfile_syminfo_cb emit_symbol_cb;
-    objfile_relinfo_cb emit_reloc_cb;
+    bool (*cb)(void*, struct objfile*, const struct symbol_info*);
     void *cb_data;
 };
 
 
-/*
- * List of object file loaders.
- */ 
-static struct list_head objfile_loaders = LIST_HEAD_INIT(objfile_loaders);
+struct loader_entry
+{
+    struct list_head node;
+    const struct objfile_loader *loader;
+};
+
+
+static struct list_head loaders = LIST_HEAD_INIT(loaders);
 
 
 __attribute__((destructor(65535)))
-static void unregister_loaders(void)
+static void remove_loaders(void)
 {
-    plugin_clear_registry(&objfile_loaders);
+    list_for_each_entry_safe(entry, &loaders, struct loader_entry, node) {
+        list_remove(&entry->node);
+        free(entry);
+    }
 }
 
 
 int objfile_loader_register(const struct objfile_loader *loader)
 {
-    if (loader == NULL) {
+    if (loader == NULL || loader->name == NULL) {
         return EINVAL;
     }
 
-    if (loader->name == NULL) {
+    if (loader->probe == NULL || loader->scan_file == NULL) {
         return EINVAL;
     }
 
-    if (loader->probe == NULL) {
+    if (loader->extract_sections == NULL 
+            || loader->extract_symbols == NULL 
+            || loader->extract_relocations == NULL) {
         return EINVAL;
     }
 
-    if (loader->parse_file == NULL || loader->parse_sections == NULL || loader->release == NULL) {
-        return EINVAL;
-    }
-
-    if (loader->extract_symbols == NULL || loader->extract_relocations == NULL) {
-        return EINVAL;
-    }
-
-    return plugin_register(&objfile_loaders, loader->name, loader);
-}
-
-
-const struct objfile_loader * objfile_loader_find(const char *name)
-{
-    struct plugin_registry_entry *entry;
-    entry = plugin_find_entry(&objfile_loaders, name);
-
+    struct loader_entry *entry = malloc(sizeof(struct loader_entry));
     if (entry == NULL) {
-        return NULL;
+        return ENOMEM;
     }
 
-    return (struct objfile_loader*) entry->plugin;
+    entry->loader = loader;
+    list_insert_tail(&loaders, &entry->node);
+    return 0;
 }
 
 
 const struct objfile_loader * objfile_loader_probe(const uint8_t *data, size_t size)
 {
-    enum arch_type arch = ARCH_UNKNOWN;
+    list_for_each_entry(loader_entry, &loaders, struct loader_entry, node) {
+        const struct objfile_loader *loader = loader_entry->loader;
 
-    list_for_each_entry(loader_entry, &objfile_loaders, struct plugin_registry_entry, list_node) {
-        const struct objfile_loader *loader = loader_entry->plugin;
-        if (loader->probe(data, size, &arch)) {
+        if (loader->probe(data, size)) {
             return loader;
         }
     }
@@ -95,7 +86,8 @@ const struct objfile_loader * objfile_loader_probe(const uint8_t *data, size_t s
 }
 
 
-static struct section * objfile_find_section(const struct objfile *objfile, uint64_t key)
+static struct section * objfile_find_section(const struct objfile *objfile,
+                                             unsigned key)
 {
     if (key == 0) {
         return NULL;
@@ -120,7 +112,7 @@ static struct section * objfile_find_section(const struct objfile *objfile, uint
 
 
 static struct section * objfile_create_section(struct objfile *objfile, 
-                                               uint64_t key,
+                                               unsigned key,
                                                const char *name)
 {
     if (key == 0) {
@@ -150,9 +142,7 @@ static struct section * objfile_create_section(struct objfile *objfile,
 
     sect->key = key;
     sect->objfile = objfile;
-    if (name != NULL) {
-        sect->name = strdup(name);
-    }
+    sect->name = name;
     sect->type = SECTION_ZERO;
     sect->content = NULL;
     sect->size = 0;
@@ -170,10 +160,6 @@ static void objfile_remove_section(struct objfile *objfile, struct section *sect
     assert(objfile != NULL && sect->objfile == objfile);
 
     rb_remove(&objfile->sections, &sect->tree_node);
-
-    if (sect->name != NULL) {
-        free(sect->name);
-    }
 
     free(sect);
     --(objfile->num_sections);
@@ -208,7 +194,7 @@ void objfile_get(struct objfile *objfile)
 }
 
 
-bool _add_section(void *ctx, const struct objfile_section *sect)
+static bool _add_section(void *ctx, const struct objfile_section *sect)
 {
     struct section *s = objfile_create_section(ctx, sect->section, sect->name);
     if (s == NULL) {
@@ -224,6 +210,47 @@ bool _add_section(void *ctx, const struct objfile_section *sect)
 }
 
 
+//static bool _add_relocation(void *ctx, const struct objfile_relocation *reloc)
+//{
+//    struct section *s = objfile_find_section(ctx, reloc->section);
+//
+//    if (s == NULL) {
+//        log_error("Invalid section in relocation");
+//        return false;
+//    }
+//
+//    struct relocation *rel = objfile_create_relocation(ctx, s);
+//    if (rel == NULL) {
+//        return false;
+//    }
+//
+//    if (reloc->commonref) {
+//        rel->target_section = objfile_find_section(ctx, 0xdeadbeef);
+//    } else if (reloc->sectionref) {
+//        rel->target_section = objfile_find_section(ctx, reloc->sectionref);
+//        if (rel->target_section == NULL) {
+//            log_error("Invalid section reference in relocation");
+//            free(rel);
+//            return false;
+//        }
+//    } else {
+//        if (reloc->symbol == NULL) {
+//            free(rel);
+//            log_error("Expected symbol name for relocation");
+//            return false;
+//        }
+//
+//        rel->symbol_name = reloc->symbol;
+//    }
+//
+//    rel->offset = reloc->offset;
+//    rel->type = reloc->type;
+//    rel->addend = reloc->addend;
+//
+//    return true;
+//}
+
+
 int objfile_init(struct objfile **objfile, const struct objfile_loader *loader,
                  const char *name, const uint8_t *data, size_t size)
 {
@@ -236,12 +263,6 @@ int objfile_init(struct objfile **objfile, const struct objfile_loader *loader,
     if (obj->name == NULL) {
         free(obj);
         return ENOMEM;
-    }
-
-    if (!loader->probe(data, size, &obj->arch)) {
-        free(obj->name);
-        free(obj);
-        return EINVAL;
     }
 
     obj->file = NULL;
@@ -263,8 +284,7 @@ int objfile_init(struct objfile **objfile, const struct objfile_loader *loader,
     log_trace("Parsing object file");
 
     // Do the initial parsing of the file
-    int status = loader->parse_file(&obj->loader_data, data, size, 
-                                    &obj->handler);
+    int status = loader->scan_file(&obj->loader_data, data, size, &obj->arch);
     if (status != 0) {
         // Loader wasn't happy with the file
         log_error("Invalid file format or corrupt file");
@@ -276,13 +296,22 @@ int objfile_init(struct objfile **objfile, const struct objfile_loader *loader,
     obj->loader = loader;
 
     // Read section metadata
-    status = loader->parse_sections(obj->loader_data, _add_section, obj);
+    status = loader->extract_sections(obj->loader_data, _add_section, obj);
     if (status != 0) {
         log_error("Unable to parse sections");
         objfile_put(obj);
         log_ctx_pop();
         return EINVAL;
     }
+
+//    // Read relocations
+//    status = loader->extract_relocations(obj->loader_data, _add_relocation, obj);
+//    if (status != 0) {
+//        log_error("Unable to parse and extract relocations");
+//        objfile_put(obj);
+//        log_ctx_pop();
+//        return EINVAL;
+//    }
 
     log_ctx_pop();
     *objfile = obj;
@@ -330,7 +359,7 @@ static bool _emit_symbol(void *cb_data, const struct objfile_symbol *sym)
         sect = objfile_find_section(objfile, sym->section);
     }
 
-    struct syminfo info = {
+    struct symbol_info info = {
         .name = sym->name,
         .is_reference = sect == NULL && sym->relative,
         .global = sym->binding != SYMBOL_LOCAL,
@@ -338,10 +367,10 @@ static bool _emit_symbol(void *cb_data, const struct objfile_symbol *sym)
         .type = sym->type,
         .relative = sym->relative,
         .section = sym->relative ? sect : NULL,
-        .offset = sym->offset,
+        .offset = sym->relative ? sym->offset : 0,
     };
 
-    bool _continue = cb->emit_symbol_cb(cb->cb_data, objfile, &info);
+    bool _continue = cb->cb(cb->cb_data, objfile, &info);
     if (!_continue) {
         cb->status = ECANCELED;
     }
@@ -350,53 +379,8 @@ static bool _emit_symbol(void *cb_data, const struct objfile_symbol *sym)
 }
 
 
-static bool _emit_reloc(void *cb_data, const struct objfile_relocation *rel)
-{
-    struct objfile_callback_data *cb = cb_data;
-    struct objfile *objfile = cb->objfile;
-
-    struct section *sect = objfile_find_section(objfile, rel->section);
-    if (sect == NULL) {
-        log_error("Invalid section in relocation");
-        cb->status = EBADF;
-        return false;
-    }
-
-    struct relinfo info = {
-        .section = sect,
-        .offset = rel->offset,
-        .symbol_name = NULL,
-        .section_ref = NULL,
-        .type = rel->type,
-        .addend = rel->addend
-    };
-
-    if (rel->sectionref != 0) {
-        struct section *ref = objfile_find_section(objfile, rel->sectionref);
-        if (ref == NULL) {
-            log_error("Invalid section reference in relocation");
-            cb->status = EBADF;
-            return false;
-        }
-
-        info.section_ref = ref;
-    } else if (rel->commonref) {
-        struct section *ref = objfile_find_section(objfile, 0xdeadbeef);
-        info.section_ref = ref;
-    } else {
-        info.symbol_name = rel->symbol;
-    }
-
-    bool _continue = cb->emit_reloc_cb(cb->cb_data, objfile, &info);
-    if (!_continue) {
-        cb->status = ECANCELED;
-    }
-
-    return true;
-}
-
-
-int objfile_extract_symbols(struct objfile *objfile, objfile_syminfo_cb callback, 
+int objfile_extract_symbols(struct objfile *objfile, 
+                            bool (*callback)(void*, struct objfile*, const struct symbol_info*),
                             void *callback_data)
 {
     assert(objfile->loader != NULL && objfile->loader->extract_symbols != NULL);
@@ -406,8 +390,7 @@ int objfile_extract_symbols(struct objfile *objfile, objfile_syminfo_cb callback
     struct objfile_callback_data cbdata = {
         .status = 0,
         .objfile = objfile,
-        .emit_symbol_cb = callback,
-        .emit_reloc_cb = NULL,
+        .cb = callback,
         .cb_data = callback_data
     };
 
@@ -421,40 +404,6 @@ int objfile_extract_symbols(struct objfile *objfile, objfile_syminfo_cb callback
 
     if (status != 0) {
         log_error("Extracting symbols failed");
-        log_ctx_pop();
-        return EBADF;
-    }
-
-    log_ctx_pop();
-    return 0;
-}
-
-
-int objfile_extract_relocations(struct objfile *objfile, objfile_relinfo_cb callback,
-                                void *callback_data)
-{
-    assert(objfile->loader != NULL && objfile->loader->extract_relocations != NULL);
-
-    log_ctx_push(LOG_CTX_FILE(objfile->loader->name, objfile->name));
-
-    struct objfile_callback_data cbdata = {
-        .status = 0,
-        .objfile = objfile,
-        .emit_symbol_cb = NULL,
-        .emit_reloc_cb = callback,
-        .cb_data = callback_data
-    };
-
-    int status = objfile->loader->extract_relocations(objfile->loader_data,
-                                                      _emit_reloc,
-                                                      &cbdata);
-    if (cbdata.status != 0) {
-        log_ctx_pop();
-        return cbdata.status;
-    }
-
-    if (status != 0) {
-        log_error("Extracting relocations failed");
         log_ctx_pop();
         return EBADF;
     }

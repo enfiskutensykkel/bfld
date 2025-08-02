@@ -52,14 +52,7 @@ void merged_put(struct merged_section *merged)
         
         list_for_each_entry_safe(map, &merged->mappings, struct section_mapping, list_node) {
             assert(map->merged_section == merged);
-            assert(map->section->merge_mapping == map);
 
-            list_for_each_entry_safe(reloc, &map->relocations, struct section_relocation, list_node) {
-                list_remove(&reloc->list_node);
-                free(reloc);
-            }
-
-            map->section->merge_mapping = NULL;
             list_remove(&map->list_node);
             objfile_put(map->objfile);
             free(map);
@@ -79,10 +72,6 @@ int merged_add_section(struct merged_section *merged, struct section *sect)
         return EINVAL;
     }
 
-    if (sect->merge_mapping != NULL) {
-        return EINVAL;
-    }
-
     struct section_mapping *map = malloc(sizeof(struct section_mapping));
     if (map == NULL) {
         return ENOMEM;
@@ -95,20 +84,18 @@ int merged_add_section(struct merged_section *merged, struct section *sect)
     map->offset = 0;
     map->content = sect->content;
     map->size = sect->size;
-    list_head_init(&map->relocations);
 
     if (sect->align > merged->align) {
         merged->align = sect->align;
     }
 
-    sect->merge_mapping = map;
     list_insert_tail(&merged->mappings, &map->list_node);
 
     return 0;
 }
 
 
-int merged_set_base_address(struct merged_section *merged, uint64_t base_addr)
+int merged_calculate_offsets(struct merged_section *merged, uint64_t base_addr)
 {
     if (base_addr != BFLD_ALIGN(base_addr, merged->align)) {
         log_error("Base address 0x%lx is not aligned to 0x%lx",
@@ -127,3 +114,18 @@ int merged_set_base_address(struct merged_section *merged, uint64_t base_addr)
     merged->total_size = offset;
     return 0;
 }
+
+
+int merged_load_contents(struct merged_section *merged)
+{
+    if (merged->content != NULL) {
+        return EEXIST;
+    }
+
+    if (merged->total_size == 0 || list_empty(&merged->mappings)) {
+        return EINVAL;
+    }
+
+    return 0;
+}
+

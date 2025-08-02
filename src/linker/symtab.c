@@ -159,12 +159,6 @@ void symbol_free(struct symbol *sym)
         rb_remove(&(sym->table->tree), &sym->tree_node);
     }
 
-    list_for_each_entry_safe(ref, &sym->refs, struct symref, list_node) {
-        list_remove(&ref->list_node);
-        objfile_put(ref->referer);
-        free(ref);
-    }
-
     if (sym->objfile != NULL) {
         objfile_put(sym->objfile);
     }
@@ -174,8 +168,7 @@ void symbol_free(struct symbol *sym)
 }
 
 
-int symbol_alloc(struct symbol **sym, struct objfile *referer,
-                 const char *name, bool weak, bool relative)
+int symbol_alloc(struct symbol **sym, const char *name, bool weak, bool relative)
 {
     *sym = NULL;
 
@@ -190,13 +183,6 @@ int symbol_alloc(struct symbol **sym, struct objfile *referer,
         return ENOMEM;
     }
 
-    struct symref *ref = malloc(sizeof(struct symref));
-    if (ref == NULL) {
-        free(s->name);
-        free(s);
-        return ENOMEM;
-    }
-
     s->table = NULL;
     rb_node_init(&s->tree_node);
     s->weak = weak;
@@ -204,16 +190,10 @@ int symbol_alloc(struct symbol **sym, struct objfile *referer,
     s->relative = relative;
     s->addr = 0;
     s->align = 1;
-    list_head_init(&s->refs);
 
     s->objfile = NULL;
     s->section = NULL;
     s->offset = 0;
-
-    list_insert_tail(&s->refs, &ref->list_node);
-    objfile_get(referer);
-    ref->referer = referer;
-    ref->symbol = s;
 
     *sym = s;
     return 0;
@@ -222,11 +202,13 @@ int symbol_alloc(struct symbol **sym, struct objfile *referer,
 
 int symbol_link_definition(struct symbol *sym, struct section *sect, uint64_t offset)
 {
-    if (sect == NULL || !sym->relative) {
+    if (sect == NULL && sym->relative) {
+        return EINVAL;
+    } else if (sect != NULL && !sym->relative) {
         return EINVAL;
     }
 
-    if (sym->section != NULL) {
+    if (sym->section != NULL || sym->offset != 0) {
         return EALREADY;
     }
 
@@ -239,64 +221,49 @@ int symbol_link_definition(struct symbol *sym, struct section *sect, uint64_t of
 }
 
 
-static struct section_mapping * symbol_lookup_section_mapping(const struct symbol *sym)
-{
-    if (sym->section != NULL) {
-        return sym->section->merge_mapping;
-    }
+//static struct section_mapping * symbol_lookup_section_mapping(const struct symbol *sym)
+//{
+//    if (sym->section != NULL) {
+//        return sym->section->merge_mapping;
+//    }
+//
+//    return NULL;
+//}
+//
+//
+//struct merged_section * symbol_lookup_merged_section(const struct symbol *sym)
+//{
+//    const struct section_mapping *map = symbol_lookup_section_mapping(sym);
+//
+//    if (map == NULL) {
+//        return NULL;
+//    }
+//
+//    return map->merged_section;
+//}
+//
+//
+//int symbol_resolve_address(struct symbol *sym)
+//{
+//    if (!sym->relative) {
+//        sym->addr = BFLD_ALIGN(sym->offset, sym->align);
+//
+//    } else if (sym->section != NULL) {
+//        const struct section_mapping *map = symbol_lookup_section_mapping(sym);
+//
+//        if (map == NULL) {
+//            // sections have not been merged yet
+//            return EINVAL;
+//        }
+//
+//        struct merged_section *sect = map->merged_section;
+//        sym->addr = BFLD_ALIGN(sect->addr + map->offset + sym->offset, sym->align);
+//
+//    } else {
+//        log_warning("Symbol '%s' is undefined", sym->name);
+//        return EINVAL;
+//    }
+//
+//    return 0;
+//}
 
-    return NULL;
-}
-
-
-struct merged_section * symbol_lookup_merged_section(const struct symbol *sym)
-{
-    const struct section_mapping *map = symbol_lookup_section_mapping(sym);
-
-    if (map == NULL) {
-        return NULL;
-    }
-
-    return map->merged_section;
-}
-
-
-int symbol_resolve_address(struct symbol *sym)
-{
-    if (!sym->relative) {
-        sym->addr = BFLD_ALIGN(sym->offset, sym->align);
-
-    } else if (sym->section != NULL) {
-        const struct section_mapping *map = symbol_lookup_section_mapping(sym);
-
-        if (map == NULL) {
-            // sections have not been merged yet
-            return EINVAL;
-        }
-
-        struct merged_section *sect = map->merged_section;
-        sym->addr = BFLD_ALIGN(sect->addr + map->offset + sym->offset, sym->align);
-
-    } else {
-        log_warning("Symbol '%s' is undefined", sym->name);
-        return EINVAL;
-    }
-
-    return 0;
-}
-
-
-struct symref * symbol_add_reference(struct symbol *sym, struct objfile *file)
-{
-    struct symref *ref = malloc(sizeof(struct symref));
-    if (ref == NULL) {
-        return NULL;
-    }
-
-    ref->symbol = sym;
-    ref->referer = file;
-    objfile_get(file);
-    list_insert_tail(&sym->refs, &ref->list_node);
-
-    return ref;
-}

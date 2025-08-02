@@ -4,7 +4,7 @@
 extern "C" {
 #endif
 
-#include "arch.h"
+#include "archtypes.h"
 #include "secttypes.h"
 #include "symtypes.h"
 #include <stddef.h>
@@ -53,7 +53,7 @@ struct objfile_symbol
     bool                relative;   // is the offset relative or an absolute address
     uint64_t            align;      // alignment requirements
     uint64_t            offset;     // offset within section (or absolute address
-    uint64_t            section;    // section index (0 = no section) where section is defined
+    unsigned            section;    // section index (0 = no section) where section is defined
 
 };
 
@@ -67,7 +67,7 @@ struct objfile_symbol
 struct objfile_section
 {
     const char          *name;      // name of the section
-    uint64_t            section;    // section index (must be >0)
+    unsigned            section;    // section index (must be >0)
     size_t              offset;     // offset from file start (if applicable)
     enum section_type   type;       // section type (data, rodata, text, etc.)
     uint64_t            align;      // section alignment requirements
@@ -89,9 +89,9 @@ struct objfile_section
  */
 struct objfile_relocation
 {
-    uint64_t            section;    // section index of the section where the relocation is applied
+    unsigned            section;    // section index of the section where the relocation is applied
     uint64_t            offset;     // offset within section to relocation
-    uint64_t            sectionref; // if != 0, the relocation refers to a section and not a symbol
+    unsigned            sectionref; // if != 0, the relocation refers to a section and not a symbol
     bool                commonref;  // if true, the relocation refers to the common section
     const char          *symbol;    // symbol name (if sectionref = 0 and common = false)
     uint32_t            type;       // relocation type
@@ -119,8 +119,7 @@ struct objfile_loader
      * Determine if the memory mapped file is a format
      * that is supported by the file loader.
      */
-    bool (*probe)(const uint8_t *file_data, size_t file_size,
-                  enum arch_type *detected_arch);
+    bool (*probe)(const uint8_t *file_data, size_t file_size);
 
     /*
      * Parse the file data and allocate a private file data (if needed),
@@ -132,10 +131,10 @@ struct objfile_loader
      * If this function returns anything but 0, it is assumed
      * to mean that an fatal error occurred and parsing is aborted.
      */
-    int (*parse_file)(void **objfile_loader_data, 
-                      const uint8_t *file_data, 
-                      size_t file_size,
-                      const struct arch_handler **arch_handler);
+    int (*scan_file)(void **objfile_loader_data, 
+                     const uint8_t *file_data, 
+                     size_t file_size,
+                     enum arch_type *detected_arch);
 
     /*
      * Parse section headers and emit section metadata.
@@ -150,9 +149,9 @@ struct objfile_loader
      * To indicate that the emit_section callback returned false,
      * the implementation could return ECANCELED by convention.
      */
-    int (*parse_sections)(void *objfile_loader_data,
-                          bool (*emit_section)(void *callback_data, const struct objfile_section*),
-                          void *callback_data);
+    int (*extract_sections)(void *objfile_loader_data,
+                            bool (*emit_section)(void *callback_data, const struct objfile_section*),
+                            void *callback_data);
     
     /* 
      * Parse symbols and emit symbol information.
@@ -196,13 +195,6 @@ struct objfile_loader
  * Register an object file loader.
  */
 int objfile_loader_register(const struct objfile_loader *loader);
-
-
-
-/*
- * Try to look up an object file loader by its name.
- */
-const struct objfile_loader * objfile_loader_find(const char *name);
 
 
 /*
