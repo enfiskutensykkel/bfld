@@ -7,14 +7,13 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <assert.h>
 
 
-int mfile_open_read(struct mfile **file, const char *pathname)
+int mfile_open_read(mfile **fhandle, const char *pathname)
 {
-    *file = NULL;
+    *fhandle = NULL;
 
-    log_ctx_new(pathname);
+    log_ctx_push(LOG_CTX_FILE(NULL, pathname));
 
     int fd = open(pathname, O_RDONLY);
     if (fd == -1) {
@@ -60,7 +59,7 @@ int mfile_open_read(struct mfile **file, const char *pathname)
     }
 
     // Create file handle
-    struct mfile *f = malloc(sizeof(struct mfile));
+    mfile *f = malloc(sizeof(mfile));
     if (f == NULL) {
         munmap(p, s.st_size);
         close(fd);
@@ -83,36 +82,34 @@ int mfile_open_read(struct mfile **file, const char *pathname)
     f->data = p;
     strcpy(f->name, pathname);
 
-    *file = f;
+    *fhandle = f;
 
     log_ctx_pop();
     return 0;
 }
 
 
-struct mfile * mfile_get(struct mfile *file)
+void mfile_get(mfile *file)
 {
-    assert(file != NULL);
-    assert(file->refcnt > 0);
-    ++(file->refcnt);
-    return file;
+    if (file != NULL) {
+        ++(file->refcnt);
+    }
 }
 
 
-void mfile_put(struct mfile *file)
+void mfile_put(mfile *file)
 {
-    assert(file != NULL);
-    assert(file->refcnt > 0);
+    if (file != NULL) {
+        if (--(file->refcnt) == 0) {
 
-    if (--(file->refcnt) == 0) {
+            if (file->fd >= 0) {
+                // If memory came from a file, unmap and close file
+                munmap((void*) file->data, file->size);
+                close(file->fd);
+            } 
 
-        if (file->fd >= 0) {
-            // If memory came from a file, unmap and close file
-            munmap((void*) file->data, file->size);
-            close(file->fd);
-        } 
-
-        free(file->name);
-        free(file);
+            free(file->name);
+            free(file);
+        }
     }
 }

@@ -53,7 +53,7 @@ struct objfile_symbol
     bool                relative;   // is the offset relative or an absolute address
     uint64_t            align;      // alignment requirements
     uint64_t            offset;     // offset within section (or absolute address
-    unsigned            section;    // section index (0 = no section) where section is defined
+    uint64_t            section;    // section index (0 = no section) where section is defined
 
 };
 
@@ -67,7 +67,7 @@ struct objfile_symbol
 struct objfile_section
 {
     const char          *name;      // name of the section
-    unsigned            section;    // section index (must be >0)
+    uint64_t            section;    // section index (must be >0)
     size_t              offset;     // offset from file start (if applicable)
     enum section_type   type;       // section type (data, rodata, text, etc.)
     uint64_t            align;      // section alignment requirements
@@ -89,9 +89,9 @@ struct objfile_section
  */
 struct objfile_relocation
 {
-    unsigned            section;    // section index of the section where the relocation is applied
+    uint64_t            section;    // section index of the section where the relocation is applied
     uint64_t            offset;     // offset within section to relocation
-    unsigned            sectionref; // if != 0, the relocation refers to a section and not a symbol
+    uint64_t            sectionref; // if != 0, the relocation refers to a section and not a symbol
     bool                commonref;  // if true, the relocation refers to the common section
     const char          *symbol;    // symbol name (if sectionref = 0 and common = false)
     uint32_t            type;       // relocation type
@@ -118,6 +118,9 @@ struct objfile_loader
     /*
      * Determine if the memory mapped file is a format
      * that is supported by the file loader.
+     *
+     * Note: This can be set to NULL, in which case bfld
+     *       will call scan_file directly.
      */
     bool (*probe)(const uint8_t *file_data, size_t file_size);
 
@@ -135,6 +138,7 @@ struct objfile_loader
                      const uint8_t *file_data, 
                      size_t file_size,
                      enum arch_type *detected_arch);
+
 
     /*
      * Parse section headers and emit section metadata.
@@ -174,14 +178,14 @@ struct objfile_loader
                             
 
     /*
-     * Parse relocation tables and emit relocation information.
+     * Parse relocation tables emit relocation information.
      *
      * For each relocation, the function is expected to invoke the
      * emit_reloc callback with 
      */
-    int (*extract_relocations)(void *objfile_loader_data,
-                               bool (*emit_reloc)(void *callback_data, const struct objfile_relocation*),
-                               void *callback_data);
+    int (*extract_relocs)(void *objfile_loader_data,
+                          bool (*emit_reloc)(void *callback_data, const struct objfile_relocation*),
+                          void *callback_data);
     
     /*
      * Release the private data associated with the file; we're done with the file.

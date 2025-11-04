@@ -1,5 +1,5 @@
-#ifndef __BFLD_UTILS_RED_BLACK_TREE_H__
-#define __BFLD_UTILS_RED_BLACK_TREE_H__
+#ifndef _BFLD_UTILS_RED_BLACK_TREE_H
+#define _BFLD_UTILS_RED_BLACK_TREE_H
 #ifdef __cplusplus
 extern "C" {
 #endif

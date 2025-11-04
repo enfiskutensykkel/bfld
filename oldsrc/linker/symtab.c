@@ -212,9 +212,11 @@ int symbol_link_definition(struct symbol *sym, struct section *sect, uint64_t of
         return EALREADY;
     }
 
-    sym->objfile = sect->objfile;
-    objfile_get(sym->objfile);
-    sym->section = sect;
+    if (sect != NULL) {
+        sym->objfile = sect->objfile;
+        objfile_get(sym->objfile);
+        sym->section = sect;
+    }
     sym->offset = offset;
 
     return 0;

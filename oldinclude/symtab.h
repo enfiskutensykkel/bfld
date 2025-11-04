@@ -20,11 +20,6 @@ struct objfile;
 struct section;
 
 
-/* Forward declaration of a merged section and a section mapping. */
-struct merged_section;
-struct section_mapping;
-
-
 /*
  * Symbol table representation.
  */
@@ -55,6 +50,9 @@ struct symbol
 };
 
 
+/*
+ * Helper functon to determine if a symbol is undefined.
+ */
 static inline
 bool symbol_is_undefined(const struct symbol *sym)
 {
@@ -62,21 +60,6 @@ bool symbol_is_undefined(const struct symbol *sym)
         || (!sym->relative && sym->offset == 0);
 }
 
-
-///*
-// * Represents a symbol dependency.
-// * Track which files reference a symbol.
-// * All symbols have at least one reference.
-// *
-// * FIXME: we should create these from relocations
-// */
-//struct symref
-//{
-//    struct symbol *symbol;      // pointer to the symbol that is referenced
-//    struct list_head list_node;
-//    struct objfile *referer;
-//    // FIXME: more information?
-//};
 
 
 /*
@@ -173,15 +156,6 @@ void symbol_free(struct symbol *sym);
  */
 int symbol_link_definition(struct symbol *sym, struct section *sect, uint64_t offset);
                               
-
-/*
- * Look up the merged section of a symbol.
- *
- * This does not take a merged section reference (does not increase
- * the reference count).
- */
-struct merged_section * symbol_lookup_merged_section(const struct symbol *sym);
-
 
 /*
  * Find out which merged section the symbol is in (from its source
