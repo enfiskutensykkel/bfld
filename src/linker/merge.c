@@ -11,8 +11,8 @@
 #include <assert.h>
 
 
-int merged_init(struct merged_section **merged, const char *name, 
-                enum section_type type)
+int merged_section_init(struct merged_section **merged, const char *name, 
+                        enum section_type type)
 {
     *merged = NULL;
     struct merged_section *m = malloc(sizeof(struct merged_section));
@@ -40,13 +40,13 @@ int merged_init(struct merged_section **merged, const char *name,
 }
 
 
-void merged_get(struct merged_section *merged)
+void merged_section_get(struct merged_section *merged)
 {
     ++(merged->refcnt);
 }
 
 
-void merged_put(struct merged_section *merged)
+void merged_section_put(struct merged_section *merged)
 {
     if (--(merged->refcnt) == 0) {
         
@@ -66,7 +66,7 @@ void merged_put(struct merged_section *merged)
 }
 
 
-int merged_add_section(struct merged_section *merged, struct section *sect)
+int merged_section_add_section(struct merged_section *merged, struct section *sect)
 {
     if (sect->type != merged->type) {
         return EINVAL;
@@ -95,7 +95,7 @@ int merged_add_section(struct merged_section *merged, struct section *sect)
 }
 
 
-int merged_calculate_offsets(struct merged_section *merged, uint64_t base_addr)
+int merged_section_finalize_addresses(struct merged_section *merged, uint64_t base_addr)
 {
     if (base_addr != BFLD_ALIGN(base_addr, merged->align)) {
         log_error("Base address 0x%lx is not aligned to 0x%lx",
@@ -116,16 +116,16 @@ int merged_calculate_offsets(struct merged_section *merged, uint64_t base_addr)
 }
 
 
-int merged_load_contents(struct merged_section *merged)
-{
-    if (merged->content != NULL) {
-        return EEXIST;
-    }
-
-    if (merged->total_size == 0 || list_empty(&merged->mappings)) {
-        return EINVAL;
-    }
-
-    return 0;
-}
+//int merged_load_contents(struct merged_section *merged)
+//{
+//    if (merged->content != NULL) {
+//        return EEXIST;
+//    }
+//
+//    if (merged->total_size == 0 || list_empty(&merged->mappings)) {
+//        return EINVAL;
+//    }
+//
+//    return 0;
+//}
 

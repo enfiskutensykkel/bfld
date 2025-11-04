@@ -85,6 +85,18 @@ struct unresolved
 //}
 
 
+static bool record_reloc(void *cb_data, struct objfile *objfile, const struct reloc_info *info)
+{
+    if (info->target != NULL) {
+        fprintf(stderr, "%s\n", info->target->name);
+    } else {
+        fprintf(stderr, "%s\n", info->symbol_name);
+    }
+
+    return true;
+}
+
+
 static bool record_symbol(void *cb_data, struct objfile *objfile, const struct symbol_info *info)
 {
     // FIXME: treat hidden/internal as local
@@ -291,7 +303,7 @@ static void destroy_ctx(struct linker_ctx *ctx)
 {
     list_for_each_entry_safe(sect, &ctx->output_sects, struct output_section, list) {
         list_remove(&sect->list);
-        merged_put(sect->sect);
+        merged_section_put(sect->sect);
         free(sect);
     }
 
@@ -422,6 +434,7 @@ int main(int argc, char **argv)
         log_ctx_pop();
     }
 
+
     // Resolve symbol definitions
     while (!list_empty(&ctx->unresolved)) {
         struct unresolved *unresolved = list_first_entry(&ctx->unresolved, struct unresolved, list);
@@ -474,6 +487,20 @@ int main(int argc, char **argv)
         log_ctx_pop();
     }
 
+    // Extract relocations
+    list_for_each_entry(ifile, &ctx->input_files, struct input_file, list) {
+        log_ctx_push(LOG_CTX_FILE(NULL, ifile->file->name));
+
+        int status = objfile_extract_relocs(ifile->file, record_reloc, ifile);
+        if (status != 0) {
+            log_ctx_pop();
+            destroy_ctx(ctx);
+            exit(1);
+        }
+
+        log_ctx_pop();
+    }
+
     // Merge sections of the same type
     enum section_type secttypes[] = {
         SECTION_TEXT, SECTION_RODATA, SECTION_DATA, SECTION_ZERO
@@ -493,7 +520,7 @@ int main(int argc, char **argv)
             exit(3);
         }
 
-        int status = merged_init(&outsect->sect, name, type);
+        int status = merged_section_init(&outsect->sect, name, type);
         if (status != 0) {
             free(outsect);
             destroy_ctx(ctx);
@@ -510,7 +537,7 @@ int main(int argc, char **argv)
             while (node != NULL) {
                 struct section *sect = rb_entry(node, struct section, tree_node);
                 if (sect->type == outsect->sect->type) {
-                    merged_add_section(outsect->sect, sect);
+                    merged_section_add_section(outsect->sect, sect);
                 }
 
                 node = rb_next(node);
@@ -522,7 +549,7 @@ int main(int argc, char **argv)
     uint64_t base_addr = 0x400000;
     list_for_each_entry(outsect, &ctx->output_sects, struct output_section, list) {
 
-        merged_calculate_offsets(outsect->sect, BFLD_ALIGN(base_addr, outsect->sect->align));
+        merged_section_finalize_addresses(outsect->sect, BFLD_ALIGN(base_addr, outsect->sect->align));
         base_addr = outsect->sect->addr + outsect->sect->total_size;
 
         log_debug("Section %s 0x%lx - 0x%lx (size: %lu, align: %lu)",

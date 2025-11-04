@@ -11,7 +11,7 @@ extern "C" {
 enum arch_type
 {
     ARCH_UNKNOWN,
-    ARCH_x86_64,
+    ARCH_X86_64,
     ARCH_AARCH64
 };
 

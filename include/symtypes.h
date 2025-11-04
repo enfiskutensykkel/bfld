@@ -16,7 +16,7 @@ enum symbol_type
 
 /* Forward declarations */
 struct symbol;
-struct symref;
+//struct symref;
 struct symtab;
 
 

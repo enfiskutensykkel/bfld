@@ -41,31 +41,29 @@ struct section_mapping
 };
 
 
-int merged_init(struct merged_section **merged, 
-                const char *name,
-                enum section_type type);
+int merged_section_init(struct merged_section **merged, 
+                        const char *name,
+                        enum section_type type);
 
 
-void merged_get(struct merged_section *merged);
+void merged_section_get(struct merged_section *merged);
 
 
-void merged_put(struct merged_section *merged);
+void merged_section_put(struct merged_section *merged);
 
 
 /*
  * Add section to a merged section.
  */
-int merged_add_section(struct merged_section *merged, struct section *sect);
+int merged_section_add_section(struct merged_section *merged, struct section *sect);
 
 
 /*
  * Set the merged section's base address and calculate all offsets.
  */
-int merged_calculate_offsets(struct merged_section *merged, uint64_t base_addr);
+int merged_section_finalize_addresses(struct merged_section *merged, 
+                                      uint64_t base_addr);
 
-
-
-int merged_load_contents(struct merged_section *merged);
 
 
 #ifdef __cplusplus

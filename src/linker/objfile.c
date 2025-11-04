@@ -1,6 +1,6 @@
 #include "logging.h"
-#include "secttypes.h"
 #include "symtypes.h"
+#include "section.h"
 #include "objfile.h"
 #include "objfile_loader.h"
 #include "mfile.h"
@@ -12,11 +12,14 @@
 #include <assert.h>
 
 
+#define COMMON_SECTION_KEY  0xdeadbeef
+
+
 /*
  * Helper struct to pass as user-data when invoking 
  * callbacks on the objfile_loader.
  */
-struct objfile_callback_data
+struct symbol_callback_data
 {
     int status;
     struct objfile *objfile;
@@ -25,6 +28,39 @@ struct objfile_callback_data
 };
 
 
+/*
+ * Helper struct to pass as user-data when invoking 
+ * callbacks on the objfile_loader.
+ */
+struct reloc_callback_data
+{
+    int status;
+    struct objfile *objfile;
+    bool (*cb)(void*, struct objfile*, const struct reloc_info*);
+    void *cb_data;
+};
+
+
+/*
+ * Internal type to allow lookups of sections on object files.
+ */
+struct isection
+{
+    struct rb_node keymap;          // look up section from its key
+    struct rb_node namemap;         // look up section from its name
+    uint64_t sect_key;              // copy of the sect_key
+    char *name;                     // name of the section
+    size_t offset;                  // offset from file start (if applicable)
+    enum section_type type;         // section type
+    uint64_t align;                 // base address alignment requirements
+    size_t size;                    // size of the section
+    const uint8_t *content;         // section content pointer
+};
+
+
+/*
+ * Entry in the object file loader list.
+ */
 struct loader_entry
 {
     struct list_head node;
@@ -35,6 +71,9 @@ struct loader_entry
 static struct list_head loaders = LIST_HEAD_INIT(loaders);
 
 
+/*
+ * Remove all registered loaders.
+ */
 __attribute__((destructor(65535)))
 static void remove_loaders(void)
 {
@@ -57,7 +96,7 @@ int objfile_loader_register(const struct objfile_loader *loader)
 
     if (loader->extract_sections == NULL 
             || loader->extract_symbols == NULL 
-            || loader->extract_relocations == NULL) {
+            || loader->extract_relocs == NULL) {
         return EINVAL;
     }
 
@@ -86,92 +125,73 @@ const struct objfile_loader * objfile_loader_probe(const uint8_t *data, size_t s
 }
 
 
-static struct section * objfile_find_section(const struct objfile *objfile,
-                                             unsigned key)
+static void remove_section(struct objfile *objfile, struct isection *sect)
 {
-    if (key == 0) {
-        return NULL;
-    }
+    assert(objfile != NULL);
 
-    struct rb_node *node = objfile->sections.root;
-
-    while (node != NULL) {
-        struct section *sect = rb_entry(node, struct section, tree_node);
-
-        if (key < sect->key) {
-            node = node->left;
-        } else if (key > sect->key) {
-            node = node->right;
-        } else {
-            return sect;
-        }
-    }
-
-    return NULL;
-}
-
-
-static struct section * objfile_create_section(struct objfile *objfile, 
-                                               unsigned key,
-                                               const char *name)
-{
-    if (key == 0) {
-        log_error("Section identifier can not be 0");
-        return NULL;
-    }
-
-    struct rb_node **pos = &(objfile->sections.root), *parent = NULL;
-
-    while (*pos != NULL) {
-        struct section *this = rb_entry(*pos, struct section, tree_node);
-        parent = *pos;
-        if (key < this->key) {
-            pos = &((*pos)->left);
-        } else if (key > this->key) {
-            pos = &((*pos)->right);
-        } else {
-            // Section with the same key already exist
-            return NULL;
-        }
-    }
-
-    struct section *sect = malloc(sizeof(struct section));
-    if (sect == NULL) {
-        return NULL;
-    }
-
-    sect->key = key;
-    sect->objfile = objfile;
-    sect->name = name;
-    sect->type = SECTION_ZERO;
-    sect->content = NULL;
-    sect->size = 0;
-    sect->align = 0;
-
-    rb_insert_node(&sect->tree_node, parent, pos);
-    rb_insert_fixup(&objfile->sections, &sect->tree_node);
-    ++(objfile->num_sections);
-    return sect;
-}
-
-
-static void objfile_remove_section(struct objfile *objfile, struct section *sect)
-{
-    assert(objfile != NULL && sect->objfile == objfile);
-
-    rb_remove(&objfile->sections, &sect->tree_node);
-
+    rb_remove(&objfile->sections, &sect->keymap);
+    rb_remove(&objfile->sects_by_name, &sect->namemap);
     free(sect);
     --(objfile->num_sections);
 }
 
 
+static struct isection * create_section(struct objfile *objfile, 
+                                        uint64_t sect_key, const char *name)
+{
+    struct rb_node **pos = &(objfile->sections.root), *parent = NULL;
+
+    while (*pos != NULL) {
+        struct isection *this = rb_entry(*pos, struct isection, keymap);
+
+        parent = *pos;
+        if (sect_key < this->sect_key) {
+            pos = &((*pos)->left);
+        } else if (sect_key > this->sect_key) {
+            pos = &((*pos)->right);
+        } else {
+            // Section with the same key already exist
+            log_error("Section %u is already loaded", sect_key);
+            return NULL;
+        }
+    }
+
+    struct isection *sect = malloc(sizeof(struct isection));
+    if (sect == NULL) {
+        return NULL;
+    }
+
+    sect->name = strdup(name);
+    if (sect->name == NULL) {
+        free(sect);
+        return NULL;
+    }
+
+    sect->sect_key = sect_key;
+    sec->offset = 0;
+    sect->type = SECTION_ZERO;
+    sect->align = 0;
+    sect->size = 0;
+    sect->content = NULL;
+
+    rb_insert_node(&sect->keymap, parent, pos);
+    rb_insert_fixup(&objfile->sections, &sect->keymap);
+    rb_node_init(&sect->namemap);
+
+    ++(objfile->num_sections);
+    return map->section;
+}
+
+
 void objfile_put(struct objfile *objfile)
 {
+    assert(objfile != NULL);
+    assert(objfile->refcnt > 0);
+
     if (--(objfile->refcnt) == 0) {
         while (objfile->sections.root != NULL) {
-            struct section *sect = rb_entry(objfile->sections.root, struct section, tree_node);
-            objfile_remove_section(objfile, sect);
+            struct isection *sect = rb_entry(objfile->sections.root, struct isection, keymap);
+            remove_section(objfile, sect);
         }
 
         if (objfile->loader != NULL && objfile->loader->release != NULL) {
@@ -190,13 +210,15 @@ void objfile_put(struct objfile *objfile)
 
 void objfile_get(struct objfile *objfile)
 {
+    assert(objfile != NULL);
+    assert(objfile->refcnt > 0);
     ++(objfile->refcnt);
 }
 
 
-static bool _add_section(void *ctx, const struct objfile_section *sect)
+static bool add_section(void *ctx, const struct objfile_section *sect)
 {
-    struct section *s = objfile_create_section(ctx, sect->section, sect->name);
+    struct isection *s = create_section(ctx, sect->section, sect->name);
     if (s == NULL) {
         return false;
     } 
@@ -208,47 +230,6 @@ static bool _add_section(void *ctx, const struct objfile_section *sect)
     s->content = sect->size > 0 ? sect->content : NULL;
     return true;
 }
-
-
-//static bool _add_relocation(void *ctx, const struct objfile_relocation *reloc)
-//{
-//    struct section *s = objfile_find_section(ctx, reloc->section);
-//
-//    if (s == NULL) {
-//        log_error("Invalid section in relocation");
-//        return false;
-//    }
-//
-//    struct relocation *rel = objfile_create_relocation(ctx, s);
-//    if (rel == NULL) {
-//        return false;
-//    }
-//
-//    if (reloc->commonref) {
-//        rel->target_section = objfile_find_section(ctx, 0xdeadbeef);
-//    } else if (reloc->sectionref) {
-//        rel->target_section = objfile_find_section(ctx, reloc->sectionref);
-//        if (rel->target_section == NULL) {
-//            log_error("Invalid section reference in relocation");
-//            free(rel);
-//            return false;
-//        }
-//    } else {
-//        if (reloc->symbol == NULL) {
-//            free(rel);
-//            log_error("Expected symbol name for relocation");
-//            return false;
-//        }
-//
-//        rel->symbol_name = reloc->symbol;
-//    }
-//
-//    rel->offset = reloc->offset;
-//    rel->type = reloc->type;
-//    rel->addend = reloc->addend;
-//
-//    return true;
-//}
 
 
 int objfile_init(struct objfile **objfile, const struct objfile_loader *loader,
@@ -270,10 +251,9 @@ int objfile_init(struct objfile **objfile, const struct objfile_loader *loader,
 
     obj->loader = NULL;
     obj->loader_data = NULL;
-    obj->num_sections = 0;
     rb_tree_init(&obj->sections);
 
-    struct section *common = objfile_create_section(obj, 0xdeadbeef, ".common");
+    struct section *common = create_section(obj, 0xdeadbeef, ".common");
     if (common == NULL) {
         objfile_put(obj);
         return ENOMEM;
@@ -296,7 +276,7 @@ int objfile_init(struct objfile **objfile, const struct objfile_loader *loader,
     obj->loader = loader;
 
     // Read section metadata
-    status = loader->extract_sections(obj->loader_data, _add_section, obj);
+    status = loader->extract_sections(obj->loader_data, add_section, obj);
     if (status != 0) {
         log_error("Unable to parse sections");
         objfile_put(obj);
@@ -304,18 +284,38 @@ int objfile_init(struct objfile **objfile, const struct objfile_loader *loader,
         return EINVAL;
     }
 
-//    // Read relocations
-//    status = loader->extract_relocations(obj->loader_data, _add_relocation, obj);
-//    if (status != 0) {
-//        log_error("Unable to parse and extract relocations");
-//        objfile_put(obj);
-//        log_ctx_pop();
-//        return EINVAL;
-//    }
-
     log_ctx_pop();
     *objfile = obj;
     return 0;
+}
+
+
+struct section * objfile_get_section(struct objfile *objfile, uint64_t sect_key)
+{
+    
+    if (sect_key == 0) {
+        return NULL;
+    }
+
+    struct rb_node *node = objfile->sections.root;
+
+    while (node != NULL) {
+        struct isection *sect = rb_entry(node, struct isection, keymap);
+
+        if (sect_key < sect->sect_key) {
+            node = node->left;
+        } else if (sect_key > sect->sect_key) {
+            node = node->right;
+        } else {
+            struct section *s = section_init(objfile, sect->sect_key,
+                                             sect->name);
+            if (s == NULL) {
+                return NULL;
+            }
+        }
+    }
+
+    return NULL;
 }
 
 
@@ -347,16 +347,66 @@ struct objfile * objfile_load(mfile *file, const struct objfile_loader *loader)
 }
 
 
-static bool _emit_symbol(void *cb_data, const struct objfile_symbol *sym)
+static bool emit_relocation(void *cb_data, const struct objfile_relocation *rel)
 {
-    struct objfile_callback_data *cb = cb_data;
+    struct reloc_callback_data *cb = cb_data;
+    struct objfile *objfile = cb->objfile;
+
+    struct reloc_info info = {
+        .section = find_section(objfile, rel->section),
+        .symbol_name = NULL,
+        .target = NULL,
+        .offset = rel->offset,
+        .type = rel->type,
+        .addend = rel->addend,
+    };
+
+    if (info.section == NULL) {
+        log_error("Invalid section in relocation");
+        return false;
+    }
+
+    if (rel->commonref) {
+        info.target = find_section(objfile, 0xdeadbeef);
+
+    } else if (rel->sectionref != 0) {
+        info.target = find_section(objfile, rel->sectionref);
+
+        if (info.target == NULL) {
+            cb->status = EBADF;
+            log_error("Invalid target section in relocation");
+            return false;
+        }
+    } else {
+        info.symbol_name = rel->symbol;
+    }
+
+    bool _continue = cb->cb(cb->cb_data, objfile, &info);
+    if (!_continue) {
+        cb->status = ECANCELED;
+        return false;
+    }
+
+    return true;
+}
+
+
+static bool emit_symbol(void *cb_data, const struct objfile_symbol *sym)
+{
+    struct symbol_callback_data *cb = cb_data;
     struct objfile *objfile = cb->objfile;
 
     struct section *sect = NULL;
     if (sym->common) {
-        sect = objfile_find_section(objfile, 0xdeadbeef);
-    } else {
-        sect = objfile_find_section(objfile, sym->section);
+        sect = find_section(objfile, 0xdeadbeef);
+    } else if (sym->section > 0) {
+        sect = find_section(objfile, sym->section);
+
+        if (sect == NULL) {
+            cb->status = EBADF;
+            log_error("Invalid section reference in symbol '%s'", sym->name);
+            return false;
+        }
     }
 
     struct symbol_info info = {
@@ -385,9 +435,10 @@ int objfile_extract_symbols(struct objfile *objfile,
 {
     assert(objfile->loader != NULL && objfile->loader->extract_symbols != NULL);
 
+    objfile_get(objfile);
     log_ctx_push(LOG_CTX_FILE(objfile->loader->name, objfile->name));
 
-    struct objfile_callback_data cbdata = {
+    struct symbol_callback_data cbdata = {
         .status = 0,
         .objfile = objfile,
         .cb = callback,
@@ -395,19 +446,58 @@ int objfile_extract_symbols(struct objfile *objfile,
     };
 
     int status = objfile->loader->extract_symbols(objfile->loader_data, 
-                                                  _emit_symbol,
+                                                  emit_symbol,
                                                   &cbdata);
     if (cbdata.status != 0) {
         log_ctx_pop();
+        objfile_put(objfile);
         return cbdata.status;
     }
 
     if (status != 0) {
         log_error("Extracting symbols failed");
         log_ctx_pop();
+        objfile_put(objfile);
         return EBADF;
     }
 
     log_ctx_pop();
+    objfile_put(objfile);
+    return 0;
+}
+
+
+int objfile_extract_relocs(struct objfile *objfile,
+                           bool (*callback)(void*, struct objfile*, const struct reloc_info*),
+                           void *callback_data)
+{
+    objfile_get(objfile);
+    log_ctx_push(LOG_CTX_FILE(objfile->loader->name, objfile->name));
+
+    struct reloc_callback_data cbdata = {
+        .status = 0,
+        .objfile = objfile,
+        .cb = callback,
+        .cb_data = callback_data
+    };
+
+    int status = objfile->loader->extract_relocs(objfile->loader_data,
+                                                 emit_relocation,
+                                                 &cbdata);
+    if (cbdata.status != 0) {
+        log_ctx_pop();
+        objfile_put(objfile);
+        return cbdata.status;
+    }
+
+    if (status != 0) {
+        log_error("Extracting relocations failed");
+        log_ctx_pop();
+        objfile_put(objfile);
+        return EBADF;
+    }
+
+    log_ctx_pop();
+    objfile_put(objfile);
     return 0;
 }

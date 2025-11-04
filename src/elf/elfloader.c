@@ -8,16 +8,18 @@
 #include <errno.h>
 #include <string.h>
 #include <assert.h>
+#include "archtypes.h"
 #include "utils/list.h"
 #include "x86_64.h"
 
 
-static const uint32_t reloc_map[256] = {
+static const uint32_t x86_64_reloc_map[256] = {
     [R_X86_64_NONE] = RELOC_X86_64_NONE,
     [R_X86_64_64] = RELOC_X86_64_ABS64,
     [R_X86_64_PC32] = RELOC_X86_64_PC32,
     [R_X86_64_32] = RELOC_X86_64_ABS32,
     [R_X86_64_32S] = RELOC_X86_64_ABS32S,
+    [R_X86_64_PLT32] = RELOC_X86_64_PC32,  // FIXME: Hack because we're static-only for the moment
 };
 
 
@@ -28,10 +30,12 @@ static const uint32_t reloc_map[256] = {
 struct elf_context
 {
     const Elf64_Ehdr *eh;       // pointer to the start of the ELF file (the ELF header)
+    enum arch_type arch;        // detected architecture type
+    const uint32_t *reloc_map;  // pointer to relocation map
     const char *strtab;         // symbol string table
     uint64_t nsyms;             // number of symbols in the symbol table
     const Elf64_Sym *symtab;    // pointer to the symbol table
-    uint64_t nreltabs;
+    uint64_t nreltabs;          // number of relocation tables
     const Elf64_Shdr **relsects; // sections with relocations
 };
 
@@ -44,6 +48,8 @@ static struct elf_context * create_elf_context(const uint8_t *ptr)
     }
 
     ctx->eh = (const Elf64_Ehdr*) ptr;
+    ctx->arch = ARCH_UNKNOWN;
+    ctx->reloc_map = NULL;
     ctx->strtab = NULL;
     ctx->nsyms = 0;
     ctx->symtab = NULL;
@@ -144,7 +150,8 @@ static int parse_elf_file(void **ctx_data, const uint8_t *data, size_t size,
     // Only allow architectures we support
     switch (ctx->eh->e_machine) {
         case EM_X86_64:
-            *detected_arch = ARCH_x86_64;
+            ctx->arch = ARCH_X86_64;
+            ctx->reloc_map = x86_64_reloc_map;
             break;
 
         default:
@@ -153,6 +160,10 @@ static int parse_elf_file(void **ctx_data, const uint8_t *data, size_t size,
             return EINVAL;
     }
 
+    if (ctx->reloc_map == NULL) {
+        release_elf_context(ctx);
+        return EINVAL;
+    }
 
     log_trace("First pass");
 
@@ -215,6 +226,7 @@ static int parse_elf_file(void **ctx_data, const uint8_t *data, size_t size,
         return ENOMEM;
     }
 
+    *detected_arch = ctx->arch;
     *ctx_data = ctx;
     return 0;
 }
@@ -405,12 +417,16 @@ static int parse_elf_symtab(void *ctx_data, bool (*emit_symbol)(void *cb_data, c
 }
 
 
-static int parse_elf_relocs(void *ctx_data, bool (*emit_reloc)(void *cb_data, const struct objfile_relocation*), void *cb_data)
+static int parse_elf_relocs(void *ctx_data,
+                            bool (*emit_reloc)(void *cb_data, const struct objfile_relocation*), 
+                            void *cb_data)
 {
     struct elf_context *ctx = ctx_data;
+    const uint32_t *reloc_map = ctx->reloc_map;
 
     for (uint64_t idx = 0; idx < ctx->nreltabs; ++idx) {
         const Elf64_Shdr *sh = ctx->relsects[idx];
+        
         const Elf64_Rel *reltab = NULL;
         const Elf64_Rela *relatab = NULL;
 
@@ -447,20 +463,20 @@ static int parse_elf_relocs(void *ctx_data, bool (*emit_reloc)(void *cb_data, co
             };
 
             const Elf64_Sym *sym = NULL;
+            uint8_t rtype = 0;
 
             if (relatab != NULL) {
                 const Elf64_Rela *r = &relatab[idx];
                 
+                rtype = ELF64_R_TYPE(r->r_info);
                 rel.offset = r->r_offset;
-                rel.type = reloc_map[ELF64_R_TYPE(r->r_info)];
                 rel.addend = r->r_addend;
                 sym = &ctx->symtab[ELF64_R_SYM(r->r_info)];
                 
             } else {
                 const Elf64_Rel *r = &reltab[idx];
-
+                rtype = ELF64_R_TYPE(r->r_info);
                 rel.offset = r->r_offset;
-                rel.type = reloc_map[ELF64_R_TYPE(r->r_info)];
                 sym = &ctx->symtab[ELF64_R_SYM(r->r_info)];
             }
 
@@ -480,13 +496,16 @@ static int parse_elf_relocs(void *ctx_data, bool (*emit_reloc)(void *cb_data, co
                     break;
 
                 default:
-                    log_error("Unsupported relocation");
-                    continue;
+                    log_error("Unsupported relocation symbol type: 0x%02x", 
+                            ELF64_ST_TYPE(sym->st_info));
             }
 
+            rel.type = reloc_map[rtype];
+
             if (rel.type == 0) {
-                log_error("Unsupported relocation type");
-                continue;
+                log_error("Unsupported relocation type: %u", rtype);
+                log_ctx_pop();
+                return EINVAL;
             }
 
             if (!emit_reloc(cb_data, &rel)) {
@@ -508,7 +527,7 @@ const struct objfile_loader elf_loader = {
     .scan_file = parse_elf_file,
     .extract_sections = parse_elf_sects,
     .extract_symbols = parse_elf_symtab,
-    .extract_relocations = parse_elf_relocs,
+    .extract_relocs = parse_elf_relocs,
     .release = release_elf_context,
 };
 
