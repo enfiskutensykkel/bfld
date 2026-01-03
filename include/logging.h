@@ -1,5 +1,5 @@
-#ifndef __BFLD_LOGGING_H__
-#define __BFLD_LOGGING_H__
+#ifndef _BFLD_LOGGING_H
+#define _BFLD_LOGGING_H
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -20,7 +20,7 @@ typedef struct {
 } log_ctx_t;
 
 
-extern int __log_verbosity;
+extern int log_verbosity;
 
 extern int __log_ctx_idx;
 
@@ -85,7 +85,7 @@ void log_ctx_pop(void)
 static inline
 void log_message(int level, const char *fmt, ...)
 {
-    if (level <= __log_verbosity) {
+    if (level <= log_verbosity) {
         const log_ctx_t *ctx = &__log_ctx[__log_ctx_idx];
 
         if (ctx->file != NULL) {
