@@ -9,7 +9,6 @@
 
 
 struct section * section_alloc(struct objfile *objfile,
-                               uint64_t idx,
                                const char *name,
                                enum section_type type,
                                const uint8_t *content,
@@ -59,7 +58,8 @@ struct section * section_alloc(struct objfile *objfile,
         return NULL;
     }
 
-    sect->idx = idx;
+    sect->idx = 0;
+    sect->offset = 0;
     sect->march = ARCH_UNKNOWN;
     sect->refcnt = 1;
     sect->objfile = objfile_get(objfile);
@@ -67,7 +67,6 @@ struct section * section_alloc(struct objfile *objfile,
     sect->type = type;
     sect->content = content;
     sect->size = size;
-    sect->addr = 0;
     sect->nrelocs = 0;
     list_head_init(&sect->relocs);
     return sect;
@@ -89,6 +88,7 @@ void section_put(struct section *sect)
     assert(sect->refcnt > 0);
 
     if (--(sect->refcnt) == 0) {
+        objfile_put(sect->objfile);
         section_clear_relocs(sect);
         free(sect->name);
         free(sect);

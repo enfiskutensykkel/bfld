@@ -7,11 +7,12 @@ extern "C" {
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include "objfile.h"
-#include "section.h"
-#include "symbol.h"
-#include "symtab.h"
-#include "secttab.h"
+#include "../objfile.h"
+#include "../section.h"
+#include "../sections.h"
+#include "../symbol.h"
+#include "../symbols.h"
+#include "../globals.h"
 
 
 /*
@@ -45,10 +46,10 @@ struct objfile_frontend
     int (*parse_file)(const uint8_t *file_data, 
                       size_t file_size,
                       struct objfile *objfile,
-                      struct secttab *sections,
-                      struct symtab *symbols);
+                      struct sections *sections,
+                      struct symbols *symbols,
+                      struct globals *globals);
 };
-
 
 
 /*
@@ -62,7 +63,10 @@ struct objfile_frontend
  * }
  *
  * static int elf_parser(const uint8_t *data, size_t size, 
- *                       struct secttab *sects, struct symtab *syms)
+ *                       struct objfile *objfile,
+ *                       struct sections *sects,
+ *                       struct symbols *syms,
+ *                       struct globals *globals)
  * {
  *     ...
  * }

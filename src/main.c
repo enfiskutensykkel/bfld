@@ -5,8 +5,6 @@
 #include <getopt.h>
 #include <mfile.h>
 #include <linker.h>
-#include <objfile_frontend.h>
-#include <archive_frontend.h>
 
 
 int main(int argc, char **argv)

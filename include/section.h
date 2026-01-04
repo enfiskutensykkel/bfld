@@ -36,11 +36,11 @@ struct section
     char *name;                     // name of the section
     struct objfile *objfile;        // strong reference to the object file the section is defined in
     uint64_t idx;                   // section index in the object file (used for debugging)
+    size_t offset;                  // offset to section content (used for debugging)
     uint32_t march;                 // machine code architecture, used for sanity checking
     int refcnt;                     // reference counter
     enum section_type type;         // section type 
     uint64_t align;                 // section alignment requirements (addr must be a multiple of align)
-    uint64_t addr;                  // finalized address of the section
     size_t size;                    // size of the section
     const uint8_t *content;         // pointer to section content
     size_t nrelocs;                 // number of entries in the relocation list.
@@ -70,7 +70,6 @@ struct reloc
  * This will take a strong reference to the object file descriptor.
  */
 struct section * section_alloc(struct objfile *objfile,
-                               uint64_t idx,
                                const char *name,
                                enum section_type type,
                                const uint8_t *content,

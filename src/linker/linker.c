@@ -1,11 +1,11 @@
 #include "logging.h"
 #include "linker.h"
 #include "objfile.h"
-#include "objfile_frontend.h"
-#include "archive_frontend.h"
+#include "frontends/objfile.h"
+#include "frontends/archive.h"
 #include "utils/list.h"
-#include "secttab.h"
-#include "symtab.h"
+#include "sections.h"
+#include "globals.h"
 #include "mfile.h"
 #include "archive.h"
 #include <stdlib.h>
@@ -15,6 +15,7 @@
 
 /*
  * Archive file front-end entry.
+ * Used to track registered front-ends.
  */
 struct archive_fe_entry
 {
@@ -25,6 +26,7 @@ struct archive_fe_entry
 
 /*
  * Object file front-end entry
+ * Used to track registered front-ends.
  */
 struct objfile_fe_entry
 {
@@ -34,12 +36,20 @@ struct objfile_fe_entry
 
 
 
-int log_level = 1;
-int log_ctx = 0;
+int log_level = 1;  // initial log level
+int log_ctx = 0;    // initial log context
 log_ctx_t log_ctx_stack[LOG_CTX_MAX] = {0};
 
+
+/*
+ * List of object file front-ends.
+ */ 
 static struct list_head objfile_frontends = LIST_HEAD_INIT(objfile_frontends);
 
+
+/*
+ * List of archive file front-ends.
+ */
 static struct list_head archive_frontends = LIST_HEAD_INIT(archive_frontends);
 
 
@@ -133,14 +143,20 @@ struct linkerctx * linker_create(const char *name)
 
     struct linkerctx *ctx = malloc(sizeof(struct linkerctx));
     if (ctx == NULL) {
-        log_fatal("Unable to create linker context");
         log_ctx_pop();
         return NULL;
     }
 
     ctx->name = strdup(name);
     if (ctx->name == NULL) {
-        log_fatal("Unable to create linker context");
+        free(ctx);
+        log_ctx_pop();
+        return NULL;
+    }
+
+    ctx->globals = globals_alloc("gsym");
+    if (ctx->globals == NULL) {
+        free(ctx->name);
         free(ctx);
         log_ctx_pop();
         return NULL;
@@ -149,8 +165,6 @@ struct linkerctx * linker_create(const char *name)
     ctx->log_ctx = log_ctx;
     list_head_init(&ctx->input_files);
     list_head_init(&ctx->archives);
-    ctx->input_sects = NULL;
-    ctx->symtab = NULL;
     return ctx;
 }
 
@@ -170,7 +184,8 @@ void linker_destroy(struct linkerctx *ctx)
         list_for_each_entry_safe(file, &ctx->input_files, struct input_file, list_entry) {
             objfile_put(file->objfile);
             list_remove(&file->list_entry);
-            secttab_put(file->sections);
+            sections_put(file->sections);
+            symbols_put(file->symbols);
             free(file);
         }
 
@@ -180,6 +195,7 @@ void linker_destroy(struct linkerctx *ctx)
             free(arfile);
         }
 
+        globals_put(ctx->globals);
         free(ctx->name);
         free(ctx);
         log_ctx_pop();
@@ -238,7 +254,6 @@ struct input_file * linker_add_objfile(struct linkerctx *ctx,
     }
 
     if (fe == NULL) {
-        log_fatal("Unrecognized file format");
         log_ctx_pop();
         return NULL;
     }
@@ -246,21 +261,37 @@ struct input_file * linker_add_objfile(struct linkerctx *ctx,
 
     struct input_file *file = malloc(sizeof(struct input_file));
     if (file == NULL) {
-        log_fatal("Unable to allocate file handle");
+        log_ctx_pop();
+        return NULL;
+    }
+
+    file->symbols = symbols_alloc(objfile->name);
+    if (file->symbols == NULL) {
+        free(file);
+        log_ctx_pop();
+        return NULL;
+    }
+
+    file->sections = sections_alloc(objfile->name);
+    if (file->sections == NULL) {
+        symbols_put(file->symbols);
+        free(file);
         log_ctx_pop();
         return NULL;
     }
 
     file->ctx = ctx;
     file->objfile = objfile_get(objfile);
-    file->sections = secttab_alloc(objfile->name);
+    
+
     file->frontend = fe;
 
     int status = fe->parse_file(objfile->file_data, objfile->file_size, 
-                                objfile, file->sections, ctx->symtab);
+                                objfile, file->sections, file->symbols, ctx->globals);
     if (status != 0) {
         log_fatal("Unable to parse object file");
         objfile_put(file->objfile);
+        sections_put(file->sections);
         free(file);
         log_ctx_pop();
         return NULL;

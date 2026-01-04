@@ -1,6 +1,5 @@
 #include "logging.h"
-#include "archive.h"
-#include "archive_frontend.h"
+#include "frontends/archive.h"
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>

@@ -34,6 +34,8 @@ struct archive
 
 /*
  * Archive member file.
+ * An archive member file is an object file
+ * that can be pulled out of the archive.
  */
 struct archive_member
 {
@@ -49,6 +51,7 @@ struct archive_member
 
 /*
  * Symbol index entry.
+ * This tracks symbols and which archive member provides it.
  */
 struct archive_symbol
 {
@@ -66,7 +69,7 @@ struct archive * archive_alloc(struct mfile *file,
                                
 
 /*
- * Add an archive member file
+ * Add an archive member file.
  */
 struct archive_member * archive_add_member(struct archive *archive,
                                            const char *name,

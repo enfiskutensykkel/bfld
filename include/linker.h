@@ -10,8 +10,9 @@ extern "C" {
 #include "utils/list.h"
 
 /* Some forward declarations */
-struct secttab;
-struct symtab;
+struct sections;
+struct globals;
+struct symbols;
 struct objfile;
 struct objfile_frontend;
 struct archive;
@@ -19,35 +20,41 @@ struct archive_frontend;
 
 
 /* 
- * Global linker context.
+ * Linker context.
  */
 struct linkerctx
 {
-    char *name; // used for debugging
-    int log_ctx;
-    struct list_head input_files;
-    struct list_head archives;
-    struct secttab *input_sects;
-    struct symtab *symtab;
+    char *name;                     // linker name (used for debugging)
+    int log_ctx;                    // log context
+    struct list_head input_files;   // list of input files that should be processed
+    struct list_head archives;      // list of archive files
+    struct globals *globals;        // global symbols
 };
 
 
+/*
+ * Input file that should be processed by the linker.
+ */
 struct input_file
 {
-    struct linkerctx *ctx;
-    struct list_head list_entry;
-    struct objfile *objfile;
-    struct secttab *sections;
-    const struct objfile_frontend *frontend;
+    struct linkerctx *ctx;          // weak reference to linker context
+    struct list_head list_entry;    // linked list entry
+    struct objfile *objfile;        // object file handle
+    struct sections *sections;      // sections in this input file
+    struct symbols *symbols;        // local symbols in this file
+    const struct objfile_frontend *frontend; // frontend used for loading this file
 };
 
 
+/*
+ * Archive file that may provide symbols the linker need.
+ */
 struct archive_file
 {
-    struct linkerctx *ctx;
-    struct list_head list_entry;
-    struct archive *archive;
-    const struct archive_frontend *frontend;
+    struct linkerctx *ctx;          // weak reference to the linker context
+    struct list_head list_entry;    // linker list entry
+    struct archive *archive;        // archive file handle
+    const struct archive_frontend *frontend; // frontend used for loading this file
 };
 
 
