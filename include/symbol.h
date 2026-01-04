@@ -93,7 +93,7 @@ void symbol_put(struct symbol *symbol);
 
 
 /*
- * Link a symbol to a definition.
+ * Assign a definition to a symbol.
  *
  * If section is NULL, offset is assumed to be an absolute address.
  * Otherwise, the definition is relative to the base address of the section.
@@ -108,10 +108,10 @@ void symbol_put(struct symbol *symbol);
  * If the symbol is strong, this function does nothing and returns
  * EALREADY.
  */
-int symbol_assign_definition(struct symbol *symbol,
-                             struct section *section,
-                             uint64_t offset,
-                             uint64_t size);
+int symbol_bind_definition(struct symbol *symbol,
+                           struct section *section,
+                           uint64_t offset,
+                           uint64_t size);
                            
 
 /*

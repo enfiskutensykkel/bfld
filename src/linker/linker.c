@@ -264,14 +264,14 @@ struct input_file * linker_add_objfile(struct linkerctx *ctx,
         return NULL;
     }
 
-    file->symbols = symbols_alloc(objfile->name);
+    file->symbols = symbols_alloc("symboltable");
     if (file->symbols == NULL) {
         free(file);
         log_ctx_pop();
         return NULL;
     }
 
-    file->sections = sections_alloc(objfile->name);
+    file->sections = sections_alloc("sectiontable");
     if (file->sections == NULL) {
         symbols_put(file->symbols);
         free(file);

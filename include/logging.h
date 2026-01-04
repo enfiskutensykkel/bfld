@@ -73,8 +73,8 @@ int log_ctx_push(log_ctx_t ctx)
         // Copy information from the previous context
         if (ctx.file == NULL) {
             if (ctx.section == NULL) {
-                if (ctx.offset > 0) {
-                    if (ctx.lineno > 0) {
+                if (ctx.offset == 0) {
+                    if (ctx.lineno == 0) {
                         ctx.lineno = log_ctx_stack[log_ctx].lineno;
                     }
                     ctx.offset = log_ctx_stack[log_ctx].offset;

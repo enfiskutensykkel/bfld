@@ -43,9 +43,7 @@ bool symbols_reserve(struct symbols *syms, size_t n)
         return false;
     }
 
-    log_ctx_push(LOG_CTX_NAME(syms->name));
-    log_trace("Extending symbol table capacity to %zu", new_capacity);
-    log_ctx_pop();
+    log_trace("Extending local symbol table capacity to %zu", new_capacity);
 
     struct symbol **entries = realloc(syms->entries, sizeof(struct symbol*) * new_capacity);
     if (entries == NULL) {
@@ -95,20 +93,16 @@ int symbols_insert(struct symbols *syms, uint64_t idx,
 {
     struct symbol **pos = NULL;
 
-    log_ctx_push(LOG_CTX_NAME(syms->name));
-
     if (idx >= syms->capacity) {
         if (!symbols_reserve(syms, idx + 1)) {
-            log_error("Section index %llu is too large", idx);
-            log_ctx_pop();
+            log_error("Symbol index %llu is too large", idx);
             return ENOMEM;
         }
     }
 
     pos = &(syms->entries[idx]);
     if (*pos != NULL) {
-        log_error("Section table already contains a symbol with index %llu", idx);
-        log_ctx_pop();
+        log_error("Local symbol table already contains a symbol with index %llu", idx);
         if (existing != NULL) {
             *existing = *pos;
         }
@@ -118,6 +112,5 @@ int symbols_insert(struct symbols *syms, uint64_t idx,
     *pos = symbol_get(symbol);
     ++(syms->nsymbols);
 
-    log_ctx_pop();
     return 0;
 }

@@ -127,6 +127,7 @@ static bool scan_common_sym(const Elf64_Ehdr *eh, const Elf64_Shdr *sh)
         const Elf64_Sym *sym = ((const Elf64_Sym*) (((const uint8_t*) eh) + sh->sh_offset)) + idx;
 
         if (sym->st_shndx == SHN_COMMON) {
+            log_ctx_pop();
             return true;
         }
     }
@@ -276,7 +277,8 @@ static int parse_sections(const Elf64_Ehdr *eh,
     list_for_each_entry(s, symtabs, struct elf_section_entry, entry) {
         if (scan_common_sym(eh, s->shdr)) {
             log_debug("Creating .common section");
-            struct section *common = section_alloc(objfile, sections->maxidx,
+            struct section *common = section_alloc(objfile, 
+                                                   sections->maxidx + 1,
                                                    ".common", 0, 
                                                    SECTION_ZERO,
                                                    NULL,
@@ -427,7 +429,7 @@ static int parse_symtab(const Elf64_Ehdr *eh, const Elf64_Shdr *sh, const struct
         symbol->align = align;
 
         if (offset > 0) {
-            status = symbol_assign_definition(symbol, section, offset, size);
+            status = symbol_bind_definition(symbol, section, offset, size);
             if (status != 0) {
                 symbol_put(symbol);
                 goto out;

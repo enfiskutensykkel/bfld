@@ -63,10 +63,10 @@ struct symbol * symbol_alloc(const char *name, enum symbol_type type,
 }
 
 
-int symbol_assign_definition(struct symbol *sym,
-                             struct section *section,
-                             uint64_t offset,
-                             uint64_t size)
+int symbol_bind_definition(struct symbol *sym,
+                           struct section *section,
+                           uint64_t offset,
+                           uint64_t size)
 {
     assert(sym != NULL);    
 
@@ -122,7 +122,7 @@ static inline void override_symbol(struct symbol *existing, const struct symbol 
         return;
     }
 
-    int status = symbol_assign_definition(existing, truth->section, truth->offset, truth->size);
+    int status = symbol_bind_definition(existing, truth->section, truth->offset, truth->size);
     assert(status == 0);
     log_debug("Updated symbol definition");
 
