@@ -61,9 +61,12 @@ void globals_put(struct globals *globals);
  * the symbol is taken, the symbol is inserted into the table,
  * and the function returns 0.
  *
- * If a symbol with the same name already exists in the symbol table,
- * this funtion returns EEXIST. If the optional existing pointer is 
- * non-NULL, the pointer is set to the existing symbol.
+ * If a symbol with the same name already is inserted in the symbol 
+ * table, this funtion returns EEXIST. 
+ *
+ * If the optional existing pointer is non-NULL and a symbol with the same
+ * name already is inserted, the pointer is set to the existing symbol.
+ * Otherwise the existing pointer is untouched.
  *
  * This function returns ENOMEM on failure to allocate internal
  * structure.

@@ -63,12 +63,6 @@ int globals_insert_symbol(struct globals *globals, struct symbol *symbol,
 {
     struct rb_node **pos = &(globals->map.root), *parent = NULL;
 
-    if (existing != NULL) {
-        *existing = NULL;
-    }
-
-    log_ctx_push(LOG_CTX_NAME(globals->name));
-
     while (*pos != NULL) {
         struct globals_entry *this = rb_entry(*pos, struct globals_entry, map_entry);
         parent = *pos;
@@ -79,13 +73,12 @@ int globals_insert_symbol(struct globals *globals, struct symbol *symbol,
         } else if (result > 0) {
             pos = &((*pos)->right);
         } else {
-            log_warning("Symbol '%s' symbol already exist in symbol table", symbol->name);
+            log_trace("Symbol '%s' symbol already exist in symbol table", symbol->name);
 
             if (existing != NULL) {
                 *existing = this->symbol;
             }
 
-            log_ctx_pop();
             return EEXIST;
         }
     }
@@ -101,8 +94,6 @@ int globals_insert_symbol(struct globals *globals, struct symbol *symbol,
     rb_insert_fixup(&globals->map, &entry->map_entry);
 
     ++(globals->nsymbols);
-
-    log_ctx_pop();
 
     return 0;
 }

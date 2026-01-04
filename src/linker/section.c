@@ -16,48 +16,29 @@ struct section * section_alloc(struct objfile *objfile,
                                const uint8_t *content,
                                size_t size)
 {
-    struct section *sect = NULL;
-
-    log_ctx_push(LOG_CTX_SECTION(name));
-    
-    if (size > 0 && content == NULL) {
-        log_error("Section size is non-zero but section content is not set");
-        goto unwind;
-    }
-
-    if (size > 0 && offset == 0) {
-        // While technically not impossible, it is strange and unbelievable
-        log_error("Section size is non-zero but file offset is not set");
-        goto unwind;
-    }
-
-    if (offset + size > objfile->file_size) {
-        log_error("Section offset is outside valid range");
-        goto unwind;
-    }
-
     if (content != NULL) {
         if (content < objfile->file_data || content + size > objfile->file_data + objfile->file_size) {
             log_error("Section content is outside valid range");
-            goto unwind;
+            return NULL;
         }
     }
 
-    if (type == SECTION_ZERO && size > 0) {
-        log_fatal("Unexpected section content");
-        goto unwind;
+    if (offset > 0) {
+        if (offset + size > objfile->file_size) {
+            log_error("Offset to section content is outside valid range");
+            return NULL;
+        }
     }
 
-    sect = malloc(sizeof(struct section));
+    struct section *sect = malloc(sizeof(struct section));
     if (sect == NULL) {
-        goto unwind;
+        return NULL;
     }
 
     sect->name = strdup(name);
     if (sect->name == NULL) {
         free(sect);
-        sect = NULL;
-        goto unwind;
+        return NULL;
     }
 
     sect->objfile = objfile_get(objfile);
@@ -71,9 +52,7 @@ struct section * section_alloc(struct objfile *objfile,
     sect->size = size;
     sect->nrelocs = 0;
     list_head_init(&sect->relocs);
-
-unwind:
-    log_ctx_pop();
+    
     return sect;
 }
 

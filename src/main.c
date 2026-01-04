@@ -6,6 +6,23 @@
 #include <mfile.h>
 #include <linker.h>
 
+#include <utils/rbtree.h>
+#include <globals.h>
+#include <symbol.h>
+
+
+static void dump_globals(struct linkerctx *ctx)
+{
+    fprintf(stdout, "Global symbols:\n");
+    struct rb_node *node = rb_first(&ctx->globals->map);
+
+    while (node != NULL) {
+        struct globals_entry *entry = rb_entry(node, struct globals_entry, map_entry);
+        fprintf(stdout, "%s\n", entry->symbol->name);
+        node = rb_next(node);
+    }
+}
+
 
 int main(int argc, char **argv)
 {
@@ -67,12 +84,12 @@ int main(int argc, char **argv)
     for (int i = optind; i < argc; ++i) {
         bool success = linker_load_file(ctx, argv[i]);
         if (!success) {
-            log_fatal("Could not open all files");
             linker_destroy(ctx);
             exit(2);
         }
-
     }
+
+    dump_globals(ctx);
 
     linker_destroy(ctx);
     exit(0);

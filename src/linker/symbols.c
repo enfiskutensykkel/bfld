@@ -90,16 +90,10 @@ void symbols_put(struct symbols *syms)
 }
 
 
-int symbols_insert_symbol(struct symbols *syms, 
-                          uint64_t idx, 
-                          struct symbol *symbol,
-                          struct symbol **existing)
+int symbols_insert(struct symbols *syms, uint64_t idx, 
+                   struct symbol *symbol, struct symbol **existing)
 {
     struct symbol **pos = NULL;
-
-    if (existing != NULL) {
-        *existing = NULL;
-    }
 
     log_ctx_push(LOG_CTX_NAME(syms->name));
 

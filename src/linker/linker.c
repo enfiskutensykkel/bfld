@@ -221,7 +221,6 @@ struct archive_file * linker_add_archive(struct linkerctx *ctx, struct archive *
 
     int status = fe->parse_file(ar->file_data, ar->file_size, ar);
     if (status != 0) {
-        log_fatal("Unable to parse archive file");
         log_ctx_pop();
         return NULL;
     }
@@ -238,7 +237,7 @@ struct archive_file * linker_add_archive(struct linkerctx *ctx, struct archive *
     arfile->archive = archive_get(ar);
     arfile->frontend = fe;
     
-    log_trace("Successfully parsed archive file");
+    log_trace("Successfully loaded archive file");
     log_ctx_pop();
     return arfile;
 }
@@ -289,7 +288,6 @@ struct input_file * linker_add_objfile(struct linkerctx *ctx,
     int status = fe->parse_file(objfile->file_data, objfile->file_size, 
                                 objfile, file->sections, file->symbols, ctx->globals);
     if (status != 0) {
-        log_fatal("Unable to parse object file");
         symbols_put(file->symbols);
         objfile_put(file->objfile);
         sections_put(file->sections);
@@ -299,7 +297,7 @@ struct input_file * linker_add_objfile(struct linkerctx *ctx,
     }
 
     list_insert_tail(&ctx->input_files, &file->list_entry);
-    log_trace("Successfully parsed object file");
+    log_trace("Successfully loaded object file");
     log_ctx_pop();
     return file;
 }

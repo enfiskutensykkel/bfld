@@ -60,8 +60,11 @@ bool symbols_reserve(struct symbols *symbols, size_t n);
  * the symbol is inserted at the specified index and the function returns 0.
  *
  * If there already is a symbol at the specified index, this function returns
- * EEXIST. If the optional existing pointer is not NULL, the pointer is set
- * to the existing symbol.
+ * EEXIST. 
+ *
+ * If the optional existing pointer is not NULL and there is already a symbol
+ * at the specified index, the pointer is set to the existing symbol.
+ * Otherwise the existing pointer is untouched.
  *
  * This function may return ENOMEM if there is not enough space to insert
  * the symbol at the specified index.

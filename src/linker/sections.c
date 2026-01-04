@@ -95,10 +95,6 @@ int sections_insert(struct sections *st, uint64_t idx,
 {
     struct section **pos = NULL;
 
-    if (existing != NULL) {
-        *existing = NULL;
-    }
-
     log_ctx_push(LOG_CTX_NAME(st->name));
 
     if (idx >= st->capacity) {
@@ -121,6 +117,10 @@ int sections_insert(struct sections *st, uint64_t idx,
 
     *pos = section_get(sect);
     ++(st->nsections);
+
+    if (idx > st->maxidx) {
+        st->maxidx = idx;
+    }
 
     log_ctx_pop();
     return 0;

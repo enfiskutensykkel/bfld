@@ -71,12 +71,18 @@ int log_ctx_push(log_ctx_t ctx)
 {
     if (log_ctx >= 0 && log_ctx < LOG_CTX_MAX - 1) {
         // Copy information from the previous context
-        int copy_ctx = ctx.file == NULL;  // don't copy section, offset, etc if this is a new file
-        ctx.file = ctx.file != NULL ? ctx.file : log_ctx_stack[log_ctx].file;
-        ctx.section = (copy_ctx && ctx.section != NULL) ? ctx.section : log_ctx_stack[log_ctx].section;
-        ctx.offset = (copy_ctx && ctx.offset > 0) ? ctx.offset : log_ctx_stack[log_ctx].offset;
-        ctx.lineno = (copy_ctx && ctx.lineno > 0) ? ctx.lineno : log_ctx_stack[log_ctx].lineno;
-        ctx.name = (copy_ctx && ctx.name != NULL) ? ctx.name : log_ctx_stack[log_ctx].name;
+        if (ctx.file == NULL) {
+            if (ctx.section == NULL) {
+                if (ctx.offset > 0) {
+                    if (ctx.lineno > 0) {
+                        ctx.lineno = log_ctx_stack[log_ctx].lineno;
+                    }
+                    ctx.offset = log_ctx_stack[log_ctx].offset;
+                }
+                ctx.section = log_ctx_stack[log_ctx].section;
+            }
+            ctx.file = log_ctx_stack[log_ctx].file;
+        }
 
         // Create new context
         log_ctx_t new_ctx = {

@@ -9,6 +9,7 @@
 #include <assert.h>
 #include <logging.h>
 #include <utils/list.h>
+#include <utils/align.h>
 
 
 //static const uint32_t x86_64_reloc_map[256] = {
@@ -113,12 +114,36 @@ static inline int add_section(struct list_head *list, const Elf64_Shdr *sh)
 
 
 /*
- * Scan sections
+ * Are there any symbols that refer to the common section?
  */
-static int scan_sections(const Elf64_Ehdr *eh, struct objfile *objfile, 
-                         struct sections *sections,
-                         struct list_head *reltabs,
-                         struct list_head *symtabs)
+static bool scan_common_sym(const Elf64_Ehdr *eh, const Elf64_Shdr *sh)
+{
+    uint64_t shndx = sh - ((const Elf64_Shdr*) (((const uint8_t*) eh) + eh->e_shoff));
+
+    log_ctx_push(LOG_CTX_SECTION(lookup_strtab_str(eh, sh->sh_name), .lineno = shndx));
+
+    log_trace("Scanning symbol table for common symbols");
+    for (uint32_t idx = 1; idx < sh->sh_size / sh->sh_entsize; ++idx) {
+        const Elf64_Sym *sym = ((const Elf64_Sym*) (((const uint8_t*) eh) + sh->sh_offset)) + idx;
+
+        if (sym->st_shndx == SHN_COMMON) {
+            return true;
+        }
+    }
+    
+    log_ctx_pop();
+    return false;
+}
+
+
+/*
+ * Parse ELF file and create sections
+ */
+static int parse_sections(const Elf64_Ehdr *eh, 
+                          struct objfile *objfile, 
+                          struct sections *sections,
+                          struct list_head *reltabs,
+                          struct list_head *symtabs)
 {
     sections_reserve(sections, eh->e_shnum);
 
@@ -152,7 +177,7 @@ static int scan_sections(const Elf64_Ehdr *eh, struct objfile *objfile,
 
             case SHT_REL:
                 if (sh->sh_type == SHT_REL) {
-                    log_warning("Relocation type REL is unsupported and will be ignored");
+                    log_error("Relocation type REL is unsupported and will be ignored");
                 }
                 break;
 
@@ -171,7 +196,7 @@ static int scan_sections(const Elf64_Ehdr *eh, struct objfile *objfile,
             case SHT_FINI_ARRAY:
             case SHT_PREINIT_ARRAY:
                 if (!(sh->sh_flags & SHF_ALLOC)) {
-                    log_debug("Section contains data (type %u), but SHF_ALLOC is not set", sh->sh_type);
+                    log_trace("Section contains data (sh_type %x), but sh_flag SHF_ALLOC is not set", sh->sh_type);
                 }
                 break;
 
@@ -182,7 +207,7 @@ static int scan_sections(const Elf64_Ehdr *eh, struct objfile *objfile,
                 break;
 
             default:
-                log_notice("Unknown section type %x", sh->sh_type);
+                log_info("Unknown section with sh_type %x", sh->sh_type);
                 break;
         }
 
@@ -203,7 +228,7 @@ static int scan_sections(const Elf64_Ehdr *eh, struct objfile *objfile,
                     break;
 
                 case SHT_NOTE:
-                    log_debug("Skipping note section");
+                    log_trace("Skipping note section");
                     break;
                 
                 default:
@@ -214,7 +239,6 @@ static int scan_sections(const Elf64_Ehdr *eh, struct objfile *objfile,
             log_ctx_pop();
             continue;
         }
-
 
         enum section_type type = SECTION_ZERO;
         if (sh->sh_type == SHT_PROGBITS) {
@@ -236,19 +260,38 @@ static int scan_sections(const Elf64_Ehdr *eh, struct objfile *objfile,
             return ENOMEM;
         }
 
-        if (sections_insert(sections, shndx, section, NULL) != 0) {
-            section_put(section);
+        int status = sections_insert(sections, section->idx, section, NULL);
+        section_put(section);
+        if (status != 0) {
             log_fatal("Could not add section to section table");
             log_ctx_pop();
             return ENOMEM;
         }
+
         log_trace("Added to section table");
-
-        // Section is inserted into the table, 
-        // we don't need the reference anymore
-        section_put(section);
-
         log_ctx_pop();
+    }
+
+    // Insert a fake .common section if any symbols refer to the common section
+    list_for_each_entry(s, symtabs, struct elf_section_entry, entry) {
+        if (scan_common_sym(eh, s->shdr)) {
+            log_debug("Creating .common section");
+            struct section *common = section_alloc(objfile, sections->maxidx,
+                                                   ".common", 0, 
+                                                   SECTION_ZERO,
+                                                   NULL,
+                                                   0);
+            if (common == NULL) {
+                return ENOMEM;
+            }
+
+            int status = sections_insert(sections, common->idx, common, NULL);
+            section_put(common);
+            if (status != 0) {
+                return ENOMEM;
+            }
+            break;
+        }
     }
 
     return 0;
@@ -261,30 +304,109 @@ static int scan_sections(const Elf64_Ehdr *eh, struct objfile *objfile,
 static int parse_symtab(const Elf64_Ehdr *eh, const Elf64_Shdr *sh, const struct sections *sections, 
                         struct symbols *symbols, struct globals *globals)
 {
+    int status = 0;
     const char* strtab = (const char*) ((const uint8_t*) eh) + elf_section(eh, sh->sh_link)->sh_offset;
+    uint64_t shndx = sh - ((const Elf64_Shdr*) (((const uint8_t*) eh) + eh->e_shoff));
 
-    log_ctx_push(LOG_CTX_SECTION(lookup_strtab_str(eh, sh->sh_name)));
+    log_ctx_push(LOG_CTX_SECTION(lookup_strtab_str(eh, sh->sh_name), .lineno = shndx));
+
+    if (!symbols_reserve(symbols, sh->sh_size / sh->sh_entsize)) {
+        log_ctx_pop();
+        return ENOMEM;
+    }
 
     log_trace("Parsing symbol table");
     for (uint32_t idx = 1; idx < sh->sh_size / sh->sh_entsize; ++idx) {
         const Elf64_Sym *sym = ((const Elf64_Sym*) (((const uint8_t*) eh) + sh->sh_offset)) + idx;
-        uint8_t type = ELF64_ST_TYPE(sym->st_info);
-        uint8_t bind = ELF64_ST_BIND(sym->st_info);
         const char *name = strtab + sym->st_name;
+        struct section *section = NULL; 
+        uint64_t align = 0;
+        uint64_t offset = 0;
+        uint64_t size = sym->st_size;
 
-        if (type == STT_SECTION) {
-            const struct section *section = sections_at(sections, sym->st_shndx);
-            if (section == NULL) {
-                log_error("Symbol of type STT_SECTION refers to invalid section %u", sym->st_shndx);
-                return EINVAL;
-            }
-            name = section->name;
+        enum symbol_type type = SYMBOL_NOTYPE;
+        enum symbol_binding binding = SYMBOL_LOCAL;
+
+        switch (sym->st_shndx) {
+            case SHN_UNDEF:
+                break;
+
+            case SHN_ABS:
+                offset = sym->st_value;
+                break;
+
+            case SHN_COMMON:
+                section = sections_at(sections, sections->maxidx);
+                assert(section != NULL);
+                align = sym->st_value;
+                if (align > section->align) {
+                    section->align = align;
+                }
+                section->size = align_to(section->size, section->align);
+                // FIXME: the size calculation is not correct
+
+                offset = 0;
+                break;
+            
+            default:
+                section = sections_at(sections, sym->st_shndx);
+                if (section == NULL) {
+                    log_error("Symbol '%s' (index %u) refers to invalid segment %u",
+                            name, idx, sym->st_shndx);
+                    status = EINVAL;
+                    goto out;
+                }
+                offset = sym->st_value;
+                break;
         }
 
-        switch (type) {
+        switch (ELF64_ST_BIND(sym->st_info)) {
+            case STB_GLOBAL:
+                binding = SYMBOL_GLOBAL;
+                break;
+
+            case STB_WEAK:
+                binding = SYMBOL_WEAK;
+                break;
+
+            case STB_LOCAL:
+            default:
+                binding = SYMBOL_LOCAL;
+                break;
+        }
+
+        switch (ELF64_ST_TYPE(sym->st_info)) {
+            case STT_NOTYPE:
+                type = SYMBOL_NOTYPE;
+                break;
+
+            case STT_OBJECT:
+                type = SYMBOL_OBJECT;
+                break;
+
+            case STT_TLS:
+                type = SYMBOL_TLS;
+                break;
+
+            case STT_SECTION:
+                name = section->name;
+                type = SYMBOL_SECTION;
+                break;
+
+            case STT_FUNC:
+                type = SYMBOL_FUNCTION;
+                break;
+
+            case STT_COMMON:
+                // treat as weak, uninitialized data
+                type = SYMBOL_NOTYPE;
+                binding = SYMBOL_WEAK;
+                break;
+
             case STT_LOPROC:
             case STT_HIPROC:
-                log_warning("Unsupported processor specific symbol type %u encounted", type);
+                log_warning("Unsupported processor specific symbol type %u", 
+                        ELF64_ST_TYPE(sym->st_info));
                 continue;
 
             case STT_FILE:
@@ -292,15 +414,56 @@ static int parse_symtab(const Elf64_Ehdr *eh, const Elf64_Shdr *sh, const struct
                 continue;
 
             default:
-                log_trace("Detected symbol '%s'", name);
+                log_warning("Detected symbol '%s' with unknown type %u", 
+                        name, ELF64_ST_TYPE(sym->st_info));
                 break;
         }
 
-        //struct symbol *symbol = symbol_alloc(objfile
+        struct symbol *symbol = symbol_alloc(name, type, binding);
+        if (symbol == NULL) {
+            status = ENOMEM;
+            goto out;
+        }
+        symbol->align = align;
+
+        if (offset > 0) {
+            status = symbol_assign_definition(symbol, section, offset, size);
+            if (status != 0) {
+                symbol_put(symbol);
+                goto out;
+            }
+        } 
+
+        struct symbol *existing = symbol;
+
+        if (symbol->binding == SYMBOL_WEAK || symbol->binding == SYMBOL_GLOBAL) {
+
+            status = globals_insert_symbol(globals, symbol, &existing);
+            if (status == EEXIST) {
+                status = symbol_resolve_definition(existing, symbol);
+                if (status != 0) {
+                    symbol_put(symbol);
+                    goto out;
+                }
+            } else if (status != 0) {
+                symbol_put(symbol);
+                goto out;
+            }
+        }
+
+        // We insert the existing symbol so we are updated on changes to it
+        status = symbols_insert(symbols, idx, existing, NULL);
+        if (status != 0) {
+            symbol_put(symbol);
+            goto out;
+        }
+
+        symbol_put(symbol);
     }
 
+out:
     log_ctx_pop();
-    return 0;
+    return status;
 }
         
 static int parse_elf_file(const uint8_t *file_data, 
@@ -315,6 +478,8 @@ static int parse_elf_file(const uint8_t *file_data,
     struct list_head reltabs = LIST_HEAD_INIT(reltabs);
     struct list_head symtabs = LIST_HEAD_INIT(symtabs);
 
+    (void) file_size; // unused parameter
+
     // Only allow machine code architectures we support
     switch (eh->e_machine) {
         case EM_X86_64:
@@ -328,8 +493,8 @@ static int parse_elf_file(const uint8_t *file_data,
             return ENOTSUP;
     }
 
-    // Scan sections
-    status = scan_sections(eh, objfile, sections, &reltabs, &symtabs);
+    // Parse file and create sections
+    status = parse_sections(eh, objfile, sections, &reltabs, &symtabs);
     if (status != 0) {
         goto cleanup;
     }

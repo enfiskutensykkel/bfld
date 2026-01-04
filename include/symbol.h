@@ -15,7 +15,7 @@ extern "C" {
  */
 enum symbol_type
 {
-    SYMBOL_NOTYPE,  // symbol has no data/definition
+    SYMBOL_NOTYPE,  // symbol has no definition
     SYMBOL_OBJECT,  // symbol is a data object, for example a global variable
     SYMBOL_TLS,     // symbol contains a thread-local data object (thread-local storage)
     SYMBOL_SECTION, // symbol is a reference to a section
@@ -42,12 +42,13 @@ struct symbol
     char *name;                     // symbol name
     int refcnt;                     // reference counter
     uint64_t value;                 // finalized address of the symbol (absolute or relative to section start)
-    bool relative;                  // is the offset relative to the base address or an absolute address
     enum symbol_binding binding;    // symbol binding type
     enum symbol_type type;          // symbol type
-    uint64_t align;                 // symbol address alignment requirement (addr must be a multiple of align)
+    uint64_t align;                 // symbol address alignment requirement (value must be a multiple of align)
+    bool relative;                  // is the definition offset relative to a section base address or an absolute address
     struct section *section;        // strong reference to the section where the symbol is defined
-    uint64_t offset;                // offset into the section to the definition
+    uint64_t offset;                // offset into the section to the definition 
+    uint64_t size;                  // symbol size
 };
 
 
@@ -57,7 +58,14 @@ struct symbol
 static inline
 bool symbol_is_defined(const struct symbol *symbol)
 {
-    return symbol->section != NULL || (symbol->relative && symbol->offset != 0);
+    return symbol->section != NULL || (!symbol->relative && symbol->value != 0);
+}
+
+
+static inline
+bool symbol_is_absolute(const struct symbol *symbol)
+{
+    return !symbol->relative && symbol->value != 0;
 }
 
 
@@ -85,45 +93,50 @@ void symbol_put(struct symbol *symbol);
 
 
 /*
- * Link an undefined symbol to its definition.
+ * Link a symbol to a definition.
  *
- * Takes a strong reference to the section.
+ * If section is NULL, offset is assumed to be an absolute address.
+ * Otherwise, the definition is relative to the base address of the section.
  *
- * If the symbol is not undefined, i.e. it is already
- * linked with a definition, the following applies:
+ * If section is set, this function takes a strong reference.
  *
- * If the symbol is weak, the previous definition
- * is released and replaced with the new reference.
+ * Note that if the symbol is already linked with a definition,
  *
- * If the symbol is strong, the function returns EALREADY.
+ * If the symbol is weak, the previous definition is released 
+ * and replaced with the new reference.
+ *
+ * If the symbol is strong, this function does nothing and returns
+ * EALREADY.
  */
-int symbol_link_definition(struct symbol *symbol,
-                           struct section *section,
-                           uint64_t offset);
+int symbol_assign_definition(struct symbol *symbol,
+                             struct section *section,
+                             uint64_t offset,
+                             uint64_t size);
                            
 
 /*
  * Update an existing symbol definition.
  *
  * If the incoming symbol is undefined, and the existing symbol is
- * undefined, this function returns 0 and does nothing.
+ * undefined, this function does nothing and returns 0.
  *
  * If the incoming symbol is defined and existing is undefined,
  * the existing symbol is updated and 0 is returned.
  *
  * If the incoming symbol is undefined and existing is defined,
- * the incoming symbol is updated and 0 is returned.
+ * this function does nothing and returns 0.
  *
  * In the case where both symbols are defined, the following rules apply:
  *
- * If the incoming symbol is weak, this function returns 0 
- * and does nothing.
+ * If the incoming symbol is weak, this function does nothing
+ * and returns 0 (keeps existing definition).
  * 
- * If the existing symbol is weak, the incoming symbol is updated.
+ * If the existing symbol is weak, the existing symbol is updated
+   and this function returns 0.
  *
- * If both are strong, this function returns ENOTUNIQ.
+ * If both are strong, this function returns EEXIST.
  */
-int symbol_resolve_definition(struct symbol *existing, struct symbol *incoming);
+int symbol_resolve_definition(struct symbol *existing, const struct symbol *incoming);
 
 
 #ifdef __cplusplus

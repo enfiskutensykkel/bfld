@@ -23,6 +23,7 @@ struct sections
     int refcnt;                 // reference counter
     size_t capacity;            // size of the table/array
     size_t nsections;           // number of sections in the array
+    uint64_t maxidx;            // highest index inserted in the table
     struct section **entries;   // table/array of sections by index
 };
 
@@ -63,9 +64,11 @@ bool sections_reserve(struct sections *sections, size_t n);
  * is taken, the section is inserted at the specified index, and
  * 0 is returned.
  *
- * Returns EEXIST if there already is a section at the specified
- * index. If existing is not NULL, the pointer is set to the existing
- * section.
+ * Returns EEXIST if there already is a section at the specified index. 
+ *
+ * If the optional existing pointer is not NULL and there already is a section
+ * at the specified index, the pointer is set to the existing section. 
+ * Otherwise the existing pointer is untouched.
  *
  * Returns ENOMEM if there is not enough space to insert the section.
  */
