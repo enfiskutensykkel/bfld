@@ -5,6 +5,7 @@ extern "C" {
 #endif
 
 #include "archtypes.h"
+#include "secttypes.h"
 #include "symtypes.h"
 #include "mfile.h"
 #include "utils/rbtree.h"
@@ -39,21 +40,21 @@ struct objfile
 };
 
 
-/*
- * Represents a section (of an object file) with content in it,
- * i.e., code or variables/data, that needs to go into the final image.
- */
-struct section
-{
-    struct rb_node tree_node;
-    struct objfile *objfile;// Reference to the object file where the section came from (weak reference)
-    uint64_t sect_key;      // Section identifier
-    char *name;             // Section name
-    enum section_type type; // Section type
-    size_t size;            // Size of the section content
-    uint64_t align;         // Memory alignment requirements
-    const uint8_t *content; // Pointer to section content
-};
+///*
+// * Represents a section (of an object file) with content in it,
+// * i.e., code or variables/data, that needs to go into the final image.
+// */
+//struct section
+//{
+//    struct rb_node tree_node;
+//    struct objfile *objfile;// Reference to the object file where the section came from (weak reference)
+//    uint64_t sect_key;      // Section identifier
+//    char *name;             // Section name
+//    enum section_type type; // Section type
+//    size_t size;            // Size of the section content
+//    uint64_t align;         // Memory alignment requirements
+//    const uint8_t *content; // Pointer to section content
+//};
 
 
 /*
@@ -147,21 +148,21 @@ int objfile_extract_symbols(struct objfile* objfile,
                             void *callback_data);
 
 
-/*
- * Relocation found in in an object file.
- *
- * A relocation is a "hole" within in a section that needs to be patched
- * with a resolved address (of a symbol or another section), or the "target".
- */
-struct reloc_info
-{
-    uint64_t source_sect_key;   // Section where the relocation should be applied
-    const char *symbol_name;    // Name of the symbol the relocation refers to (or NULL if it refers to a section)
-    uint64_t target_sect_key    // Pointer to the section the relocation refers to (or 0 if it refers to a symbol)
-    uint64_t offset;            // Offset within section to relocation
-    uint32_t type;              // Relocation type (which kind of "patch" to apply)
-    int64_t addend;             // Relocation addend
-};
+///*
+// * Relocation found in in an object file.
+// *
+// * A relocation is a "hole" within in a section that needs to be patched
+// * with a resolved address (of a symbol or another section), or the "target".
+// */
+//struct reloc_info
+//{
+//    uint64_t source_sect_key;   // Section where the relocation should be applied
+//    const char *symbol_name;    // Name of the symbol the relocation refers to (or NULL if it refers to a section)
+//    uint64_t target_sect_key;    // Pointer to the section the relocation refers to (or 0 if it refers to a symbol)
+//    uint64_t offset;            // Offset within section to relocation
+//    uint32_t type;              // Relocation type (which kind of "patch" to apply)
+//    int64_t addend;             // Relocation addend
+//};
 
 
 /*

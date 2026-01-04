@@ -6,6 +6,7 @@ extern "C" {
 
 #include <stddef.h>
 #include <stdint.h>
+#include "utils/list.h"
 
 
 /*
@@ -20,16 +21,8 @@ enum section_type
 };
 
 
-/* Forward declaration of memory mapped file */
-struct mfile;
-
-
-/* Forward declaration of object file */
+/* Forward declaration of object file handle */
 struct objfile;
-
-
-/* Forward declaration of relocation */
-struct reloc;
 
 
 /* 
@@ -49,8 +42,6 @@ struct section
     uint64_t align;                 // section alignment requirements (addr must be a multiple of align)
     uint64_t addr;                  // finalized address of the section
     size_t size;                    // size of the section
-    uint64_t offset;                // offset in file, used for debugging purposes
-    struct mfile *file;             // strong reference to the file with section content
     const uint8_t *content;         // pointer to section content
     size_t nrelocs;                 // number of entries in the relocation list.
     struct list_head relocs;        // list of relocations
@@ -79,6 +70,7 @@ struct reloc
  * This will take a strong reference to the object file descriptor.
  */
 struct section * section_alloc(struct objfile *objfile,
+                               uint64_t idx,
                                const char *name,
                                enum section_type type,
                                const uint8_t *content,

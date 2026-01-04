@@ -146,6 +146,7 @@ struct linkerctx * linker_create(const char *name)
         return NULL;
     }
 
+    ctx->log_ctx_idx = __log_ctx_idx;
     list_head_init(&ctx->input_files);
     list_head_init(&ctx->archives);
     ctx->input_sects = NULL;
@@ -158,10 +159,18 @@ void linker_destroy(struct linkerctx *ctx)
 {
     if (ctx != NULL) {
         assert(__log_ctx_idx > 0);
+        assert(__log_ctx_idx == ctx->log_ctx_idx);
+
+        // This should not happen
+        while (__log_ctx_idx > ctx->log_ctx_idx) {
+            log_warning("Unwinding log context stack");
+            log_ctx_pop();
+        }
 
         list_for_each_entry_safe(file, &ctx->input_files, struct input_file, list_entry) {
             objfile_put(file->objfile);
             list_remove(&file->list_entry);
+            secttab_put(file->sections);
             free(file);
         }
 
@@ -235,7 +244,7 @@ struct input_file * linker_add_objfile(struct linkerctx *ctx,
 
     file->ctx = ctx;
     file->objfile = objfile_get(objfile);
-    file->sections = NULL;
+    file->sections = secttab_alloc(objfile->name);
     file->frontend = fe;
 
     log_debug("Using front-end '%s' for object file", fe->name);
@@ -305,6 +314,7 @@ bool linker_load_file(struct linkerctx *ctx, const char *pathname)
         }
 
         struct input_file * infile = linker_add_objfile(ctx, obj, fe);
+        objfile_put(obj);
         if (infile == NULL) {
             goto unwind;
         }

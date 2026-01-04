@@ -23,6 +23,7 @@ struct archive_frontend;
  */
 struct linkerctx
 {
+    int log_ctx_idx;
     char *name; // used for debugging
     struct list_head input_files;
     struct list_head archives;

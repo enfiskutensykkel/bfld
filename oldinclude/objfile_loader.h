@@ -118,6 +118,9 @@ struct objfile_loader
     /*
      * Determine if the memory mapped file is a format
      * that is supported by the file loader.
+     *
+     * Note: This can be set to NULL, in which case bfld
+     *       will call scan_file directly.
      */
     bool (*probe)(const uint8_t *file_data, size_t file_size);
 

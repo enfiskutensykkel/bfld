@@ -6,6 +6,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 #include "utils/rbtree.h"
 
 
@@ -19,12 +20,12 @@ struct secttab_entry;
  */
 struct secttab
 {
-    char *name;                         // name of the table (used for debugging)
+    char *name;                         // section table name (for debugging)
     int refcnt;                         // reference counter
     struct rb_tree name_map;            // map of sections by name
     size_t capacity;                    // table capacity
     size_t nsections;                   // number of sections
-    struct secttab_entry **sections;    // section table
+    struct section **sections;          // section table
 };
 
 
@@ -43,7 +44,7 @@ struct secttab_entry
 /*
  * Allocate a section table.
  */
-struct secttab * secttab_alloc(const char *name, size_t capacity);
+struct secttab * secttab_alloc(const char *name);
 
 
 
@@ -61,14 +62,12 @@ void secttab_put(struct secttab *table);
 
 /*
  * Insert a section in the section table.
- *
- * This will try to insert a section at the given index. If the index is free,
- * a strong reference to section is taken, section is inserted at the index,
- * and 0 is returned.
- *
- * If the section index is already occupied, this function returns EEXIST.
+ * Returns true if the section was inserted,
+ * or false if something went wrong.
  */
-int secttab_insert_section(struct secttab *table, uint64_t section_idx, struct section *section);
+bool secttab_insert_section(struct secttab *table, 
+                            uint64_t section_idx, 
+                            struct section *section);
                                      
 
 /*

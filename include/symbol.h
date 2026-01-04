@@ -52,9 +52,13 @@ struct symbol
 
 
 /*
- * Is the symbol undefined?
+ * Helper function to determine if the symbol is defined.
  */
-bool symbol_is_undefined(const struct symbol *symbol);
+static inline
+bool symbol_is_defined(const struct symbol *symbol)
+{
+    return symbol->section != NULL || (symbol->relative && symbol->offset != 0);
+}
 
 
 /*
@@ -62,7 +66,7 @@ bool symbol_is_undefined(const struct symbol *symbol);
  */
 struct symbol * symbol_alloc(const char *name,
                              enum symbol_type type,
-                             enum symbol_type binding);
+                             enum symbol_binding binding);
 
 
 /*
@@ -85,8 +89,13 @@ void symbol_put(struct symbol *symbol);
  *
  * Takes a strong reference to the section.
  *
- * Returns EALREADY if the symbol is not undefined,
- * i.e., it was already linked with a definition.
+ * If the symbol is not undefined, i.e. it is already
+ * linked with a definition, the following applies:
+ *
+ * If the symbol is weak, the previous definition
+ * is released and replaced with the new reference.
+ *
+ * If the symbol is strong, the function returns EALREADY.
  */
 int symbol_link_definition(struct symbol *symbol,
                            struct section *section,

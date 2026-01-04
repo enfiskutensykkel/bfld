@@ -182,6 +182,27 @@ struct archive * archive_get(struct archive *ar)
 }
 
 
+struct archive_member * archive_find_symbol(const struct archive *ar, const char *symbol)
+{
+    const struct rb_node *node = ar->symbols.root;
+
+    while (node != NULL) {
+        struct archive_symbol *this = rb_entry(node, struct archive_symbol, map_entry);
+        int result = strcmp(symbol, this->name);
+
+        if (result < 0) {
+            node = node->left;
+        } else if (result > 0) {
+            node = node->right;
+        } else {
+            return this->member;
+        }
+    }
+
+    return NULL;
+}
+
+
 struct archive * archive_alloc(struct mfile *file,
                                const char *name,
                                const uint8_t *file_data,
