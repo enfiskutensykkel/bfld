@@ -290,6 +290,7 @@ struct input_file * linker_add_objfile(struct linkerctx *ctx,
                                 objfile, file->sections, file->symbols, ctx->globals);
     if (status != 0) {
         log_fatal("Unable to parse object file");
+        symbols_put(file->symbols);
         objfile_put(file->objfile);
         sections_put(file->sections);
         free(file);

@@ -77,7 +77,7 @@ int symbols_insert(struct symbols *symbols,
  * Note that this does not take an additional symbol reference.
  */
 static inline
-struct symbol * symbols_at(struct symbols *symbols, uint64_t index)
+struct symbol * symbols_at(const struct symbols *symbols, uint64_t index)
 {
     if (index < symbols->capacity) {
         return symbols->entries[index];

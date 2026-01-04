@@ -9,66 +9,71 @@
 
 
 struct section * section_alloc(struct objfile *objfile,
+                               uint64_t idx,
                                const char *name,
+                               size_t offset,
                                enum section_type type,
                                const uint8_t *content,
                                size_t size)
 {
+    struct section *sect = NULL;
+
+    log_ctx_push(LOG_CTX_SECTION(name));
+    
+    if (size > 0 && content == NULL) {
+        log_error("Section size is non-zero but section content is not set");
+        goto unwind;
+    }
+
+    if (size > 0 && offset == 0) {
+        // While technically not impossible, it is strange and unbelievable
+        log_error("Section size is non-zero but file offset is not set");
+        goto unwind;
+    }
+
+    if (offset + size > objfile->file_size) {
+        log_error("Section offset is outside valid range");
+        goto unwind;
+    }
+
     if (content != NULL) {
         if (content < objfile->file_data || content + size > objfile->file_data + objfile->file_size) {
-            log_fatal("Section content is outside valid range");
-            return NULL;
-        }
-    } else {
-        if (size != 0) {
-            log_fatal("Section size is non-zero but content pointer is NULL");
-            return NULL;
+            log_error("Section content is outside valid range");
+            goto unwind;
         }
     }
 
-    switch (type) {
-        case SECTION_ZERO:
-            if (content != NULL) {
-                log_fatal("Section of type SECTION_ZERO can not have data content");
-                return NULL;
-            }
-            break;
-
-        case SECTION_RODATA:
-        case SECTION_DATA:
-        case SECTION_TEXT:
-            if (content == NULL) {
-                log_fatal("Expected section with data content");
-            }
-            break;
-
-        default:
-            log_fatal("Unknown section type");
-            return NULL;
+    if (type == SECTION_ZERO && size > 0) {
+        log_fatal("Unexpected section content");
+        goto unwind;
     }
 
-    struct section *sect = malloc(sizeof(struct section));
+    sect = malloc(sizeof(struct section));
     if (sect == NULL) {
-        return NULL;
+        goto unwind;
     }
 
     sect->name = strdup(name);
     if (sect->name == NULL) {
         free(sect);
-        return NULL;
+        sect = NULL;
+        goto unwind;
     }
 
-    sect->idx = 0;
-    sect->offset = 0;
+    sect->objfile = objfile_get(objfile);
+    sect->idx = idx;
+    sect->offset = offset;
     sect->march = ARCH_UNKNOWN;
     sect->refcnt = 1;
-    sect->objfile = objfile_get(objfile);
     sect->align = 0;
     sect->type = type;
     sect->content = content;
     sect->size = size;
     sect->nrelocs = 0;
     list_head_init(&sect->relocs);
+
+unwind:
+    log_ctx_pop();
     return sect;
 }
 
@@ -90,7 +95,10 @@ void section_put(struct section *sect)
     if (--(sect->refcnt) == 0) {
         objfile_put(sect->objfile);
         section_clear_relocs(sect);
-        free(sect->name);
+
+        if (sect->name != NULL) {
+            free(sect->name);
+        }
         free(sect);
     }
 }

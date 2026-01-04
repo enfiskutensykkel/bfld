@@ -80,7 +80,7 @@ int sections_insert(struct sections *sections,
  * Note that this does not take an additional section reference.
  */
 static inline
-struct section * sections_at(struct sections *sections, uint64_t index)
+struct section * sections_at(const struct sections *sections, uint64_t index)
 {
     if (index < sections->capacity) {
         return sections->entries[index];
