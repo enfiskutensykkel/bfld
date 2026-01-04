@@ -29,7 +29,7 @@ int main(int argc, char **argv)
         switch (c) {
             case 'v':
                 if (optarg == NULL) {
-                    ++log_verbosity;
+                    ++log_level;
                 } else {
                     char *endptr = NULL;
                     int verbosity = strtol(optarg, &endptr, 10);
@@ -39,7 +39,7 @@ int main(int argc, char **argv)
                         linker_destroy(ctx);
                         exit(1);
                     }
-                    log_verbosity = verbosity;
+                    log_level = verbosity;
                 }
                 break;
 

@@ -34,9 +34,9 @@ struct objfile_fe_entry
 
 
 
-int log_verbosity = 1;
-int __log_ctx_idx = 0;
-log_ctx_t __log_ctx[LOG_CTX_NUM] = {0};
+int log_level = 1;
+int log_ctx = 0;
+log_ctx_t log_ctx_stack[LOG_CTX_MAX] = {0};
 
 static struct list_head objfile_frontends = LIST_HEAD_INIT(objfile_frontends);
 
@@ -129,7 +129,7 @@ const struct archive_frontend * archive_frontend_probe(const uint8_t *data, size
 
 struct linkerctx * linker_create(const char *name)
 {
-    log_ctx_push(LOG_CTX(name));
+    int log_ctx = log_ctx_new("");
 
     struct linkerctx *ctx = malloc(sizeof(struct linkerctx));
     if (ctx == NULL) {
@@ -146,7 +146,7 @@ struct linkerctx * linker_create(const char *name)
         return NULL;
     }
 
-    ctx->log_ctx_idx = __log_ctx_idx;
+    ctx->log_ctx = log_ctx;
     list_head_init(&ctx->input_files);
     list_head_init(&ctx->archives);
     ctx->input_sects = NULL;
@@ -158,11 +158,11 @@ struct linkerctx * linker_create(const char *name)
 void linker_destroy(struct linkerctx *ctx)
 {
     if (ctx != NULL) {
-        assert(__log_ctx_idx > 0);
-        assert(__log_ctx_idx == ctx->log_ctx_idx);
+        assert(log_ctx > 0);
+        assert(log_ctx == ctx->log_ctx);
 
         // This should not happen
-        while (__log_ctx_idx > ctx->log_ctx_idx) {
+        while (log_ctx > ctx->log_ctx) {
             log_warning("Unwinding log context stack");
             log_ctx_pop();
         }
@@ -190,6 +190,7 @@ void linker_destroy(struct linkerctx *ctx)
 struct archive_file * linker_add_archive(struct linkerctx *ctx, struct archive *ar, 
                                          const struct archive_frontend *fe)
 {
+    log_ctx_new(ar->name);
 
     if (fe == NULL) {
         fe = archive_frontend_probe(ar->file_data, ar->file_size);
@@ -197,19 +198,22 @@ struct archive_file * linker_add_archive(struct linkerctx *ctx, struct archive *
 
     if (fe == NULL) {
         log_fatal("Unrecognized file format");
+        log_ctx_pop();
         return NULL;
     }
+    log_trace("Front-end '%s' is best match for archive", fe->name);
 
-    log_debug("Using front-end '%s' for archive file", fe->name);
     int status = fe->parse_file(ar->file_data, ar->file_size, ar);
     if (status != 0) {
         log_fatal("Unable to parse archive file");
+        log_ctx_pop();
         return NULL;
     }
 
     struct archive_file *arfile = malloc(sizeof(struct archive_file));
     if (arfile == NULL) {
         log_fatal("Unable to allocate file handle");
+        log_ctx_pop();
         return NULL;
     }
 
@@ -219,6 +223,7 @@ struct archive_file * linker_add_archive(struct linkerctx *ctx, struct archive *
     arfile->frontend = fe;
     
     log_trace("Successfully parsed archive file");
+    log_ctx_pop();
     return arfile;
 }
 
@@ -227,18 +232,22 @@ struct input_file * linker_add_objfile(struct linkerctx *ctx,
                                        struct objfile *objfile,
                                        const struct objfile_frontend *fe)
 {
+    log_ctx_new(objfile->name);
     if (fe == NULL) {
         fe = objfile_frontend_probe(objfile->file_data, objfile->file_size);
     }
 
     if (fe == NULL) {
         log_fatal("Unrecognized file format");
+        log_ctx_pop();
         return NULL;
     }
+    log_trace("Front-end '%s' is best match for object file", fe->name);
 
     struct input_file *file = malloc(sizeof(struct input_file));
     if (file == NULL) {
         log_fatal("Unable to allocate file handle");
+        log_ctx_pop();
         return NULL;
     }
 
@@ -247,18 +256,19 @@ struct input_file * linker_add_objfile(struct linkerctx *ctx,
     file->sections = secttab_alloc(objfile->name);
     file->frontend = fe;
 
-    log_debug("Using front-end '%s' for object file", fe->name);
     int status = fe->parse_file(objfile->file_data, objfile->file_size, 
                                 objfile, file->sections, ctx->symtab);
     if (status != 0) {
         log_fatal("Unable to parse object file");
         objfile_put(file->objfile);
         free(file);
+        log_ctx_pop();
         return NULL;
     }
 
     list_insert_tail(&ctx->input_files, &file->list_entry);
     log_trace("Successfully parsed object file");
+    log_ctx_pop();
     return file;
 }
 
@@ -268,7 +278,7 @@ bool linker_load_file(struct linkerctx *ctx, const char *pathname)
     bool success = false;
     struct mfile *file = NULL;
 
-    log_ctx_push(LOG_CTX_FILE(NULL, pathname));
+    log_ctx_new(pathname);
 
     int status = mfile_open_read(&file, pathname);
     if (status != 0) {

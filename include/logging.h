@@ -11,66 +11,107 @@ extern "C" {
 #include <string.h>
 
 
+#define LOG_CTX_MAX 32
+
+
+/*
+ * Log context structure.
+ */
 typedef struct {
-    const char *name;
     const char *file;
     const char *section;
     size_t offset;
     unsigned lineno;
+    const char *name;
 } log_ctx_t;
 
 
-extern int log_verbosity;
+extern int log_level;
 
-extern int __log_ctx_idx;
+extern int log_ctx;
 
-#define LOG_CTX_NUM 32
-extern log_ctx_t __log_ctx[LOG_CTX_NUM];
-
-
-#define LOG_CTX(_name, ...) ((log_ctx_t) { \
-    .name = (_name) ? (_name) : __log_ctx[__log_ctx_idx].name, \
-    __VA_ARGS__ \
-})
-
-#define LOG_CTX_EMPTY LOG_CTX(NULL)
-
-#define LOG_CTX_FILE(_name, filename, ...) LOG_CTX(_name, .file = (filename) ? (filename) : __log_ctx[__log_ctx_idx].file, __VA_ARGS__)
-
-
-static inline
-void log_ctx_push(log_ctx_t ctx)
-{
-    if (__log_ctx_idx < LOG_CTX_NUM - 1) {
-        log_ctx_t new_ctx = {
-            .name = ctx.name != NULL ? strdup(ctx.name) : NULL,
-            .file = ctx.file != NULL ? strdup(ctx.file) : NULL,
-            .section = ctx.section != NULL ? strdup(ctx.section) : NULL,
-            .offset = ctx.offset,
-            .lineno = ctx.lineno
-        };
-
-        __log_ctx[++__log_ctx_idx] = new_ctx;
-    }
-}
+extern log_ctx_t log_ctx_stack[LOG_CTX_MAX];
 
 
 static inline
 void log_ctx_pop(void)
 {
-    if (__log_ctx_idx > 0) {
-        log_ctx_t *ctx = &__log_ctx[__log_ctx_idx--];
-        if (ctx->name != NULL) {
-            free((void*) ctx->name);
-        }
-        if (ctx->file != NULL) {
-            free((void*) ctx->file);
-        }
-        if (ctx->section != NULL) {
-            free((void*) ctx->section);
-        }
+    if (log_ctx > 0) {
+       if (log_ctx < LOG_CTX_MAX - 1) {
+            log_ctx_t *ctx = &log_ctx_stack[log_ctx];
+            if (ctx->file != NULL) {
+                free((void*) ctx->file);
+            }
+            if (ctx->section != NULL) {
+                free((void*) ctx->section);
+            }
+            if (ctx->name != NULL) {
+                free((void*) ctx->name);
+            }
+       }
+        --log_ctx;
     }
 }
+
+
+static inline
+void log_ctx_unwind(int n)
+{
+    while (n-- > 0) {
+        log_ctx_pop();
+    }
+}
+
+
+/*
+ * Add information to the current log context.
+ */
+static inline
+int log_ctx_push(log_ctx_t ctx)
+{
+    if (log_ctx >= 0 && log_ctx < LOG_CTX_MAX - 1) {
+        // Copy information from the previous context
+        int copy_ctx = ctx.file == NULL;  // don't copy section, offset, etc if this is a new file
+        ctx.file = ctx.file != NULL ? ctx.file : log_ctx_stack[log_ctx].file;
+        ctx.section = (copy_ctx && ctx.section != NULL) ? ctx.section : log_ctx_stack[log_ctx].section;
+        ctx.offset = (copy_ctx && ctx.offset > 0) ? ctx.offset : log_ctx_stack[log_ctx].offset;
+        ctx.lineno = (copy_ctx && ctx.lineno > 0) ? ctx.lineno : log_ctx_stack[log_ctx].lineno;
+        ctx.name = (copy_ctx && ctx.name != NULL) ? ctx.name : log_ctx_stack[log_ctx].name;
+
+        // Create new context
+        log_ctx_t new_ctx = {
+            .file = ctx.file != NULL ? strdup(ctx.file) : NULL,
+            .section = ctx.section != NULL ? strdup(ctx.section) : NULL,
+            .offset = ctx.offset,
+            .lineno = ctx.lineno,
+            .name = ctx.name != NULL ? strdup(ctx.name) : NULL
+        };
+
+        log_ctx_stack[log_ctx + 1] = new_ctx;
+    }
+    return ++log_ctx;
+}
+
+
+/*
+ * Create a new log context.
+ */
+static inline
+int log_ctx_new(const char *file)
+{
+    log_ctx_t new_ctx = {
+        .file = file,
+    };
+    return log_ctx_push(new_ctx);
+}
+
+
+#define LOG_CTX(...) ((log_ctx_t) { \
+    .file = NULL, \
+    __VA_ARGS__ \
+})
+#define LOG_CTX_SECTION(_section, ...) LOG_CTX(.section = (_section), __VA_ARGS__)
+#define LOG_CTX_NAME(_name) LOG_CTX(.name = (_name))
 
 
 #define LOG_FATAL   -1
@@ -85,10 +126,10 @@ void log_ctx_pop(void)
 static inline
 void log_message(int level, const char *fmt, ...)
 {
-    if (level <= log_verbosity) {
-        const log_ctx_t *ctx = &__log_ctx[__log_ctx_idx];
+    if (level <= log_level) {
+        const log_ctx_t *ctx = &log_ctx_stack[log_ctx];
 
-        if (ctx->file != NULL) {
+        if (ctx->file != NULL && ctx->file[0] != '\0') {
             fprintf(stderr, "[%s", ctx->file);
 
             if (ctx->section != NULL) {
@@ -103,7 +144,15 @@ void log_message(int level, const char *fmt, ...)
                 fprintf(stderr, ":%u", ctx->lineno);
             } 
 
+            if (ctx->name != NULL) {
+                fprintf(stderr, " %s", ctx->name);
+            }
+
             fprintf(stderr, "] ");
+        } else {
+            if (ctx->name != NULL) {
+                fprintf(stderr, "(%s) ", ctx->name);
+            }
         }
 
         if (level <= LOG_FATAL) {

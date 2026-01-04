@@ -12,6 +12,10 @@ static int extend_capacity(struct secttab *st)
 {
     size_t new_capacity = st->capacity * 2;
 
+    log_ctx_push(LOG_CTX_NAME(st->name));
+    log_trace("extending section table capacity");
+    log_ctx_pop();
+
     // Sanity check that we're not overflowing
     if ((new_capacity * sizeof(struct section*)) < (st->capacity * sizeof(struct section*))) {
         return ENOMEM;
@@ -92,6 +96,8 @@ bool secttab_insert_section(struct secttab *st, uint64_t idx, struct section *se
 {
     struct rb_node **pos = &(st->name_map.root), *parent = NULL;
 
+    log_ctx_push(LOG_CTX_NAME(st->name));
+
     while (*pos != NULL) {
         struct secttab_entry *this = rb_entry(*pos, struct secttab_entry, map_entry);
 
@@ -103,8 +109,8 @@ bool secttab_insert_section(struct secttab *st, uint64_t idx, struct section *se
         } else {
             // We will allow sections with the same name (as long as
             // they have unique indices), but it is not ideal
-            log_warning("Section table %s already contains a section with name '%s'",
-                    st->name, sect->name);
+            log_warning("Section table already contains a section with name '%s'",
+                    sect->name);
             pos = &((*pos)->right);
         }
     }
@@ -112,18 +118,20 @@ bool secttab_insert_section(struct secttab *st, uint64_t idx, struct section *se
     while (idx > st->capacity) {
         if (extend_capacity(st) != 0) {
             log_error("Section index %llu is too large", idx);
+            log_ctx_pop();
             return false;
         }
     }
 
     if (st->sections[idx] != NULL) {
-        log_error("Section table %s already contains a section with index %llu", 
-                st->name, idx);
+        log_error("Section table already contains a section with index %llu", idx);
+        log_ctx_pop();
         return false;
     }
 
     struct secttab_entry *entry = malloc(sizeof(struct secttab_entry));
     if (entry == NULL) {
+        log_ctx_pop();
         return false;
     }
 
@@ -134,6 +142,8 @@ bool secttab_insert_section(struct secttab *st, uint64_t idx, struct section *se
     rb_insert_fixup(&st->name_map, &entry->map_entry);
     ++(st->nsections);
     st->sections[entry->section_idx] = entry->section;
+
+    log_ctx_pop();
     return true;
 }
 

@@ -186,6 +186,8 @@ struct archive_member * archive_find_symbol(const struct archive *ar, const char
 {
     const struct rb_node *node = ar->symbols.root;
 
+    log_ctx_new(ar->name);
+
     while (node != NULL) {
         struct archive_symbol *this = rb_entry(node, struct archive_symbol, map_entry);
         int result = strcmp(symbol, this->name);
@@ -195,10 +197,13 @@ struct archive_member * archive_find_symbol(const struct archive *ar, const char
         } else if (result > 0) {
             node = node->right;
         } else {
+            log_trace("Found symbol '%s' in member %s", this->name, this->member->name);
+            log_ctx_pop();
             return this->member;
         }
     }
 
+    log_ctx_pop();
     return NULL;
 }
 

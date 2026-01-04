@@ -14,7 +14,7 @@ int mfile_open_read(struct mfile **file, const char *pathname)
 {
     *file = NULL;
 
-    log_ctx_push(LOG_CTX_FILE(NULL, pathname));
+    log_ctx_new(pathname);
 
     int fd = open(pathname, O_RDONLY);
     if (fd == -1) {

@@ -120,7 +120,7 @@ static int parse_file(const uint8_t *ptr, size_t size, struct archive *archive)
             return EBADF;
         }
 
-        if (hdr->name[0] == '/' && (hdr->name[1] == ' ' || hdr->name == '\0')) {
+        if (hdr->name[0] == '/' && (hdr->name[1] == ' ' || hdr->name[1] == '\0')) {
             log_trace("Found ranlib index at offset %zu", offset);
             ranlib = hdr;
         } else if (strncmp(hdr->name, "__.SYMDEF", 9) == 0) {

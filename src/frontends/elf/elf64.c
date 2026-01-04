@@ -111,7 +111,7 @@ static int parse_elf_file(const uint8_t *file_data,
     for (uint64_t shndx = 0; shndx < eh->e_shnum; ++shndx) {
         const Elf64_Shdr *sh = elf_section(eh, shndx);
 
-        log_ctx_push(LOG_CTX_FILE(NULL, NULL, .section = lookup_strtab_str(eh, sh->sh_name)));
+        log_ctx_push(LOG_CTX_SECTION(lookup_strtab_str(eh, sh->sh_name)));
 
         switch (sh->sh_type) {
             case SHT_SYMTAB:
