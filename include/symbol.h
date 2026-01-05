@@ -60,7 +60,7 @@ struct symbol
 static inline
 bool symbol_is_defined(const struct symbol *symbol)
 {
-    return (symbol->section != NULL || symbol->is_absolute) && !symbol->is_common;
+    return (symbol->section != NULL || symbol->is_absolute);
 }
 
 

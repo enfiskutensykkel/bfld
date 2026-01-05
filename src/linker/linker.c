@@ -312,7 +312,6 @@ bool linker_load_file(struct linkerctx *ctx, const char *pathname)
 
     int status = mfile_open_read(&file, pathname);
     if (status != 0) {
-        log_fatal("Could not open file");
         log_ctx_pop();
         return false;
     }

@@ -5,70 +5,208 @@
 #include <getopt.h>
 #include <mfile.h>
 #include <linker.h>
+#include <assert.h>
 
 #include <utils/rbtree.h>
 #include <globals.h>
 #include <symbol.h>
 
 
-static void dump_globals(struct linkerctx *ctx)
+static void print_globals(struct linkerctx *ctx, FILE *fp)
 {
-    struct rb_node *node = rb_first(&ctx->globals->map);
+    static const char *typemap[] = {
+        [SYMBOL_NOTYPE] = "notype",
+        [SYMBOL_OBJECT] = "object",
+        [SYMBOL_TLS] = "tls",
+        [SYMBOL_SECTION] = "sect",
+        [SYMBOL_FUNCTION] = "func"
+    };
 
-    fprintf(stdout, "%-32s  D  T  %-16s  %4s\n", "symbol", "address", "size");
+    static const char *bindmap[] = {
+        [SYMBOL_WEAK] = "weak",
+        [SYMBOL_GLOBAL] = "global",
+        [SYMBOL_LOCAL] = "local"
+    };
 
-    while (node != NULL) {
-        struct globals_entry *entry = rb_entry(node, struct globals_entry, map_entry);
-        fprintf(stdout, "%-32.32s  ", entry->symbol->name);
-        if (symbol_is_defined(entry->symbol)) {
-            if (entry->symbol->is_absolute) {
-                fprintf(stdout, "A");
-            } else {
-                fprintf(stdout, "R");
-            }
-        } else {
-            fprintf(stdout, "?");
-        }
+    fprintf(fp, "Global symbol table '%s' contains %zu entries:\n",
+            ctx->globals->name, ctx->globals->nsymbols);
 
-        char type = 'N';
-        switch (entry->symbol->type) {
-            case SYMBOL_NOTYPE:
-                type = 'N';
-                break;
-            case SYMBOL_OBJECT:
-                type = 'O';
-                break;
-            case SYMBOL_TLS:
-                type = 'T';
-                break;
-            case SYMBOL_SECTION:
-                type = 'S';
-                break;
-            case SYMBOL_FUNCTION:
-                type = 'F';
-                break;
-            default:
-                type = '?';
-                break;
-        }
-        fprintf(stdout, "  %c", type);
+    size_t n = 0;
+    fprintf(fp, "%6s %-3s %-16s %6s %6s %-6s %6s %-6s %-32s\n",
+            "Num", "Def", "Value", "Size", "Align", "Type", "Common", "Bind", "Name");
 
-        fprintf(stdout, "  %016lx", entry->symbol->value);
-        fprintf(stdout, "  %4lu", entry->symbol->size);
-        fprintf(stdout, "\n");
-        node = rb_next(node);
+    for (const struct rb_node *node = rb_first(&ctx->globals->map);
+            node != NULL;
+            node = rb_next(node)) {
+        ++n;
+        const struct globals_entry *entry = rb_entry(node, struct globals_entry, map_entry);
+        const struct symbol *sym = entry->symbol;
+
+        fprintf(fp, "%6zu ", n);
+        fprintf(fp, "%3s ", symbol_is_defined(sym) ? "yes" : "no");
+        fprintf(fp, "%016lx ", sym->value);
+        fprintf(fp, "%6lu ", sym->size);
+        fprintf(fp, "%6lu ", sym->align);
+        fprintf(fp, "%-6s ", typemap[sym->type]);
+        fprintf(fp, "%-6s ", sym->is_common ? "yes" : "no");
+        fprintf(fp, "%-6s ", bindmap[sym->binding]);
+        fprintf(fp, "%-32.32s", sym->name);
+        fprintf(fp, "\n");
     }
 }
+
+
+static char * format_option(char *buf, 
+                            size_t bufsz, 
+                            int has_arg, 
+                            const char *optname, 
+                            const char *argname)
+{
+    size_t i = 0;
+
+    if (bufsz == 0) {
+        return buf + i;
+    }
+
+    for (size_t j = 0; i < bufsz && optname[j] != '\0'; ++i, ++j) {
+        buf[i] = optname[j];
+    }
+
+    if (i == bufsz) {
+        return buf + i;
+    }
+
+    if (has_arg == no_argument) {
+        return buf + i;
+    }
+    assert(argname != NULL);
+
+    if (has_arg == optional_argument) {
+        buf[i++] = '[';
+        if (i == bufsz) {
+            return buf + i;
+        }
+    }
+
+    buf[i++] = '=';
+    if (i == bufsz) {
+        return buf + i;
+    }
+
+    for (size_t j = 0; i < bufsz && argname[j] != '\0'; ++i, ++j) {
+        buf[i] = argname[j];
+    }
+    if (i == bufsz) {
+        return buf + i;
+    }
+
+    if (has_arg == optional_argument) {
+        buf[i++] = ']';
+        if (i == bufsz) {
+            return buf + i;
+        }
+    }
+
+    return buf + i;
+}
+
+
+static const char * next_word(const char *s)
+{
+    while (*s != '\0' && *s < '!') {
+        ++s;
+    }
+
+    return *s != '\0' ? s : NULL;
+}
+
+
+static int wordlen(const char *s)
+{
+    int n = 0;
+
+    while (s[n] != '\0' && s[n] >= '!') {
+        ++n;
+    }
+
+    return n;
+}
+
+
+static void print_option(FILE *fp,
+                         const char *shortname,
+                         const char *longname,
+                         int has_arg,
+                         const char *argname,
+                         const char *help)
+{
+    int col = 32;
+    char buffer[128];
+    memset(buffer, ' ', 2);
+    char *s = &buffer[0] + 2;
+
+    if (argname == NULL) {
+        has_arg = no_argument;
+    }
+
+    if (shortname) {
+        s = format_option(s, sizeof(buffer) - (s - &buffer[0]),
+                          has_arg, shortname, argname);
+
+        if (longname) {
+            s += snprintf(s, sizeof(buffer) - (s - buffer), ", ");
+        }
+    }
+
+    if (longname) {
+        s = format_option(s, sizeof(buffer) - (s - buffer),
+                has_arg, longname, argname);
+    }
+
+    if (sizeof(buffer) - (s - buffer) > 0) {
+        *s = '\0';
+    }
+
+    int n = strnlen(buffer, sizeof(buffer));
+    fprintf(fp, "%.*s", n, buffer);
+
+    memset(buffer, ' ', col);
+    buffer[col] = '\0';
+
+    if (n < col) {
+        fprintf(fp, "%.*s", col - n, buffer);
+    } else {
+        fprintf(fp, "\n%s", buffer);
+    }
+    int curr = col;
+
+    const char *word = next_word(help);
+
+    while (word != NULL) {
+        n = wordlen(word);
+        
+        if (curr + n > 79) {
+            curr = col;
+        }
+        curr += n + 1;
+        fprintf(fp, " %.*s", n, word);
+        word = next_word(word + n);
+    }
+    fprintf(fp, "\n");
+}
+
 
 
 int main(int argc, char **argv)
 {
     int c;
     int idx = -1;
+    static int show_globals = 0;
 
     static struct option options[] = {
         {"verbose", optional_argument, 0, 'v'},
         {"help", no_argument, 0, 'h'},
+        {"dump-globals", no_argument, &show_globals, 10},
         {0, 0, 0, 0}
     };
 
@@ -79,6 +217,10 @@ int main(int argc, char **argv)
 
     while ((c = getopt_long_only(argc, argv, ":hv", options, &idx)) != -1) {
         switch (c) {
+
+            case 0:
+                break;
+
             case 'v':
                 if (optarg == NULL) {
                     ++log_level;
@@ -86,8 +228,7 @@ int main(int argc, char **argv)
                     char *endptr = NULL;
                     int verbosity = strtol(optarg, &endptr, 10);
                     if (*endptr != '\0') {
-                        fprintf(stderr, "%d\n", idx);
-                        log_error("Invalid verbosity: %s", options[idx].name, optarg);
+                        log_error("Invalid log level: '%s'", optarg);
                         linker_destroy(ctx);
                         exit(1);
                     }
@@ -96,24 +237,28 @@ int main(int argc, char **argv)
                 break;
 
             case 'h':
-                fprintf(stdout, "Usage: %s [-v] [-vv] [-vvv] objfile...\n", argv[0]);
+                fprintf(stdout, "Usage: %s [options] file...\n", argv[0]);
+                fprintf(stdout, "Options:\n");
+                print_option(stdout, "-h", "--help", no_argument, NULL, "Show this help and quit.");
+                print_option(stdout, "-v", "--verbose", optional_argument, "level", "Increase log level.");
+                print_option(stdout, "--dump-globals", NULL, no_argument, NULL, "Dump global symbols.");
                 linker_destroy(ctx);
                 exit(0);
 
             case ':':
-                log_error("Missing value for option %s", argv[optind-1]);
+                log_error("Missing value for option '%s'", argv[optind-1]);
                 linker_destroy(ctx);
                 exit(1);
 
             default:
-                log_error("Unknown option %s", argv[optind-1]);
+                log_error("Unrecognized option '%s'", argv[optind-1]);
                 linker_destroy(ctx);
                 exit(1);
         }
     }
 
     if (optind >= argc) {
-        log_error("Missing argument objfile");
+        log_error("No input files");
         linker_destroy(ctx);
         exit(1);
     }
@@ -126,7 +271,11 @@ int main(int argc, char **argv)
         }
     }
 
-    dump_globals(ctx);
+    if (show_globals) {
+        print_globals(ctx, stdout);
+        linker_destroy(ctx);
+        exit(0);
+    }
 
     linker_destroy(ctx);
     exit(0);
