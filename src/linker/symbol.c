@@ -50,12 +50,13 @@ struct symbol * symbol_alloc(const char *name, enum symbol_type type,
     }
 
     sym->value = 0;
-    sym->relative = true;
     sym->binding = binding;
     sym->type = type;
     sym->refcnt = 1;
     sym->align = 0;
     sym->size = 0;
+    sym->is_absolute = false;
+    sym->is_common = false;
     sym->section = NULL;
     sym->offset = 0;
 
@@ -70,13 +71,14 @@ int symbol_bind_definition(struct symbol *sym,
 {
     assert(sym != NULL);    
 
-    // Check that we are not overwriting a previous definition
-    if (sym->binding != SYMBOL_WEAK && symbol_is_defined(sym)) {
-        if (symbol_is_absolute(sym)) {
-            log_error("Symbol '%s' is already defined at address 0x%llx", 
+    // Check that we are not overwriting a previous strong definition
+    bool strong = sym->binding != SYMBOL_WEAK && !sym->is_common;
+    if (symbol_is_defined(sym) && !strong) {
+        if (sym->is_absolute) {
+            log_error("Redefinition for symbol '%s', was already defined at address 0x%llx", 
                     sym->name, sym->value);
         } else {
-            log_error("Symbol '%s' is already defined in %s:%s", sym->name,
+            log_error("Redefinition for symbol '%s', was already defined in %s:%s", sym->name,
                     sym->section->objfile->name, sym->section->name);
         }
         return EALREADY;
@@ -92,16 +94,16 @@ int symbol_bind_definition(struct symbol *sym,
     if (section == NULL) {
         // This is an absolute definition
         sym->section = NULL;
-        sym->relative = false;
+        sym->is_absolute = true;
         sym->value = offset;
         sym->offset = 0;
         sym->size = size;
-        log_trace("Symbol '%s' is defined at address 0x%llx", 
+        log_trace("Symbol '%s' is defined at address 0x%lx", 
                 sym->name, sym->value);
 
     } else {
         // This is a relative definition
-        sym->relative = true;
+        sym->is_absolute = false;
         sym->value = 0;
         sym->offset = offset;
         sym->section = section_get(section);
@@ -114,68 +116,70 @@ int symbol_bind_definition(struct symbol *sym,
 }
 
 
-static inline void override_symbol(struct symbol *existing, const struct symbol *truth)
-{
-    assert(!symbol_is_defined(existing) || existing->binding == SYMBOL_WEAK);
-
-    if (!symbol_is_defined(truth)) {
-        return;
-    }
-
-    int status = symbol_bind_definition(existing, truth->section, truth->offset, truth->size);
-    assert(status == 0);
-    log_debug("Updated symbol definition");
-
-    if (truth->align > existing->align) {
-        existing->align = truth->align;
-        log_debug("Adjusted symbol alignment requirements");
-    }
-
-    existing->binding = truth->binding;
-    existing->type = truth->type;
-}
-
-
 int symbol_resolve_definition(struct symbol *existing, const struct symbol *incoming)
 {
     assert(existing != NULL);
-    assert(incoming != NULL);
-    assert(strcmp(existing->name, incoming->name) == 0);
-    assert(existing->binding != SYMBOL_LOCAL);
-    assert(incoming->binding != SYMBOL_LOCAL);
 
-
-    // Both symbols are references (undefined)
-    if (!symbol_is_defined(existing) && !symbol_is_defined(incoming)) {
+    if (existing->binding == SYMBOL_LOCAL) {
+        log_error("Cannot resolve local symbol '%s'", existing->name);
+        return EINVAL;
+    }
+    
+    if (incoming == NULL) {
         return 0;
     }
 
-    // Existing is a definition, incoming is a reference
-    if (symbol_is_defined(existing) && !symbol_is_defined(incoming)) {
+    if (incoming->binding == SYMBOL_LOCAL || strcmp(existing->name, incoming->name) != 0) {
+        log_error("Invalid symbol definition for '%s'", existing->name);
+        return EINVAL;
+    }
+
+    // For common symbols, adjust size and alignment
+    if (existing->is_common && incoming->is_common) {
+        if (incoming->align > existing->align) {
+            existing->align = incoming->align;
+        }
+
+        if (incoming->size > existing->size) {
+            existing->size = incoming->size;
+        }
+    }
+
+    // Incoming is an undefined symbol reference 
+    if (!symbol_is_defined(incoming)) {
         return 0;
     }
 
-    // Existing is a reference, incoming is a definition
-    if (!symbol_is_defined(existing) && symbol_is_defined(incoming)) {
-        override_symbol(existing, incoming);
-        return 0;
-    }
-
-    // Incoming definition is weak, keep the existing
+    // Incoming definition is weak, keep existing
     if (incoming->binding == SYMBOL_WEAK) {
         return 0;
     }
 
-    // Existing definition is weak, keep the incoming
-    if (existing->binding == SYMBOL_WEAK) {
-        override_symbol(existing, incoming);
-        return 0;
+    // Existing definition is strong (and incoming is strong)
+    bool strong = existing->binding != SYMBOL_WEAK && !existing->is_common;
+    if (strong && symbol_is_defined(existing)) {
+        if (existing->is_absolute) {
+            log_error("Multiple definitions for symbol '%s', previously defined at address 0x%lx",
+                    existing->name, existing->value);
+
+        } else {
+            log_error("Multiple definitions for symbol '%s', previously defined in %s:%s",
+                    existing->name, 
+                    existing->section->objfile->name,
+                    existing->section->name);
+        }
+        return EEXIST;
     }
 
-    log_error("Multiple definitions for symbol '%s', was previously defined in %s:%s",
-            existing->name, 
-            existing->section->objfile->name, 
-            existing->section->name);
+    int status = symbol_bind_definition(existing, incoming->section, 
+                                        incoming->offset, incoming->size);
+    if (status != 0) {
+        return EEXIST;
+    }
 
-    return EEXIST;
+    existing->binding = incoming->binding;
+    existing->type = incoming->type;
+    existing->is_common = false;
+
+    return 0;
 }

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+int some_array[10];
 
 int a_weak_symbol __attribute__((weak));
 
@@ -40,7 +41,3 @@ int entrypoint(void)
     return v;
 }
 
-int bar(void)
-{
-    return 9001;
-}

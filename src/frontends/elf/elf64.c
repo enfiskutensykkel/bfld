@@ -275,28 +275,41 @@ static int parse_sections(const Elf64_Ehdr *eh,
 
     // Insert a fake .common section if any symbols refer to the common section
     list_for_each_entry(s, symtabs, struct elf_section_entry, entry) {
-        if (scan_common_sym(eh, s->shdr)) {
+        const Elf64_Shdr *sh = s->shdr;
+        uint64_t shndx = sh - ((const Elf64_Shdr*) (((const uint8_t*) eh) + eh->e_shoff));
+
+        log_ctx_push(LOG_CTX_SECTION(lookup_strtab_str(eh, sh->sh_name), .lineno = shndx));
+
+        if (scan_common_sym(eh, sh)) {
             log_debug("Creating .common section");
-            struct section *common = section_alloc(objfile, 
-                                                   sections->maxidx + 1,
-                                                   ".common", 0, 
-                                                   SECTION_ZERO,
-                                                   NULL,
-                                                   0);
+            struct section *common = section_alloc(objfile, sections->maxidx + 1,
+                                                   ".common", 0, SECTION_ZERO, NULL, 0);
             if (common == NULL) {
+                log_ctx_pop();
                 return ENOMEM;
             }
 
             int status = sections_insert(sections, common->idx, common, NULL);
             section_put(common);
             if (status != 0) {
+                log_ctx_pop();
                 return ENOMEM;
             }
+
+            log_ctx_pop();
             break;
         }
+
+        log_ctx_pop();
     }
 
     return 0;
+}
+
+
+struct symbol * create_symbol(const Elf64_Sym *sym, const char *name)
+{
+    return NULL;
 }
 
 
@@ -427,6 +440,10 @@ static int parse_symtab(const Elf64_Ehdr *eh, const Elf64_Shdr *sh, const struct
             goto out;
         }
         symbol->align = align;
+
+        if (ELF64_ST_TYPE(sym->st_info) == STT_COMMON) {
+            symbol->is_common = true;
+        }
 
         if (offset > 0) {
             status = symbol_bind_definition(symbol, section, offset, size);

@@ -45,11 +45,13 @@ struct symbol
     enum symbol_binding binding;    // symbol binding type
     enum symbol_type type;          // symbol type
     uint64_t align;                 // symbol address alignment requirement (value must be a multiple of align)
-    bool relative;                  // is the definition offset relative to a section base address or an absolute address
+    uint64_t size;                  // symbol size
+    bool is_absolute;               // is the definition offset relative to a section base address or an absolute address
+    bool is_common;                 // does the symbol refer to a common section?
     struct section *section;        // strong reference to the section where the symbol is defined
     uint64_t offset;                // offset into the section to the definition 
-    uint64_t size;                  // symbol size
 };
+
 
 
 /*
@@ -58,14 +60,7 @@ struct symbol
 static inline
 bool symbol_is_defined(const struct symbol *symbol)
 {
-    return symbol->section != NULL || (!symbol->relative && symbol->value != 0);
-}
-
-
-static inline
-bool symbol_is_absolute(const struct symbol *symbol)
-{
-    return !symbol->relative && symbol->value != 0;
+    return (symbol->section != NULL || symbol->is_absolute) && !symbol->is_common;
 }
 
 

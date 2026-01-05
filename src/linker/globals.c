@@ -73,7 +73,6 @@ int globals_insert_symbol(struct globals *globals, struct symbol *symbol,
         } else if (result > 0) {
             pos = &((*pos)->right);
         } else {
-            log_trace("Symbol '%s' symbol already exist in global symbol table", symbol->name);
 
             if (existing != NULL) {
                 *existing = this->symbol;

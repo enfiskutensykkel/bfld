@@ -13,12 +13,49 @@
 
 static void dump_globals(struct linkerctx *ctx)
 {
-    fprintf(stdout, "Global symbols:\n");
     struct rb_node *node = rb_first(&ctx->globals->map);
+
+    fprintf(stdout, "%-32s  D  T  %-16s  %4s\n", "symbol", "address", "size");
 
     while (node != NULL) {
         struct globals_entry *entry = rb_entry(node, struct globals_entry, map_entry);
-        fprintf(stdout, "%s\n", entry->symbol->name);
+        fprintf(stdout, "%-32.32s  ", entry->symbol->name);
+        if (symbol_is_defined(entry->symbol)) {
+            if (entry->symbol->is_absolute) {
+                fprintf(stdout, "A");
+            } else {
+                fprintf(stdout, "R");
+            }
+        } else {
+            fprintf(stdout, "?");
+        }
+
+        char type = 'N';
+        switch (entry->symbol->type) {
+            case SYMBOL_NOTYPE:
+                type = 'N';
+                break;
+            case SYMBOL_OBJECT:
+                type = 'O';
+                break;
+            case SYMBOL_TLS:
+                type = 'T';
+                break;
+            case SYMBOL_SECTION:
+                type = 'S';
+                break;
+            case SYMBOL_FUNCTION:
+                type = 'F';
+                break;
+            default:
+                type = '?';
+                break;
+        }
+        fprintf(stdout, "  %c", type);
+
+        fprintf(stdout, "  %016lx", entry->symbol->value);
+        fprintf(stdout, "  %4lu", entry->symbol->size);
+        fprintf(stdout, "\n");
         node = rb_next(node);
     }
 }
