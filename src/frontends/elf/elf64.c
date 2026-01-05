@@ -441,7 +441,8 @@ static int parse_symtab(const Elf64_Ehdr *eh, const Elf64_Shdr *sh, const struct
         }
         symbol->align = align;
 
-        if (ELF64_ST_TYPE(sym->st_info) == STT_COMMON) {
+        if (ELF64_ST_TYPE(sym->st_info) == STT_COMMON 
+                || sym->st_shndx == SHN_COMMON) {
             symbol->is_common = true;
         }
 

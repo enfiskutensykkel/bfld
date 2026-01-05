@@ -7,12 +7,14 @@
 #include <linker.h>
 #include <assert.h>
 
+#include <utils/list.h>
 #include <utils/rbtree.h>
+#include <symbols.h>
 #include <globals.h>
 #include <symbol.h>
 
 
-static void print_globals(struct linkerctx *ctx, FILE *fp)
+static void print_symbol(FILE *fp, size_t idx, const struct symbol *sym)
 {
     static const char *typemap[] = {
         [SYMBOL_NOTYPE] = "notype",
@@ -28,6 +30,20 @@ static void print_globals(struct linkerctx *ctx, FILE *fp)
         [SYMBOL_LOCAL] = "local"
     };
 
+    fprintf(fp, "%6zu ", idx);
+    fprintf(fp, "%3s ", symbol_is_defined(sym) ? "yes" : "no");
+    fprintf(fp, "%016lx ", sym->value);
+    fprintf(fp, "%6lu ", sym->size);
+    fprintf(fp, "%6lu ", sym->align);
+    fprintf(fp, "%-6s ", typemap[sym->type]);
+    fprintf(fp, "%-6s ", sym->is_common ? "yes" : "no");
+    fprintf(fp, "%-6s ", bindmap[sym->binding]);
+    fprintf(fp, "%-32.32s", sym->name);
+    fprintf(fp, "\n");
+}
+
+static void print_symbols(FILE *fp, struct linkerctx *ctx)
+{
     fprintf(fp, "Global symbol table '%s' contains %zu entries:\n",
             ctx->globals->name, ctx->globals->nsymbols);
 
@@ -38,20 +54,23 @@ static void print_globals(struct linkerctx *ctx, FILE *fp)
     for (const struct rb_node *node = rb_first(&ctx->globals->map);
             node != NULL;
             node = rb_next(node)) {
-        ++n;
         const struct globals_entry *entry = rb_entry(node, struct globals_entry, map_entry);
         const struct symbol *sym = entry->symbol;
+        print_symbol(fp, n++, sym);
+    }
 
-        fprintf(fp, "%6zu ", n);
-        fprintf(fp, "%3s ", symbol_is_defined(sym) ? "yes" : "no");
-        fprintf(fp, "%016lx ", sym->value);
-        fprintf(fp, "%6lu ", sym->size);
-        fprintf(fp, "%6lu ", sym->align);
-        fprintf(fp, "%-6s ", typemap[sym->type]);
-        fprintf(fp, "%-6s ", sym->is_common ? "yes" : "no");
-        fprintf(fp, "%-6s ", bindmap[sym->binding]);
-        fprintf(fp, "%-32.32s", sym->name);
-        fprintf(fp, "\n");
+    list_for_each_entry(entry, &ctx->input_files, struct input_file, list_entry) {
+        const struct symbols *symbols = entry->symbols;
+        fprintf(fp, "\nLocal symbol table '%s' contains %zu entries:\n",
+                symbols->name, symbols->nsymbols);
+        fprintf(fp, "%6s %-3s %-16s %6s %6s %-6s %6s %-6s %-32s\n",
+                "Num", "Def", "Value", "Size", "Align", "Type", "Common", "Bind", "Name");
+        for (n = 0; n < symbols->capacity; ++n) {
+            const struct symbol *sym = symbols->entries[n];
+            if (sym != NULL) {
+                print_symbol(fp, n, sym);
+            }
+        }
     }
 }
 
@@ -201,12 +220,12 @@ int main(int argc, char **argv)
 {
     int c;
     int idx = -1;
-    static int show_globals = 0;
+    static int dump_symbols = 0;
 
     static struct option options[] = {
         {"verbose", optional_argument, 0, 'v'},
         {"help", no_argument, 0, 'h'},
-        {"dump-globals", no_argument, &show_globals, 10},
+        {"dump-symbols", no_argument, &dump_symbols, 10},
         {0, 0, 0, 0}
     };
 
@@ -241,7 +260,7 @@ int main(int argc, char **argv)
                 fprintf(stdout, "Options:\n");
                 print_option(stdout, "-h", "--help", no_argument, NULL, "Show this help and quit.");
                 print_option(stdout, "-v", "--verbose", optional_argument, "level", "Increase log level.");
-                print_option(stdout, "--dump-globals", NULL, no_argument, NULL, "Dump global symbols.");
+                print_option(stdout, "--dump-symbols", NULL, no_argument, NULL, "Dump symbols.");
                 linker_destroy(ctx);
                 exit(0);
 
@@ -271,8 +290,8 @@ int main(int argc, char **argv)
         }
     }
 
-    if (show_globals) {
-        print_globals(ctx, stdout);
+    if (dump_symbols) {
+        print_symbols(stdout, ctx);
         linker_destroy(ctx);
         exit(0);
     }

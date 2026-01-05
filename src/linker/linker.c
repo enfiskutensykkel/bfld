@@ -154,7 +154,7 @@ struct linkerctx * linker_create(const char *name)
         return NULL;
     }
 
-    ctx->globals = globals_alloc("gsym");
+    ctx->globals = globals_alloc("globals");
     if (ctx->globals == NULL) {
         free(ctx->name);
         free(ctx);
@@ -264,14 +264,14 @@ struct input_file * linker_add_objfile(struct linkerctx *ctx,
         return NULL;
     }
 
-    file->symbols = symbols_alloc("symboltable");
+    file->symbols = symbols_alloc(objfile->name);
     if (file->symbols == NULL) {
         free(file);
         log_ctx_pop();
         return NULL;
     }
 
-    file->sections = sections_alloc("sectiontable");
+    file->sections = sections_alloc(objfile->name);
     if (file->sections == NULL) {
         symbols_put(file->symbols);
         free(file);

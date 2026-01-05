@@ -179,7 +179,10 @@ int symbol_resolve_definition(struct symbol *existing, const struct symbol *inco
 
     existing->binding = incoming->binding;
     existing->type = incoming->type;
-    existing->is_common = false;
+
+    if (!incoming->is_common) {
+        existing->is_common = false;
+    }
 
     return 0;
 }
