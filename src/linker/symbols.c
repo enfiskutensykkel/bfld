@@ -16,12 +16,9 @@ struct symbols * symbols_alloc(const char *name)
         return NULL;
     }
 
-    syms->name = strdup(name);
-    if (syms->name == NULL) {
-        free(syms);
-        return NULL;
+    if (name != NULL) {
+        syms->name = strdup(name);
     }
-
     syms->capacity = 0; 
     syms->entries = NULL;
     syms->nsymbols = 0;
@@ -82,7 +79,9 @@ void symbols_put(struct symbols *syms)
             }
         }
         free(syms->entries);
-        free(syms->name);
+        if (syms->name != NULL) {
+            free(syms->name);
+        }
         free(syms);
     }
 }

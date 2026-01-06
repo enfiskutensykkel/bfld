@@ -114,30 +114,6 @@ static inline int add_section(struct list_head *list, const Elf64_Shdr *sh)
 
 
 /*
- * Are there any symbols that refer to the common section?
- */
-static bool scan_common_sym(const Elf64_Ehdr *eh, const Elf64_Shdr *sh)
-{
-    uint64_t shndx = sh - ((const Elf64_Shdr*) (((const uint8_t*) eh) + eh->e_shoff));
-
-    log_ctx_push(LOG_CTX_SECTION(lookup_strtab_str(eh, sh->sh_name), .lineno = shndx));
-
-    log_trace("Scanning symbol table for common symbols");
-    for (uint32_t idx = 1; idx < sh->sh_size / sh->sh_entsize; ++idx) {
-        const Elf64_Sym *sym = ((const Elf64_Sym*) (((const uint8_t*) eh) + sh->sh_offset)) + idx;
-
-        if (sym->st_shndx == SHN_COMMON) {
-            log_ctx_pop();
-            return true;
-        }
-    }
-    
-    log_ctx_pop();
-    return false;
-}
-
-
-/*
  * Parse ELF file and create sections
  */
 static int parse_sections(const Elf64_Ehdr *eh, 
@@ -273,43 +249,7 @@ static int parse_sections(const Elf64_Ehdr *eh,
         log_ctx_pop();
     }
 
-    // Insert a fake .common section if any symbols refer to the common section
-    list_for_each_entry(s, symtabs, struct elf_section_entry, entry) {
-        const Elf64_Shdr *sh = s->shdr;
-        uint64_t shndx = sh - ((const Elf64_Shdr*) (((const uint8_t*) eh) + eh->e_shoff));
-
-        log_ctx_push(LOG_CTX_SECTION(lookup_strtab_str(eh, sh->sh_name), .lineno = shndx));
-
-        if (scan_common_sym(eh, sh)) {
-            log_debug("Creating .common section");
-            struct section *common = section_alloc(objfile, sections->maxidx + 1,
-                                                   ".common", 0, SECTION_ZERO, NULL, 0);
-            if (common == NULL) {
-                log_ctx_pop();
-                return ENOMEM;
-            }
-
-            int status = sections_insert(sections, common->idx, common, NULL);
-            section_put(common);
-            if (status != 0) {
-                log_ctx_pop();
-                return ENOMEM;
-            }
-
-            log_ctx_pop();
-            break;
-        }
-
-        log_ctx_pop();
-    }
-
     return 0;
-}
-
-
-struct symbol * create_symbol(const Elf64_Sym *sym, const char *name)
-{
-    return NULL;
 }
 
 
@@ -339,6 +279,8 @@ static int parse_symtab(const Elf64_Ehdr *eh, const Elf64_Shdr *sh, const struct
         uint64_t offset = 0;
         uint64_t size = sym->st_size;
 
+        status = 0;
+
         enum symbol_type type = SYMBOL_NOTYPE;
         enum symbol_binding binding = SYMBOL_LOCAL;
 
@@ -351,16 +293,7 @@ static int parse_symtab(const Elf64_Ehdr *eh, const Elf64_Shdr *sh, const struct
                 break;
 
             case SHN_COMMON:
-                section = sections_at(sections, sections->maxidx);
-                assert(section != NULL);
                 align = sym->st_value;
-                if (align > section->align) {
-                    section->align = align;
-                }
-                section->size = align_to(section->size, section->align);
-                // FIXME: the size calculation is not correct
-
-                offset = 0;
                 break;
             
             default:
@@ -416,6 +349,7 @@ static int parse_symtab(const Elf64_Ehdr *eh, const Elf64_Shdr *sh, const struct
                 // treat as weak, uninitialized data
                 type = SYMBOL_NOTYPE;
                 binding = SYMBOL_WEAK;
+                align = sym->st_value;
                 break;
 
             case STT_LOPROC:
@@ -431,6 +365,7 @@ static int parse_symtab(const Elf64_Ehdr *eh, const Elf64_Shdr *sh, const struct
             default:
                 log_warning("Detected symbol '%s' with unknown type %u", 
                         name, ELF64_ST_TYPE(sym->st_info));
+                type = STT_NOTYPE;
                 break;
         }
 
@@ -439,28 +374,25 @@ static int parse_symtab(const Elf64_Ehdr *eh, const Elf64_Shdr *sh, const struct
             status = ENOMEM;
             goto out;
         }
-        symbol->align = align;
 
-        if (ELF64_ST_TYPE(sym->st_info) == STT_COMMON 
-                || sym->st_shndx == SHN_COMMON) {
-            symbol->is_common = true;
-        }
-
-        if (offset > 0) {
+        if (align > 0) {
+            status = symbol_bind_common(symbol, size, align);
+        } else if (offset > 0 || section != NULL) {
             status = symbol_bind_definition(symbol, section, offset, size);
-            if (status != 0) {
-                symbol_put(symbol);
-                goto out;
-            }
         } 
+        if (status != 0) {
+            symbol_put(symbol);
+            goto out;
+        }
 
         struct symbol *existing = symbol;
 
-        if (symbol->binding == SYMBOL_WEAK || symbol->binding == SYMBOL_GLOBAL) {
-
+        // If we have a non-local symbol, insert it into the global symbol table
+        if (symbol->binding != SYMBOL_LOCAL) {
             status = globals_insert_symbol(globals, symbol, &existing);
             if (status == EEXIST) {
-                status = symbol_resolve_definition(existing, symbol);
+                // symbol already existed in the symbol table, merge them and keep existing
+                status = symbol_merge(existing, symbol);
                 if (status != 0) {
                     symbol_put(symbol);
                     goto out;

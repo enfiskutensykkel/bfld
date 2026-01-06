@@ -19,11 +19,10 @@ struct section;
  */
 struct sections
 {
-    char *name;                 // section table name (for debugging)
+    char *name;                 // section table name (NOTE: can be NULL)
     int refcnt;                 // reference counter
     size_t capacity;            // size of the table/array
     size_t nsections;           // number of sections in the array
-    uint64_t maxidx;            // highest index inserted in the table
     struct section **entries;   // table/array of sections by index
 };
 

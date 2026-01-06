@@ -22,7 +22,7 @@ struct mfile;
  */
 struct objfile
 {
-    char *name;                 // name of the object file
+    char *name;                 // name of the object file (NOTE: may be NULL)
     struct mfile *file;         // strong reference to the underlying memory mapped file
     int refcnt;                 // reference counter
     const uint8_t *file_data;   // pointer to the start of the file

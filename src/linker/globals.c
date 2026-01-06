@@ -15,10 +15,8 @@ struct globals * globals_alloc(const char *name)
         return NULL;
     }
 
-    globals->name = strdup(name);
-    if (globals->name == NULL) {
-        free(globals);
-        return NULL;
+    if (name != NULL) {
+        globals->name = strdup(name);
     }
 
     globals->refcnt = 1;
@@ -52,7 +50,9 @@ void globals_put(struct globals *globals)
             free(entry);
         }
 
-        free(globals->name);
+        if (globals->name != NULL) {
+            free(globals->name);
+        }
         free(globals);
     }
 }

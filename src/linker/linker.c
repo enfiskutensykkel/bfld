@@ -5,6 +5,8 @@
 #include "frontends/archive.h"
 #include "utils/list.h"
 #include "sections.h"
+#include "symbols.h"
+#include "symbol.h"
 #include "globals.h"
 #include "mfile.h"
 #include "archive.h"
@@ -147,25 +149,43 @@ struct linkerctx * linker_create(const char *name)
         return NULL;
     }
 
-    ctx->name = strdup(name);
-    if (ctx->name == NULL) {
-        free(ctx);
-        log_ctx_pop();
-        return NULL;
+    if (name != NULL) {
+        ctx->name = strdup(name);
     }
 
     ctx->globals = globals_alloc("globals");
     if (ctx->globals == NULL) {
-        free(ctx->name);
+        if (ctx->name != NULL) {
+            free(ctx->name);
+        }
         free(ctx);
         log_ctx_pop();
         return NULL;
     }
 
     ctx->log_ctx = log_ctx;
-    list_head_init(&ctx->input_files);
+    list_head_init(&ctx->unprocessed);
+    list_head_init(&ctx->processed);
     list_head_init(&ctx->archives);
     return ctx;
+}
+
+
+static void remove_input_file(struct input_file *file)
+{
+    objfile_put(file->objfile);
+    list_remove(&file->list_entry);
+    sections_put(file->sections);
+    symbols_put(file->symbols);
+    free(file);
+}
+
+
+static void remove_archive_file(struct archive_file *file)
+{
+    archive_put(file->archive);
+    list_remove(&file->list_entry);
+    free(file);
 }
 
 
@@ -181,22 +201,22 @@ void linker_destroy(struct linkerctx *ctx)
             log_ctx_pop();
         }
 
-        list_for_each_entry_safe(file, &ctx->input_files, struct input_file, list_entry) {
-            objfile_put(file->objfile);
-            list_remove(&file->list_entry);
-            sections_put(file->sections);
-            symbols_put(file->symbols);
-            free(file);
+        list_for_each_entry_safe(file, &ctx->unprocessed, struct input_file, list_entry) {
+            remove_input_file(file);
         }
 
-        list_for_each_entry_safe(arfile, &ctx->archives, struct archive_file, list_entry) {
-            archive_put(arfile->archive);
-            list_remove(&arfile->list_entry);
-            free(arfile);
+        list_for_each_entry_safe(file, &ctx->processed, struct input_file, list_entry) {
+            remove_input_file(file);
+        }
+
+        list_for_each_entry_safe(file, &ctx->archives, struct archive_file, list_entry) {
+            remove_archive_file(file);
         }
 
         globals_put(ctx->globals);
-        free(ctx->name);
+        if (ctx->name != NULL) {
+            free(ctx->name);
+        }
         free(ctx);
         log_ctx_pop();
     }
@@ -213,7 +233,7 @@ struct archive_file * linker_add_archive(struct linkerctx *ctx, struct archive *
     }
 
     if (fe == NULL) {
-        log_fatal("Unrecognized file format");
+        log_error("Unrecognized file format");
         log_ctx_pop();
         return NULL;
     }
@@ -227,7 +247,6 @@ struct archive_file * linker_add_archive(struct linkerctx *ctx, struct archive *
 
     struct archive_file *arfile = malloc(sizeof(struct archive_file));
     if (arfile == NULL) {
-        log_fatal("Unable to allocate file handle");
         log_ctx_pop();
         return NULL;
     }
@@ -237,7 +256,7 @@ struct archive_file * linker_add_archive(struct linkerctx *ctx, struct archive *
     arfile->archive = archive_get(ar);
     arfile->frontend = fe;
     
-    log_trace("Successfully loaded archive file");
+    log_trace("Archive file added");
     log_ctx_pop();
     return arfile;
 }
@@ -248,11 +267,13 @@ struct input_file * linker_add_objfile(struct linkerctx *ctx,
                                        const struct objfile_frontend *fe)
 {
     log_ctx_new(objfile->name);
+
     if (fe == NULL) {
         fe = objfile_frontend_probe(objfile->file_data, objfile->file_size);
     }
 
     if (fe == NULL) {
+        log_error("Unrecognized file format");
         log_ctx_pop();
         return NULL;
     }
@@ -282,7 +303,6 @@ struct input_file * linker_add_objfile(struct linkerctx *ctx,
     file->ctx = ctx;
     file->objfile = objfile_get(objfile);
     
-
     file->frontend = fe;
 
     int status = fe->parse_file(objfile->file_data, objfile->file_size, 
@@ -296,8 +316,8 @@ struct input_file * linker_add_objfile(struct linkerctx *ctx,
         return NULL;
     }
 
-    list_insert_tail(&ctx->input_files, &file->list_entry);
-    log_trace("Successfully loaded object file");
+    list_insert_tail(&ctx->unprocessed, &file->list_entry);
+    log_trace("Added object file to input files");
     log_ctx_pop();
     return file;
 }
@@ -362,7 +382,7 @@ bool linker_load_file(struct linkerctx *ctx, const char *pathname)
         goto unwind;
     }
 
-    log_fatal("Unrecognized file format");
+    log_error("Unrecognized file format");
 
 unwind:
     mfile_put(file);
@@ -370,3 +390,68 @@ unwind:
     return success;
 }
 
+
+
+
+bool linker_resolve_globals(struct linkerctx *ctx)
+{
+    bool loaded_file = false;
+
+    do {
+        loaded_file = false;
+
+        list_for_each_entry_safe(file, &ctx->unprocessed, struct input_file, list_entry) {
+
+            log_ctx_new(file->objfile->name);
+
+            for (size_t i = 0, n = 0; i < file->symbols->capacity && n < file->symbols->nsymbols; ++i) {
+                const struct symbol *sym = symbols_at(file->symbols, i);
+
+                if (sym == NULL) {
+                    continue;
+                }
+
+                ++n;
+
+                if (!symbol_is_defined(sym) && !sym->is_common) {
+                    log_trace("Symbol '%s' is undefined", sym->name);
+
+                    list_for_each_entry(ar, &ctx->archives, struct archive_file, list_entry) {
+                        struct archive_member *m = archive_find_symbol(ar->archive, sym->name);
+
+                        if (m != NULL) {
+                            log_debug("Found symbol '%s' in archive, loading member file", sym->name);
+                            struct objfile *obj = archive_get_objfile(m);
+                            if (obj != NULL) {
+                                loaded_file = linker_add_objfile(ctx, obj, NULL) != NULL;
+                                objfile_put(obj);
+                            }
+                            break;
+                        }
+                    }
+
+                    if (!loaded_file) {
+                        log_fatal("Unresolved global symbol '%s'", sym->name);
+                        log_ctx_pop();
+                        return false;
+                    }
+
+                    break;
+                }
+            }
+
+            log_ctx_pop();
+
+            list_remove(&file->list_entry);
+            list_insert_tail(&ctx->processed, &file->list_entry);
+        }
+
+    } while (loaded_file);
+
+    if (!list_empty(&ctx->unprocessed)) {
+        log_fatal("Unable to resolve all global symbols");
+        return false;
+    }
+
+    return true;
+}

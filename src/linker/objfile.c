@@ -23,7 +23,9 @@ void objfile_put(struct objfile *objfile)
     
     if (--(objfile->refcnt) == 0) {
         mfile_put(objfile->file);
-        free(objfile->name);
+        if (objfile->name != NULL) {
+            free(objfile->name);
+        }
         free(objfile);
     }
 }
@@ -49,13 +51,9 @@ struct objfile * objfile_alloc(struct mfile *file, const char *name,
         return NULL;
     }
 
-    objfile->name = strdup(name);
-    if (objfile->name == NULL) {
-        log_fatal("Unable to allocate file handle");
-        free(objfile);
-        return NULL;
+    if (name != NULL) {
+        objfile->name = strdup(name);
     }
-
     objfile->file = mfile_get(file);
     objfile->refcnt = 1;
     objfile->file_data = file_data;

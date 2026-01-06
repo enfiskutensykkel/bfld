@@ -107,7 +107,7 @@ static int parse_file(const uint8_t *ptr, size_t size, struct archive *archive)
         const struct ar_header *hdr = (const void*) (ptr + offset);
         size_t membsz = get_member_size(hdr);
 
-        //log_trace("Found member '%.16s' at offset %zu", hdr->name, offset);
+        log_trace("Found member '%.16s' at offset %zu", hdr->name, offset);
 
         if (size - offset < sizeof(*hdr)) {
             log_fatal("Unexpected end of archive");
@@ -137,7 +137,9 @@ static int parse_file(const uint8_t *ptr, size_t size, struct archive *archive)
             char *name = NULL;
             get_member_name(hdr, strtab, &name);
             
-            archive_add_member(archive, name, offset, membsz);
+            log_trace("Found archive member file with size %zu at offset %zu", membsz, offset);
+
+            archive_add_member(archive, name, offset + sizeof(*hdr), membsz);
 
             if (name != NULL) {
                 free(name);
@@ -159,7 +161,7 @@ static int parse_file(const uint8_t *ptr, size_t size, struct archive *archive)
     const char *symtab = (const char*) (offsets + num_entries + 1);
 
     for (uint32_t i = 0; i < num_entries; ++i) {
-        archive_add_symbol(archive, symtab, ntohl(offsets[i + 1]));
+        archive_add_symbol(archive, symtab, ntohl(offsets[i + 1]) + sizeof(struct ar_header));
         symtab += strlen(symtab) + 1;
     }
 

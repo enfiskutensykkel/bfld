@@ -24,9 +24,10 @@ struct archive_frontend;
  */
 struct linkerctx
 {
-    char *name;                     // linker name (used for debugging)
+    char *name;                     // linker name (used for debugging, NOTE: can be NULL)
     int log_ctx;                    // log context
-    struct list_head input_files;   // list of input files that should be processed
+    struct list_head unprocessed;   // list of input files that should be processed
+    struct list_head processed;     // list of input files that are finished processed
     struct list_head archives;      // list of archive files
     struct globals *globals;        // global symbols
 };
@@ -70,17 +71,34 @@ struct linkerctx * linker_create(const char *name);
 void linker_destroy(struct linkerctx *ctx);
 
 
+/*
+ * Add an archive file to the list of archives.
+ */
 struct archive_file * linker_add_archive(struct linkerctx *ctx,
                                          struct archive *archive,
                                          const struct archive_frontend *frontend);
 
 
+/*
+ * Add an object file to the input file list.
+ */
 struct input_file * linker_add_objfile(struct linkerctx *ctx,
                                        struct objfile *objfile,
                                        const struct objfile_frontend *frontend);
 
 
+/*
+ * Load file and add it to the input file list (or archive list)
+ */
 bool linker_load_file(struct linkerctx *ctx, const char *pathname);
+
+
+
+/*
+ * Resolve all global symbols.
+ */
+bool linker_resolve_globals(struct linkerctx *ctx);
+
 
 
 #ifdef __cplusplus

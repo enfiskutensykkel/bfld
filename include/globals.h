@@ -18,7 +18,7 @@ struct symbol;
  */
 struct globals
 {
-    char *name;                 // global symbol table name (used for debugging purposes)
+    char *name;                 // global symbol table name (used for debugging purposes, NOTE: can be NULL)
     int refcnt;                 // reference counter
     size_t nsymbols;            // number of symbols in the symbol table
     struct rb_tree map;         // map of symbols by name
@@ -80,7 +80,6 @@ int globals_insert_symbol(struct globals *globals,
  * Look up a symbol in the global symbol table.
  */
 struct symbol * globals_find_symbol(const struct globals *globals, const char *name);
-
 
 
 #ifdef __cplusplus

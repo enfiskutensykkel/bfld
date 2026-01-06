@@ -14,7 +14,7 @@
 #include <symbol.h>
 
 
-static void print_symbol(FILE *fp, size_t idx, const struct symbol *sym)
+static void print_symbols(FILE *fp, struct linkerctx *ctx)
 {
     static const char *typemap[] = {
         [SYMBOL_NOTYPE] = "notype",
@@ -30,47 +30,47 @@ static void print_symbol(FILE *fp, size_t idx, const struct symbol *sym)
         [SYMBOL_LOCAL] = "local"
     };
 
-    fprintf(fp, "%6zu ", idx);
-    fprintf(fp, "%3s ", symbol_is_defined(sym) ? "yes" : "no");
-    fprintf(fp, "%016lx ", sym->value);
-    fprintf(fp, "%6lu ", sym->size);
-    fprintf(fp, "%6lu ", sym->align);
-    fprintf(fp, "%-6s ", typemap[sym->type]);
-    fprintf(fp, "%-6s ", sym->is_common ? "yes" : "no");
-    fprintf(fp, "%-6s ", bindmap[sym->binding]);
-    fprintf(fp, "%-32.32s", sym->name);
-    fprintf(fp, "\n");
-}
-
-static void print_symbols(FILE *fp, struct linkerctx *ctx)
-{
-    fprintf(fp, "Global symbol table '%s' contains %zu entries:\n",
-            ctx->globals->name, ctx->globals->nsymbols);
-
-    size_t n = 0;
-    fprintf(fp, "%6s %-3s %-16s %6s %6s %-6s %6s %-6s %-32s\n",
-            "Num", "Def", "Value", "Size", "Align", "Type", "Common", "Bind", "Name");
-
-    for (const struct rb_node *node = rb_first(&ctx->globals->map);
-            node != NULL;
-            node = rb_next(node)) {
-        const struct globals_entry *entry = rb_entry(node, struct globals_entry, map_entry);
-        const struct symbol *sym = entry->symbol;
-        print_symbol(fp, n++, sym);
-    }
-
-    list_for_each_entry(entry, &ctx->input_files, struct input_file, list_entry) {
+    list_for_each_entry(entry, &ctx->processed, struct input_file, list_entry) {
         const struct symbols *symbols = entry->symbols;
-        fprintf(fp, "\nLocal symbol table '%s' contains %zu entries:\n",
+
+        fprintf(fp, "Symbol table '%s' contains %zu entries:\n",
                 symbols->name, symbols->nsymbols);
-        fprintf(fp, "%6s %-3s %-16s %6s %6s %-6s %6s %-6s %-32s\n",
-                "Num", "Def", "Value", "Size", "Align", "Type", "Common", "Bind", "Name");
-        for (n = 0; n < symbols->capacity; ++n) {
-            const struct symbol *sym = symbols->entries[n];
-            if (sym != NULL) {
-                print_symbol(fp, n, sym);
+
+        fprintf(fp, "%6s %1s %6s %-16s %6s %-6s %6s %-6s %-32s\n",
+                "Num", "D", "Offset", "Value", "Size", "Align", "Type", "Bind", "Name");
+
+        for (size_t i = 0, n = 0; i < symbols->capacity && n < symbols->nsymbols; ++i) {
+            const struct symbol *sym = symbols_at(symbols, i);
+
+            if (sym == NULL) {
+                continue;
             }
+
+            char def = 'U';
+
+            if (sym->section != NULL) {
+                def = 'D';
+            } else if (sym->is_absolute) {
+                def = 'A';
+            } else if (sym->is_common) {
+                def = 'C';
+            }
+
+            fprintf(fp, "%6zu ", i);
+            fprintf(fp, "%c ", def);
+            fprintf(fp, "%6lu ", sym->offset);
+            fprintf(fp, "%016lx ", sym->value);
+            fprintf(fp, "%6lu ", sym->size);
+            fprintf(fp, "%6lu ", sym->align);
+            fprintf(fp, "%-6s ", typemap[sym->type]);
+            fprintf(fp, "%-6s ", bindmap[sym->binding]);
+            fprintf(fp, "%-32.32s", sym->name);
+            fprintf(fp, "\n");
+
+            ++n;
         }
+
+        fprintf(fp, "\n");
     }
 }
 
@@ -289,6 +289,8 @@ int main(int argc, char **argv)
             exit(2);
         }
     }
+
+    linker_resolve_globals(ctx);
 
     if (dump_symbols) {
         print_symbols(stdout, ctx);

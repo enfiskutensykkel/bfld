@@ -88,6 +88,12 @@ void symbol_put(struct symbol *symbol);
 
 
 /*
+ * Mark symbol as belonging to the common section.
+ */
+int symbol_bind_common(struct symbol *symbol, uint64_t size, uint64_t align);
+                        
+
+/*
  * Assign a definition to a symbol.
  *
  * If section is NULL, offset is assumed to be an absolute address.
@@ -95,13 +101,17 @@ void symbol_put(struct symbol *symbol);
  *
  * If section is set, this function takes a strong reference.
  *
- * Note that if the symbol is already linked with a definition,
+ * Note that if the symbol is already bound to a definition,
+ * the behavior depends on the following:
+ *
+ * If the symbol is strong, the function does nothing and
+ * returns EALREADY.
  *
  * If the symbol is weak, the previous definition is released 
  * and replaced with the new reference.
  *
- * If the symbol is strong, this function does nothing and returns
- * EALREADY.
+ * If the symbol is common and common is set, size and align
+ * is set to the largest of the current and the new definition.
  */
 int symbol_bind_definition(struct symbol *symbol,
                            struct section *section,
@@ -131,7 +141,7 @@ int symbol_bind_definition(struct symbol *symbol,
  *
  * If both are strong, this function returns EEXIST.
  */
-int symbol_resolve_definition(struct symbol *existing, const struct symbol *incoming);
+int symbol_merge(struct symbol *existing, const struct symbol *incoming);
 
 
 #ifdef __cplusplus

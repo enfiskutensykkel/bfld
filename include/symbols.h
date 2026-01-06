@@ -15,7 +15,7 @@ extern "C" {
  */
 struct symbols
 {
-    char *name;                 // symbol table name (for debugging purposes)
+    char *name;                 // symbol table name (NOTE: can be NULL)
     int refcnt;                 // reference counter
     size_t capacity;            // size of the array/table
     size_t nsymbols;            // number of symbols in the array

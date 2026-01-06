@@ -16,10 +16,8 @@ struct sections * sections_alloc(const char *name)
         return NULL;
     }
 
-    st->name = strdup(name);
-    if (st->name == NULL) {
-        free(st);
-        return NULL;
+    if (name != NULL) {
+        st->name = strdup(name);
     }
 
     st->capacity = 0; 
@@ -84,7 +82,9 @@ void sections_put(struct sections *st)
             }
         }
         free(st->entries);
-        free(st->name);
+        if (st->name != NULL) {
+            free(st->name);
+        }
         free(st);
     }
 }
@@ -117,10 +117,6 @@ int sections_insert(struct sections *st, uint64_t idx,
 
     *pos = section_get(sect);
     ++(st->nsections);
-
-    if (idx > st->maxidx) {
-        st->maxidx = idx;
-    }
 
     log_ctx_pop();
     return 0;

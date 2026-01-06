@@ -56,6 +56,20 @@ struct archive_member * archive_get_member(const struct archive *ar, size_t offs
 }
 
 
+struct objfile * archive_get_objfile(struct archive_member *member)
+{
+    if (member->objfile == NULL) {
+        struct archive *ar = member->archive;
+        member->objfile = objfile_alloc(ar->file, member->name, member->content, member->size);
+        if (member->objfile == NULL) {
+            return NULL;
+        }
+    }
+
+    return objfile_get(member->objfile);
+}
+
+
 struct archive_member * archive_add_member(struct archive *ar, 
                                            const char *name,
                                            size_t offset,
@@ -167,7 +181,9 @@ void archive_put(struct archive *ar)
         }
 
         mfile_put(ar->file);
-        free(ar->name);
+        if (ar->name != NULL) {
+            free(ar->name);
+        }
         free(ar);
     }
 }
@@ -186,8 +202,6 @@ struct archive_member * archive_find_symbol(const struct archive *ar, const char
 {
     const struct rb_node *node = ar->symbols.root;
 
-    log_ctx_new(ar->name);
-
     while (node != NULL) {
         struct archive_symbol *this = rb_entry(node, struct archive_symbol, map_entry);
         int result = strcmp(symbol, this->name);
@@ -197,13 +211,12 @@ struct archive_member * archive_find_symbol(const struct archive *ar, const char
         } else if (result > 0) {
             node = node->right;
         } else {
-            log_trace("Found symbol '%s' in member %s", this->name, this->member->name);
-            log_ctx_pop();
+            log_trace("Archive member at offset %zu provides symbol '%s'",
+                    this->member->offset, symbol);
             return this->member;
         }
     }
 
-    log_ctx_pop();
     return NULL;
 }
 
@@ -229,10 +242,8 @@ struct archive * archive_alloc(struct mfile *file,
         return NULL;
     }
 
-    ar->name = strdup(name);
-    if (ar->name == NULL) {
-        free(ar);
-        return NULL;
+    if (name != NULL) {
+        ar->name = strdup(name);
     }
 
     ar->file = mfile_get(file);

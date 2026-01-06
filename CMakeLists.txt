@@ -49,7 +49,7 @@ set_target_properties(linkerlib PROPERTIES OUTPUT_NAME bfld)
 # TODO: at some point we want to register loaders/frontends with dlsym/dlopen and determine loaders/frontends with command line arguments (then point default loader based on architecture using if (macos/unix)
 
 add_executable(bfld src/main.c)
-add_subdirectory(src/frontends/elf)
+add_subdirectory(src/frontends)
 #add_subdirectory(src/arch)
 
 #target_compile_definitions(bfld PUBLIC DEFAULT_BFVM="$<TARGET_FILE:bfvm>")
