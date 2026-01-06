@@ -34,7 +34,7 @@ struct objfile;
 struct section
 {
     struct objfile *objfile;        // strong reference to the object file the section is defined in
-    size_t offset;                  // offset to section content (used for debugging)
+    uint64_t offset;                // offset to section content
     char *name;                     // name of the section (NOTE: can be NULL)
     uint64_t idx;                   // section index in the object file (used for debugging)
     uint32_t march;                 // machine code architecture (used for sanity checking)
