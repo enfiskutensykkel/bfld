@@ -1,8 +1,8 @@
+#include "objfile_frontend.h"
+#include "archive_frontend.h"
 #include "logging.h"
 #include "linker.h"
 #include "objfile.h"
-#include "frontends/objfile.h"
-#include "frontends/archive.h"
 #include "utils/list.h"
 #include "sections.h"
 #include "symbols.h"
@@ -113,12 +113,17 @@ static void remove_frontends(void)
 }
 
 
-const struct objfile_frontend * objfile_frontend_probe(const uint8_t *data, size_t size)
+const struct objfile_frontend * objfile_frontend_probe(const uint8_t *data, size_t size, uint32_t *march)
 {
+    uint32_t m = 0;
+
     list_for_each_entry(entry, &objfile_frontends, struct objfile_fe_entry, node) {
         const struct objfile_frontend *fe = entry->frontend;
 
-        if (fe->probe_file(data, size)) {
+        if (fe->probe_file(data, size, &m)) {
+            if (march != NULL) {
+                *march = m;
+            }
             return fe;
         }
     }
@@ -269,7 +274,7 @@ struct input_file * linker_add_objfile(struct linkerctx *ctx,
     log_ctx_new(objfile->name);
 
     if (fe == NULL) {
-        fe = objfile_frontend_probe(objfile->file_data, objfile->file_size);
+        fe = objfile_frontend_probe(objfile->file_data, objfile->file_size, &objfile->march);
     }
 
     if (fe == NULL) {
@@ -277,6 +282,7 @@ struct input_file * linker_add_objfile(struct linkerctx *ctx,
         log_ctx_pop();
         return NULL;
     }
+
     log_trace("Front-end '%s' is best match for object file", fe->name);
 
     struct input_file *file = malloc(sizeof(struct input_file));
@@ -362,8 +368,9 @@ bool linker_load_file(struct linkerctx *ctx, const char *pathname)
     // Try to open as an object file
     list_for_each_entry(entry, &objfile_frontends, struct objfile_fe_entry, node) {
         const struct objfile_frontend *fe = entry->frontend;
+        uint32_t march = 0;
 
-        if (!fe->probe_file(file->data, file->size)) {
+        if (!fe->probe_file(file->data, file->size, &march)) {
             continue;
         }
 
@@ -371,6 +378,7 @@ bool linker_load_file(struct linkerctx *ctx, const char *pathname)
         if (obj == NULL) {
             goto unwind;
         }
+        obj->march = march;
 
         struct input_file * infile = linker_add_objfile(ctx, obj, fe);
         objfile_put(obj);

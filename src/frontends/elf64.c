@@ -1,4 +1,4 @@
-#include <frontends/objfile.h>
+#include <objfile_frontend.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -33,7 +33,7 @@ struct elf_section_entry
 };
 
 
-static bool check_elf_header(const uint8_t *file_data, size_t file_size)
+static bool check_elf_header(const uint8_t *file_data, size_t file_size, uint32_t *march)
 {
     const Elf64_Ehdr *ehdr = (const Elf64_Ehdr*) file_data;
 
@@ -65,6 +65,7 @@ static bool check_elf_header(const uint8_t *file_data, size_t file_size)
         return false;
     }
 
+    *march = ehdr->e_machine;
     return true;
 }
 
@@ -431,19 +432,6 @@ static int parse_elf_file(const uint8_t *file_data,
     struct list_head symtabs = LIST_HEAD_INIT(symtabs);
 
     (void) file_size; // unused parameter
-
-    // Only allow machine code architectures we support
-    switch (eh->e_machine) {
-        case EM_X86_64:
-            //const uint32_t *reloc_map = NULL;
-            //reloc_map = x86_64_reloc_map;
-            break;
-
-        default:
-            log_fatal("Unexpected machine architecture (type %x). Only x86-64 (type %x) is supported", 
-                    eh->e_machine, EM_X86_64);
-            return ENOTSUP;
-    }
 
     // Parse file and create sections
     status = parse_sections(eh, objfile, sections, &reltabs, &symtabs);

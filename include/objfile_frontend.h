@@ -7,12 +7,12 @@ extern "C" {
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include "../objfile.h"
-#include "../section.h"
-#include "../sections.h"
-#include "../symbol.h"
-#include "../symbols.h"
-#include "../globals.h"
+#include "objfile.h"
+#include "section.h"
+#include "sections.h"
+#include "symbol.h"
+#include "symbols.h"
+#include "globals.h"
 
 
 /*
@@ -35,7 +35,7 @@ struct objfile_frontend
      * Determine if the memory mapped file content is a format
      * supported by the front-end.
      */
-    bool (*probe_file)(const uint8_t *file_data, size_t file_size);
+    bool (*probe_file)(const uint8_t *file_data, size_t file_size, uint32_t *march);
 
     /*
      * Parse file data and load sections and symbols.
@@ -91,7 +91,7 @@ void objfile_frontend_register(const struct objfile_frontend *frontend);
  * to probe the memory area to find the front-end that supports
  * this format.
  */
-const struct objfile_frontend * objfile_frontend_probe(const uint8_t *file_data, size_t file_size);
+const struct objfile_frontend * objfile_frontend_probe(const uint8_t *file_data, size_t file_size, uint32_t *march);
 
 
 #ifdef __cplusplus

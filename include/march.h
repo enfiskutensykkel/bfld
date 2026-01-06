@@ -1,7 +1,0 @@
-#ifndef _BFLD_MACHINE_ARCHITECTURE_H
-#define _BFLD_MACHINE_ARCHITECTURE_H
-
-#define ARCH_UNKNOWN    0
-#define ARCH_X86_64     1
-
-#endif

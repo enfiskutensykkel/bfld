@@ -55,6 +55,7 @@ struct objfile * objfile_alloc(struct mfile *file, const char *name,
         objfile->name = strdup(name);
     }
     objfile->file = mfile_get(file);
+    objfile->march = 0;
     objfile->refcnt = 1;
     objfile->file_data = file_data;
     objfile->file_size = file_size;
