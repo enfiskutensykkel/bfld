@@ -37,7 +37,6 @@ struct section
     uint64_t offset;                // offset to section content
     char *name;                     // name of the section (NOTE: can be NULL)
     uint64_t idx;                   // section index in the object file (used for debugging)
-    uint32_t march;                 // machine code architecture (used for sanity checking)
     int refcnt;                     // reference counter
     enum section_type type;         // section type 
     uint64_t align;                 // section alignment requirements (addr must be a multiple of align)

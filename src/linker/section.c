@@ -43,7 +43,6 @@ struct section * section_alloc(struct objfile *objfile,
     sect->objfile = objfile_get(objfile);
     sect->idx = idx;
     sect->offset = offset;
-    sect->march = objfile->march;
     sect->refcnt = 1;
     sect->align = 0;
     sect->type = type;

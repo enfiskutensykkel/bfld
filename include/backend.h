@@ -84,10 +84,10 @@ struct backend
      * to mean that a fatal error occurred and all further 
      * processing is aborted.
      */
-    int (*apply_reloc)(uint8_t *sect_content,   // pointer to the start of the section content
+    int (*apply_reloc)(uint8_t *content,        // pointer to the start of the section content
                        uint64_t offset,         // offset to where to apply the relocation
-                       uint64_t sect_vaddr,     // absolute address of the section
-                       uint64_t target_vaddr,   // the absolute address of the target
+                       uint64_t baseaddr,       // absolute base address of the section
+                       uint64_t targetaddr,     // absolute address of the target
                        int64_t addend,          // relocation addend
                        uint32_t reloc_type);    // relocation type
 
@@ -103,7 +103,7 @@ void backend_register(const struct backend *backend);
 /*
  * Look up a linker back-end based on the machine code architecture.
  */
-const struct backend * bfile_backend_lookup(uint32_t march);
+const struct backend * backend_lookup(uint32_t march);
 
 
 #ifdef __cplusplus

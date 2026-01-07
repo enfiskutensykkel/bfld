@@ -1,3 +1,4 @@
+#include "backend.h"
 #include "objfile_frontend.h"
 #include "archive_frontend.h"
 #include "logging.h"
@@ -37,6 +38,16 @@ struct objfile_fe_entry
 };
 
 
+/*
+ * Linker machine code architecture back-end.
+ */
+struct be_entry
+{
+    struct list_head node;
+    const struct backend *backend;
+};
+
+
 
 int log_level = 1;  // initial log level
 int log_ctx = 0;    // initial log context
@@ -53,6 +64,12 @@ static struct list_head objfile_frontends = LIST_HEAD_INIT(objfile_frontends);
  * List of archive file front-ends.
  */
 static struct list_head archive_frontends = LIST_HEAD_INIT(archive_frontends);
+
+
+/*
+ * List of back-ends.
+ */
+static struct list_head backends = LIST_HEAD_INIT(backends);
 
 
 void archive_frontend_register(const struct archive_frontend *fe)
@@ -95,11 +112,35 @@ void objfile_frontend_register(const struct objfile_frontend *fe)
 }
 
 
+void backend_register(const struct backend *be)
+{
+    if (be == NULL || be->name == NULL || be->march == 0) {
+        return;
+    }
+
+    if (be->apply_reloc == NULL) {
+        return;
+    }
+
+    if (backend_lookup(be->march) != NULL) {
+        return;
+    }
+
+    struct be_entry *entry = malloc(sizeof(struct be_entry));
+    if (entry == NULL) {
+        return;
+    }
+
+    entry->backend = be;
+    list_insert_tail(&backends, &entry->node);
+}
+
+
 /*
- * Remove all registered front-ends
+ * Remove all registered front-ends and back-ends.
  */
 __attribute__((destructor(65535)))
-static void remove_frontends(void)
+static void remove_registered(void)
 {
     list_for_each_entry_safe(entry, &objfile_frontends, struct objfile_fe_entry, node) {
         list_remove(&entry->node);
@@ -107,6 +148,11 @@ static void remove_frontends(void)
     }
 
     list_for_each_entry_safe(entry, &archive_frontends, struct archive_fe_entry, node) {
+        list_remove(&entry->node);
+        free(entry);
+    }
+
+    list_for_each_entry_safe(entry, &backends, struct be_entry, node) {
         list_remove(&entry->node);
         free(entry);
     }
@@ -140,6 +186,18 @@ const struct archive_frontend * archive_frontend_probe(const uint8_t *data, size
             return fe;
         }
     }
+    return NULL;
+}
+
+
+const struct backend * backend_lookup(uint32_t march) 
+{
+    list_for_each_entry(entry, &backends, struct be_entry, node) {
+        if (entry->backend->march == march) {
+            return entry->backend;
+        }
+    }
+
     return NULL;
 }
 
@@ -272,14 +330,37 @@ struct input_file * linker_add_input_file(struct linkerctx *ctx,
                                           struct objfile *objfile,
                                           const struct objfile_frontend *fe)
 {
+    uint32_t march = 0;
     log_ctx_new(objfile->name);
 
     if (fe == NULL) {
-        fe = objfile_frontend_probe(objfile->file_data, objfile->file_size, &objfile->march);
+        fe = objfile_frontend_probe(objfile->file_data, objfile->file_size, &march);
+    } else {
+        fe->probe_file(objfile->file_data, objfile->file_size, &march);
     }
 
     if (fe == NULL) {
         log_error("Unrecognized file format");
+        log_ctx_pop();
+        return NULL;
+    }
+
+    if (march == 0) {
+        log_error("Unknown machine code architecture");
+        log_ctx_pop();
+        return NULL;
+    }
+
+    const struct backend *be = backend_lookup(march);
+    if (be == NULL) {
+        log_error("Unsupported machine code architecture");
+        log_ctx_pop();
+        return NULL;
+    }
+
+    struct input_file *prev = list_last_entry(&ctx->unprocessed, struct input_file, list_entry);
+    if (prev != NULL && prev->backend->march != be->march) {
+        log_error("Mixing machine code architecture is not supported");
         log_ctx_pop();
         return NULL;
     }
@@ -293,6 +374,7 @@ struct input_file * linker_add_input_file(struct linkerctx *ctx,
     }
 
     file->name = strdup(objfile->name);
+    file->backend = be;
 
     file->symbols = symbols_alloc(objfile->name);
     if (file->symbols == NULL) {
@@ -319,11 +401,6 @@ struct input_file * linker_add_input_file(struct linkerctx *ctx,
         free(file);
         log_ctx_pop();
         return NULL;
-    }
-
-    if (objfile->march == 0) {
-        // Ugly, bugly hack in case parse file doesn't set the architecture
-        fe->probe_file(objfile->file_data, objfile->file_size, &objfile->march);
     }
 
     list_insert_tail(&ctx->unprocessed, &file->list_entry);

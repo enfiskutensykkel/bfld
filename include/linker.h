@@ -17,6 +17,7 @@ struct objfile;
 struct objfile_frontend;
 struct archive;
 struct archive_frontend;
+struct backend;
 
 
 /* 
@@ -39,10 +40,12 @@ struct linkerctx
 struct input_file
 {
     char *name;                     // filename
+    uint32_t march;                 // machine code architecture
     struct linkerctx *ctx;          // weak reference to linker context
     struct list_head list_entry;    // linked list entry
     struct sections *sections;      // sections in this input file
     struct symbols *symbols;        // local symbols in this file
+    const struct backend *backend;
 };
 
 

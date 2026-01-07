@@ -523,8 +523,6 @@ static int parse_elf_file(const uint8_t *file_data,
 
     (void) file_size; // unused parameter
     
-    objfile->march = eh->e_machine;
-
     // Parse file and create sections
     status = parse_sections(eh, objfile, sections, &reltabs, &symtabs);
     if (status != 0) {

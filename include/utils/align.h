@@ -9,10 +9,9 @@ extern "C" {
 
 /* 
  * Convenience macro for aligning addresses and sizes to a specified alignment.
- * Alignment must be a power of two and greater than 0.
  */
 #define align_to(size, alignment) \
-    (((uint64_t) (size) + (alignment) - 1) & ~(((uint64_t) (alignment) - 1)))
+    (((uint64_t) (size) + (1ULL << (alignment)) - 1) & ~(((uint64_t) (1ULL << (alignment)) - 1)))
 
 
 /*
