@@ -376,6 +376,7 @@ bool linker_resolve_globals(struct linkerctx *ctx)
                         struct objfile *obj = archive_get_objfile(m);
                         if (obj != NULL) {
                             loaded_file = linker_add_input_file(ctx, obj, NULL) != NULL;
+                            objfile_put(obj);
                         }
 
                         break;

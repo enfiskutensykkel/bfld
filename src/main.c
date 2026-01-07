@@ -41,7 +41,7 @@ static void print_symbols(FILE *fp, struct linkerctx *ctx)
         fprintf(fp, "Symbol table '%s' contains %zu entries:\n",
                 symbols->name, symbols->nsymbols);
 
-        fprintf(fp, "%6s %1s %6s %-16s %6s %-6s %6s %-6s %-32s\n",
+        fprintf(fp, "%6s %1s %6s %-16s %6s %6s %-6s %-6s %-32s\n",
                 "Num", "D", "Offset", "Value", "Size", "Align", "Type", "Bind", "Name");
 
         for (size_t i = 0, n = 0; i < symbols->capacity && n < symbols->nsymbols; ++i) {
@@ -75,6 +75,43 @@ static void print_symbols(FILE *fp, struct linkerctx *ctx)
             ++n;
         }
 
+        fprintf(fp, "\n");
+    }
+}
+
+
+static void print_relocs(FILE *fp, struct linkerctx *ctx)
+{
+    list_for_each_entry(entry, &ctx->processed, struct input_file, list_entry) {
+        const struct sections *sections = entry->sections;
+
+        fprintf(fp, "Section table '%s' contains %zu entries:\n",
+                sections->name, sections->nsections);
+
+        for (size_t i = 0, n = 0; i < sections->capacity && n < sections->nsections; ++i) {
+            const struct section *sect = sections_at(sections, i);
+
+            if (sect == NULL) {
+                continue;
+            }
+
+            fprintf(fp, "Section %zu '%s' has %zu relocations:\n", i, sect->name, sect->nrelocs);
+
+            fprintf(fp, "%6s %-2s %6s %6s %-32s\n",
+                    "Num", "T", "Offset", "Addend", "Symbol");
+
+            size_t j = 0;
+            list_for_each_entry(reloc, &sect->relocs, const struct reloc, list_entry) {
+                fprintf(fp, "%6zu ", j++);
+                fprintf(fp, "%02x ", reloc->type);
+                fprintf(fp, "%6lu ", reloc->offset);
+                fprintf(fp, "%6ld ", reloc->addend);
+                fprintf(fp, "%-32.32s", reloc->symbol->name);
+                fprintf(fp, "\n");
+            }
+
+            ++n;
+        }
         fprintf(fp, "\n");
     }
 }
@@ -273,11 +310,13 @@ int main(int argc, char **argv)
     int c;
     int idx = -1;
     static int dump_symbols = 0;
+    static int dump_relocs = 0;
 
     static struct option options[] = {
         {"verbose", optional_argument, 0, 'v'},
         {"help", no_argument, 0, 'h'},
         {"dump-symbols", no_argument, &dump_symbols, 10},
+        {"dump-relocs", no_argument, &dump_relocs, 1},
         {0, 0, 0, 0}
     };
 
@@ -312,7 +351,8 @@ int main(int argc, char **argv)
                 fprintf(stdout, "Options:\n");
                 print_option(stdout, "-h", "--help", no_argument, NULL, "Show this help and quit.");
                 print_option(stdout, "-v", "--verbose", optional_argument, "level", "Increase log level.");
-                print_option(stdout, "--dump-symbols", NULL, no_argument, NULL, "Dump symbols.");
+                print_option(stdout, "--dump-symbols", NULL, no_argument, NULL, "Print symbols.");
+                print_option(stdout, "--dump-relocs", NULL, no_argument, NULL, "Print relocations.");
                 linker_destroy(ctx);
                 exit(0);
 
@@ -348,10 +388,15 @@ int main(int argc, char **argv)
     }
 
     if (dump_symbols) {
+        // FIXME: do this for the merged sections instead
         print_symbols(stdout, ctx);
-        linker_destroy(ctx);
-        exit(0);
     }
+
+    if (dump_relocs) {
+        print_relocs(stdout, ctx);
+    }
+
+    // TODO: mark-and-sweep sections for dead code elimination (DCE), but we might need a sectiongroup concept
 
     linker_destroy(ctx);
     exit(0);

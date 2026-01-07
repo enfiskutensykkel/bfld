@@ -73,7 +73,6 @@ int globals_insert_symbol(struct globals *globals, struct symbol *symbol,
         } else if (result > 0) {
             pos = &((*pos)->right);
         } else {
-
             if (existing != NULL) {
                 *existing = this->symbol;
             }

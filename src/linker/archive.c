@@ -76,7 +76,7 @@ struct archive_member * archive_add_member(struct archive *ar,
                                            size_t size)
 {
     if (offset + size > ar->file_size) {
-        log_error("Invalid offset and size");
+        log_error("Invalid offset and size for archive member");
         return NULL;
     }
 
@@ -91,7 +91,7 @@ struct archive_member * archive_add_member(struct archive *ar,
         } else if (offset > this->offset) {
             pos = &((*pos)->right);
         } else {
-            log_error("Duplicate archive member at offset %lu", offset);
+            log_error("Duplicate member at offset %lu in archive %s", offset, ar->name);
             return NULL;
         }
     }
@@ -123,17 +123,16 @@ bool archive_add_symbol(struct archive *ar, const char *symbol, size_t offset)
 
     struct archive_member *member = archive_get_member(ar, offset);
     if (member == NULL) {
-        log_fatal("Symbol '%s' in index refers to non-existing archive member %lu",
-                symbol, offset);
+        log_error("Symbol '%s' refers to non-existing archive member %lu in archive %s",
+                symbol, offset, ar->name);
         return false;
     }
 
     while (*pos != NULL) {
-        struct archive_symbol *this = rb_entry(&pos, struct archive_symbol, map_entry);
-        int result = strcmp(symbol, this->name);
-
+        struct archive_symbol *this = rb_entry(*pos, struct archive_symbol, map_entry);
         parent = *pos;
 
+        int result = strcmp(symbol, this->name);
         if (result < 0) {
             pos = &((*pos)->left);
         } else {
@@ -156,6 +155,7 @@ bool archive_add_symbol(struct archive *ar, const char *symbol, size_t offset)
     sym->archive = ar;
     sym->member = member;
     rb_insert_node(&sym->map_entry, parent, pos);
+    log_trace("Archive %s provides symbol '%s'", ar->name, symbol);
     rb_insert_fixup(&ar->symbols, &sym->map_entry);
     return true;
 }
@@ -200,7 +200,7 @@ struct archive * archive_get(struct archive *ar)
 
 struct archive_member * archive_find_symbol(const struct archive *ar, const char *symbol)
 {
-    const struct rb_node *node = ar->symbols.root;
+    struct rb_node *node = ar->symbols.root;
 
     while (node != NULL) {
         struct archive_symbol *this = rb_entry(node, struct archive_symbol, map_entry);
@@ -211,8 +211,8 @@ struct archive_member * archive_find_symbol(const struct archive *ar, const char
         } else if (result > 0) {
             node = node->right;
         } else {
-            log_trace("Archive member at offset %zu provides symbol '%s'",
-                    this->member->offset, symbol);
+            log_trace("Archive %s member at offset %zu provides symbol '%s'",
+                    ar->name, this->member->offset, this->name);
             return this->member;
         }
     }
