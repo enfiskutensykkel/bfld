@@ -178,10 +178,12 @@ struct linkerctx * linker_create(const char *name)
 
 static void remove_input_file(struct input_file *file)
 {
-    objfile_put(file->objfile);
     list_remove(&file->list_entry);
     sections_put(file->sections);
     symbols_put(file->symbols);
+    if (file->name != NULL) {
+        free(file->name);
+    }
     free(file);
 }
 
@@ -259,7 +261,6 @@ struct archive_file * linker_add_archive(struct linkerctx *ctx, struct archive *
     arfile->ctx = ctx;
     list_insert_tail(&ctx->archives, &arfile->list_entry);
     arfile->archive = archive_get(ar);
-    arfile->frontend = fe;
     
     log_trace("Archive file added");
     log_ctx_pop();
@@ -267,9 +268,9 @@ struct archive_file * linker_add_archive(struct linkerctx *ctx, struct archive *
 }
 
 
-struct input_file * linker_add_objfile(struct linkerctx *ctx,
-                                       struct objfile *objfile,
-                                       const struct objfile_frontend *fe)
+struct input_file * linker_add_input_file(struct linkerctx *ctx,
+                                          struct objfile *objfile,
+                                          const struct objfile_frontend *fe)
 {
     log_ctx_new(objfile->name);
 
@@ -291,6 +292,8 @@ struct input_file * linker_add_objfile(struct linkerctx *ctx,
         return NULL;
     }
 
+    file->name = strdup(objfile->name);
+
     file->symbols = symbols_alloc(objfile->name);
     if (file->symbols == NULL) {
         free(file);
@@ -307,15 +310,11 @@ struct input_file * linker_add_objfile(struct linkerctx *ctx,
     }
 
     file->ctx = ctx;
-    file->objfile = objfile_get(objfile);
     
-    file->frontend = fe;
-
     int status = fe->parse_file(objfile->file_data, objfile->file_size, 
                                 objfile, file->sections, file->symbols, ctx->globals);
     if (status != 0) {
         symbols_put(file->symbols);
-        objfile_put(file->objfile);
         sections_put(file->sections);
         free(file);
         log_ctx_pop();
@@ -380,7 +379,7 @@ bool linker_load_file(struct linkerctx *ctx, const char *pathname)
         }
         obj->march = march;
 
-        struct input_file * infile = linker_add_objfile(ctx, obj, fe);
+        struct input_file * infile = linker_add_input_file(ctx, obj, fe);
         objfile_put(obj);
         if (infile == NULL) {
             goto unwind;
@@ -399,8 +398,6 @@ unwind:
 }
 
 
-
-
 bool linker_resolve_globals(struct linkerctx *ctx)
 {
     bool loaded_file = false;
@@ -410,7 +407,7 @@ bool linker_resolve_globals(struct linkerctx *ctx)
 
         list_for_each_entry_safe(file, &ctx->unprocessed, struct input_file, list_entry) {
 
-            log_ctx_new(file->objfile->name);
+            log_ctx_new(file->name);
 
             for (size_t i = 0, n = 0; i < file->symbols->capacity && n < file->symbols->nsymbols; ++i) {
                 const struct symbol *sym = symbols_at(file->symbols, i);
@@ -431,7 +428,7 @@ bool linker_resolve_globals(struct linkerctx *ctx)
                             log_debug("Found symbol '%s' in archive, loading member file", sym->name);
                             struct objfile *obj = archive_get_objfile(m);
                             if (obj != NULL) {
-                                loaded_file = linker_add_objfile(ctx, obj, NULL) != NULL;
+                                loaded_file = linker_add_input_file(ctx, obj, NULL) != NULL;
                                 objfile_put(obj);
                             }
                             break;
@@ -439,7 +436,7 @@ bool linker_resolve_globals(struct linkerctx *ctx)
                     }
 
                     if (!loaded_file) {
-                        log_fatal("Unresolved global symbol '%s'", sym->name);
+                        log_error("Unresolved global symbol '%s'", sym->name);
                         log_ctx_pop();
                         return false;
                     }
@@ -459,6 +456,11 @@ bool linker_resolve_globals(struct linkerctx *ctx)
     if (!list_empty(&ctx->unprocessed)) {
         log_fatal("Unable to resolve all global symbols");
         return false;
+    }
+
+    // All symbols are loaded, we can release all archives
+    list_for_each_entry_safe(file, &ctx->archives, struct archive_file, list_entry) {
+        remove_archive_file(file);
     }
 
     return true;

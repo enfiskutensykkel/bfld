@@ -120,6 +120,7 @@ struct archive_member * archive_find_symbol(const struct archive *ar, const char
  * Note that this takes an object file handle reference,
  * so the caller must call objfile_put() to relase it.
  */
+// FIXME: should this instead remove member (so it isn't reloaded)
 struct objfile * archive_get_objfile(struct archive_member *member);
 
 

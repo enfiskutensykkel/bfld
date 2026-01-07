@@ -38,12 +38,11 @@ struct linkerctx
  */
 struct input_file
 {
+    char *name;                     // filename
     struct linkerctx *ctx;          // weak reference to linker context
     struct list_head list_entry;    // linked list entry
-    struct objfile *objfile;        // object file handle
     struct sections *sections;      // sections in this input file
     struct symbols *symbols;        // local symbols in this file
-    const struct objfile_frontend *frontend; // frontend used for loading this file
 };
 
 
@@ -55,7 +54,6 @@ struct archive_file
     struct linkerctx *ctx;          // weak reference to the linker context
     struct list_head list_entry;    // linker list entry
     struct archive *archive;        // archive file handle
-    const struct archive_frontend *frontend; // frontend used for loading this file
 };
 
 
@@ -82,9 +80,9 @@ struct archive_file * linker_add_archive(struct linkerctx *ctx,
 /*
  * Add an object file to the input file list.
  */
-struct input_file * linker_add_objfile(struct linkerctx *ctx,
-                                       struct objfile *objfile,
-                                       const struct objfile_frontend *frontend);
+struct input_file * linker_add_input_file(struct linkerctx *ctx,
+                                          struct objfile *objfile,
+                                          const struct objfile_frontend *frontend);
 
 
 /*
