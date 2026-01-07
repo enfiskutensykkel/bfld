@@ -424,15 +424,23 @@ bool linker_resolve_globals(struct linkerctx *ctx)
                     list_for_each_entry(ar, &ctx->archives, struct archive_file, list_entry) {
                         struct archive_member *m = archive_find_symbol(ar->archive, sym->name);
 
-                        if (m != NULL) {
-                            log_debug("Found symbol '%s' in archive, loading member file", sym->name);
-                            struct objfile *obj = archive_get_objfile(m);
-                            if (obj != NULL) {
-                                loaded_file = linker_add_input_file(ctx, obj, NULL) != NULL;
-                                objfile_put(obj);
-                            }
-                            break;
+                        // No member provides the symbol
+                        if (m == NULL) {
+                            continue;
                         }
+
+                        // Member provides the symbol, but it is already loaded
+                        if (m->objfile != NULL) {
+                            continue;
+                        }
+
+                        log_debug("Found symbol '%s' in archive, loading member file", sym->name);
+                        struct objfile *obj = archive_get_objfile(m);
+                        if (obj != NULL) {
+                            loaded_file = linker_add_input_file(ctx, obj, NULL) != NULL;
+                            objfile_put(obj);
+                        }
+                        break;
                     }
 
                     if (!loaded_file) {
