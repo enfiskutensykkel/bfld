@@ -86,7 +86,7 @@ struct input_file * linker_add_input_file(struct linkerctx *ctx,
 
 
 /*
- * Resolve all global symbols.
+ * Resolve all undefined global symbols.
  */
 bool linker_resolve_globals(struct linkerctx *ctx);
 

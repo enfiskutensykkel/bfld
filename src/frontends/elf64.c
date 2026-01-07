@@ -134,6 +134,10 @@ static int parse_sections(const Elf64_Ehdr *eh,
         log_ctx_push(LOG_CTX_SECTION(shname));
 
         switch (sh->sh_type) {
+            case SHT_GROUP:
+                log_warning("Section groups are not supported");
+                break;
+
             case SHT_SYMTAB:
                 log_trace("Identified symbol table section");
 

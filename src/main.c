@@ -149,7 +149,7 @@ static char * format_option(char *buf,
         }
     }
 
-    buf[i++] = '=';
+    buf[i++] = has_arg == optional_argument ? '=' : ' ';
     if (i == bufsz) {
         return buf + i;
     }
@@ -312,9 +312,14 @@ int main(int argc, char **argv)
     static int dump_symbols = 0;
     static int dump_relocs = 0;
 
+    const char *output_file = "a.out";
+    const char *entry = "_start";
+
     static struct option options[] = {
         {"verbose", optional_argument, 0, 'v'},
         {"help", no_argument, 0, 'h'},
+        {"output", required_argument, 0, 'o'},
+        {"entry", required_argument, 0, 'e'},
         {"dump-symbols", no_argument, &dump_symbols, 10},
         {"dump-relocs", no_argument, &dump_relocs, 1},
         {0, 0, 0, 0}
@@ -325,10 +330,18 @@ int main(int argc, char **argv)
         exit(2);
     }
 
-    while ((c = getopt_long_only(argc, argv, ":hv", options, &idx)) != -1) {
+    while ((c = getopt_long_only(argc, argv, ":hvo:e:", options, &idx)) != -1) {
         switch (c) {
 
             case 0:
+                break;
+
+            case 'o':
+                output_file = optarg;
+                break;
+
+            case 'e':
+                entry = optarg;
                 break;
 
             case 'v':
@@ -347,10 +360,12 @@ int main(int argc, char **argv)
                 break;
 
             case 'h':
-                fprintf(stdout, "Usage: %s [options] file...\n", argv[0]);
+                fprintf(stdout, "Usage: %s [OPTIONS] FILE...\n", argv[0]);
                 fprintf(stdout, "Options:\n");
                 print_option(stdout, "-h", "--help", no_argument, NULL, "Show this help and quit.");
                 print_option(stdout, "-v", "--verbose", optional_argument, "level", "Increase log level.");
+                print_option(stdout, "-o", "--output", required_argument, "FILE", "Set output file name.");
+                print_option(stdout, "-e", "--entry", required_argument, "ADDRESS", "Set start address.");
                 print_option(stdout, "--dump-symbols", NULL, no_argument, NULL, "Print symbols.");
                 print_option(stdout, "--dump-relocs", NULL, no_argument, NULL, "Print relocations.");
                 linker_destroy(ctx);
@@ -383,6 +398,7 @@ int main(int argc, char **argv)
     }
 
     if (!linker_resolve_globals(ctx)) {
+        //  TODO: 
         linker_destroy(ctx);
         exit(3);
     }
@@ -396,7 +412,9 @@ int main(int argc, char **argv)
         print_relocs(stdout, ctx);
     }
 
-    // TODO: mark-and-sweep sections for dead code elimination (DCE), but we might need a sectiongroup concept
+    // TODO: mark-and-sweep sections for dead code elimination (DCE), but we might need a section group concept
+    
+    log_notice("output=%s entry=%s", output_file, entry);
 
     linker_destroy(ctx);
     exit(0);
