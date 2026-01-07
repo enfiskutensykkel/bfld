@@ -131,7 +131,7 @@ static int parse_sections(const Elf64_Ehdr *eh,
         const Elf64_Shdr *sh = elf_section(eh, shndx);
         const char *shname = lookup_strtab_str(eh, sh->sh_name);
 
-        log_ctx_push(LOG_CTX_SECTION(shname, .lineno = shndx));
+        log_ctx_push(LOG_CTX_SECTION(shname));
 
         switch (sh->sh_type) {
             case SHT_SYMTAB:
@@ -264,7 +264,7 @@ static int parse_symtab(const Elf64_Ehdr *eh, const Elf64_Shdr *sh, const struct
     const char* strtab = (const char*) ((const uint8_t*) eh) + elf_section(eh, sh->sh_link)->sh_offset;
     uint64_t shndx = sh - ((const Elf64_Shdr*) (((const uint8_t*) eh) + eh->e_shoff));
 
-    log_ctx_push(LOG_CTX_SECTION(lookup_strtab_str(eh, sh->sh_name), .lineno = shndx));
+    log_ctx_push(LOG_CTX_SECTION(lookup_strtab_str(eh, sh->sh_name)));
 
     if (!symbols_reserve(symbols, sh->sh_size / sh->sh_entsize)) {
         log_ctx_pop();
@@ -432,6 +432,8 @@ static int parse_elf_file(const uint8_t *file_data,
     struct list_head symtabs = LIST_HEAD_INIT(symtabs);
 
     (void) file_size; // unused parameter
+    
+    objfile->march = eh->e_machine;
 
     // Parse file and create sections
     status = parse_sections(eh, objfile, sections, &reltabs, &symtabs);

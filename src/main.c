@@ -13,6 +13,11 @@
 #include <globals.h>
 #include <symbol.h>
 
+#include <objfile.h>
+#include <archive.h>
+#include <objfile_frontend.h>
+#include <archive_frontend.h>
+
 
 static void print_symbols(FILE *fp, struct linkerctx *ctx)
 {
@@ -215,6 +220,53 @@ static void print_option(FILE *fp,
 }
 
 
+static bool linker_load_file(struct linkerctx *ctx, const char *pathname)
+{
+    struct mfile *file = NULL;
+
+    log_ctx_new(pathname);
+
+    int status = mfile_open_read(&file, pathname);
+    if (status != 0) {
+        log_ctx_pop();
+        return false;
+    }
+
+    // Try to open as archive file
+    const struct archive_frontend *arfe = archive_frontend_probe(file->data, file->size);
+    if (arfe != NULL) {
+        struct archive *ar = archive_alloc(file, file->name, file->data, file->size);
+
+        if (ar != NULL) {
+            bool success = linker_add_archive(ctx, ar, arfe) != NULL;
+            archive_put(ar);
+            mfile_put(file);
+            log_ctx_pop();
+            return success;
+        }
+    }
+
+    // Try to open as object file
+    const struct objfile_frontend *objfe = objfile_frontend_probe(file->data, file->size, NULL);
+    if (objfe != NULL) {
+        struct objfile *obj = objfile_alloc(file, file->name, file->data, file->size);
+
+        if (obj != NULL) {
+            bool success = linker_add_input_file(ctx, obj, objfe) != NULL;
+            objfile_put(obj);
+            mfile_put(file);
+            log_ctx_pop();
+            return success;
+        }
+    }
+
+    log_error("Unrecognized file format for file '%s'", pathname);
+    mfile_put(file);
+    log_ctx_pop();
+    return false;
+}
+
+
 
 int main(int argc, char **argv)
 {
@@ -290,7 +342,10 @@ int main(int argc, char **argv)
         }
     }
 
-    linker_resolve_globals(ctx);
+    if (!linker_resolve_globals(ctx)) {
+        linker_destroy(ctx);
+        exit(3);
+    }
 
     if (dump_symbols) {
         print_symbols(stdout, ctx);

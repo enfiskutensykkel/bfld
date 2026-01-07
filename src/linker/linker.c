@@ -321,80 +321,15 @@ struct input_file * linker_add_input_file(struct linkerctx *ctx,
         return NULL;
     }
 
+    if (objfile->march == 0) {
+        // Ugly, bugly hack in case parse file doesn't set the architecture
+        fe->probe_file(objfile->file_data, objfile->file_size, &objfile->march);
+    }
+
     list_insert_tail(&ctx->unprocessed, &file->list_entry);
     log_trace("Added object file to input files");
     log_ctx_pop();
     return file;
-}
-
-
-bool linker_load_file(struct linkerctx *ctx, const char *pathname)
-{
-    bool success = false;
-    struct mfile *file = NULL;
-
-    log_ctx_new(pathname);
-
-    int status = mfile_open_read(&file, pathname);
-    if (status != 0) {
-        log_ctx_pop();
-        return false;
-    }
-
-    // Try to open as archive first
-    list_for_each_entry(entry, &archive_frontends, struct archive_fe_entry, node) {
-        const struct archive_frontend *fe = entry->frontend;
-
-        if (!fe->probe_file(file->data, file->size)) {
-            continue;
-        }
-
-        struct archive *ar = archive_alloc(file, file->name, file->data, file->size);
-        if (ar == NULL) {
-            goto unwind;
-        }
-
-        struct archive_file * arfile = linker_add_archive(ctx, ar, fe);
-        archive_put(ar);
-        if (arfile == NULL) {
-            goto unwind;
-        }
-
-        success = true;
-        goto unwind;
-    }
-
-    // Try to open as an object file
-    list_for_each_entry(entry, &objfile_frontends, struct objfile_fe_entry, node) {
-        const struct objfile_frontend *fe = entry->frontend;
-        uint32_t march = 0;
-
-        if (!fe->probe_file(file->data, file->size, &march)) {
-            continue;
-        }
-
-        struct objfile *obj = objfile_alloc(file, file->name, file->data, file->size);
-        if (obj == NULL) {
-            goto unwind;
-        }
-        obj->march = march;
-
-        struct input_file * infile = linker_add_input_file(ctx, obj, fe);
-        objfile_put(obj);
-        if (infile == NULL) {
-            goto unwind;
-        }
-
-        success = true;
-        goto unwind;
-    }
-
-    log_error("Unrecognized file format");
-
-unwind:
-    mfile_put(file);
-    log_ctx_pop();
-    return success;
 }
 
 
@@ -419,7 +354,7 @@ bool linker_resolve_globals(struct linkerctx *ctx)
                 ++n;
 
                 if (!symbol_is_defined(sym) && !sym->is_common) {
-                    log_trace("Symbol '%s' is undefined", sym->name);
+                    log_debug("Symbol '%s' is undefined", sym->name);
 
                     list_for_each_entry(ar, &ctx->archives, struct archive_file, list_entry) {
                         struct archive_member *m = archive_find_symbol(ar->archive, sym->name);
@@ -429,17 +364,20 @@ bool linker_resolve_globals(struct linkerctx *ctx)
                             continue;
                         }
 
-                        // Member provides the symbol, but it is already loaded
+                        // Member provides the symbol, but it is already loaded 
+                        // We don't try to load it again
                         if (m->objfile != NULL) {
+                            log_warning("Symbol '%s' was provided by archive %s, but is still undefined",
+                                    sym->name, m->archive->name);
                             continue;
                         }
 
-                        log_debug("Found symbol '%s' in archive, loading member file", sym->name);
+                        log_debug("Found symbol '%s' in archive %s", sym->name, m->archive->name);
                         struct objfile *obj = archive_get_objfile(m);
                         if (obj != NULL) {
                             loaded_file = linker_add_input_file(ctx, obj, NULL) != NULL;
-                            objfile_put(obj);
                         }
+
                         break;
                     }
 
@@ -453,10 +391,11 @@ bool linker_resolve_globals(struct linkerctx *ctx)
                 }
             }
 
-            log_ctx_pop();
+            log_debug("All symbols are defined");
 
             list_remove(&file->list_entry);
             list_insert_tail(&ctx->processed, &file->list_entry);
+            log_ctx_pop();
         }
 
     } while (loaded_file);

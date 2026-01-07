@@ -66,7 +66,7 @@ struct archive * archive_alloc(struct mfile *file,
                                const char *name,
                                const uint8_t *file_data,
                                size_t file_size);
-                               
+
 
 /*
  * Add an archive member file.

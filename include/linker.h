@@ -86,13 +86,6 @@ struct input_file * linker_add_input_file(struct linkerctx *ctx,
 
 
 /*
- * Load file and add it to the input file list (or archive list)
- */
-bool linker_load_file(struct linkerctx *ctx, const char *pathname);
-
-
-
-/*
  * Resolve all global symbols.
  */
 bool linker_resolve_globals(struct linkerctx *ctx);

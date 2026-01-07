@@ -112,8 +112,9 @@ int log_ctx_new(const char *file)
 }
 
 
+#define log_ctx_safe ((log_ctx < LOG_CTX_MAX - 1) ? log_ctx : LOG_CTX_MAX - 1)
+
 #define LOG_CTX(...) ((log_ctx_t) { \
-    .file = NULL, \
     __VA_ARGS__ \
 })
 #define LOG_CTX_SECTION(_section, ...) LOG_CTX(.section = (_section), __VA_ARGS__)
@@ -133,7 +134,7 @@ static inline
 void log_message(int level, const char *fmt, ...)
 {
     if (level <= log_level) {
-        const log_ctx_t *ctx = &log_ctx_stack[log_ctx];
+        const log_ctx_t *ctx = &log_ctx_stack[log_ctx_safe];
 
         if (ctx->file != NULL && ctx->file[0] != '\0') {
             fprintf(stderr, "[%s", ctx->file);

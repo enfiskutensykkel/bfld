@@ -120,9 +120,10 @@ static int parse_file(const uint8_t *ptr, size_t size, struct archive *archive)
         }
 
         if (hdr->name[0] == '/' && (hdr->name[1] == ' ' || hdr->name[1] == '\0')) {
-            log_trace("Found ranlib index at offset %zu", offset);
+            log_debug("Found ranlib index at offset %zu", offset);
             ranlib = hdr;
         } else if (strncmp(hdr->name, "__.SYMDEF", 9) == 0) {
+            log_debug("Found ranlib index at offset %zu", offset);
             ranlib = hdr;
         } else if (strncmp(hdr->name, "/SYM64/", 7) == 0) {
             log_fatal("SYM64 archive format not supported");
@@ -137,13 +138,13 @@ static int parse_file(const uint8_t *ptr, size_t size, struct archive *archive)
             char *name = NULL;
             get_member_name(hdr, strtab, &name);
             
-            log_trace("Found archive member file with size %zu at offset %zu", membsz, offset);
+            log_debug("Found archive member file '%s' with size %zu at offset %zu", name, membsz, offset);
 
             archive_add_member(archive, name, offset + sizeof(*hdr), membsz);
 
             if (name != NULL) {
                 free(name);
-           }
+            }
         }
 
         offset += sizeof(*hdr) + membsz;

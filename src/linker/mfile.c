@@ -49,7 +49,6 @@ int mfile_open_read(struct mfile **file, const char *pathname)
         }
     }
 
-
     // Memory-map the file
     void *p = mmap(NULL, s.st_size, PROT_READ, MAP_SHARED | MAP_POPULATE, fd, 0);
     if (p == MAP_FAILED) {
@@ -60,7 +59,7 @@ int mfile_open_read(struct mfile **file, const char *pathname)
         return EBADF;
     }
 
-    log_debug("Opened memory-mapped file");
+    log_debug("Opened file '%s'", pathname);
 
     // Create file handle
     struct mfile *f = malloc(sizeof(struct mfile));
