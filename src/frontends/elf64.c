@@ -246,7 +246,7 @@ static int parse_sections(const Elf64_Ehdr *eh,
             return ENOMEM;
         }
 
-        log_trace("Added to section table");
+        log_trace("Added section %u to section table", shndx);
         log_ctx_pop();
     }
 
@@ -255,14 +255,98 @@ static int parse_sections(const Elf64_Ehdr *eh,
 
 
 /*
+ * Parse a relocation table.
+ */
+static int parse_reltab(const Elf64_Ehdr *eh, 
+                        const Elf64_Shdr *sh, 
+                        const struct sections *sects, 
+                        const struct symbols*syms)
+{
+    log_ctx_push(LOG_CTX_SECTION(lookup_strtab_str(eh, sh->sh_name)));
+
+    switch (sh->sh_type) {
+        case SHT_REL:
+            if (sh->sh_entsize != sizeof(Elf64_Rel)) {
+                log_fatal("Expected REL section");
+                log_ctx_pop();
+                return EINVAL;
+            }
+            break;
+
+        case SHT_RELA:
+            if (sh->sh_entsize != sizeof(Elf64_Rela)) {
+                log_fatal("Expected RELA section");
+                log_ctx_pop();
+                return EINVAL;
+            }
+            break;
+
+        default:
+            log_fatal("Expected relocation table, got invalid section type %u", sh->sh_type);
+            log_ctx_pop();
+            return EINVAL;
+    }
+
+    struct section *sect = sections_at(sects, sh->sh_info);
+
+    if (sect == NULL) {
+        log_fatal("Relocation table refers to unknown section %u", sh->sh_info);
+        log_ctx_pop();
+        return EINVAL;
+    }
+
+    log_trace("Parsing relocation table");
+    for (uint64_t idx = 0; idx < sh->sh_size / sh->sh_entsize; ++idx) {
+
+        struct symbol *sym = NULL;
+        uint64_t offset = 0;
+        uint32_t type = 0;
+        int64_t addend = 0;
+
+        if (sh->sh_type == SHT_RELA) {
+            const Elf64_Rela *r = (const Elf64_Rela*) (((const uint8_t*) eh) + sh->sh_offset);
+            type = ELF64_R_TYPE(r->r_info);
+            offset = r->r_offset;
+            addend = r->r_addend;
+            sym = symbols_at(syms, ELF64_R_SYM(r->r_info));
+        } else {
+            const Elf64_Rel *r = (const Elf64_Rel*) (((const uint8_t*) eh) + sh->sh_offset);
+            type = ELF64_R_TYPE(r->r_info);
+            offset = r->r_offset;
+            sym = symbols_at(syms, ELF64_R_SYM(r->r_info));
+        }
+
+        if (sym == NULL) {
+            log_fatal("Relocation entry refers to unknown symbol");
+            log_ctx_pop();
+            return EINVAL;
+        }
+
+        log_trace("Relocation %lu at offset %zu is relative to symbol '%s'", idx, offset, sym->name);
+
+        struct reloc * reloc = section_add_reloc(sect, offset, sym, type, addend);
+        if (reloc == NULL) {
+            log_ctx_pop();
+            return ENOMEM;
+        }
+    }
+
+    log_ctx_pop();
+    return 0;
+}
+
+
+/*
  * Parse the symbol table and extract symbols.
  */
-static int parse_symtab(const Elf64_Ehdr *eh, const Elf64_Shdr *sh, const struct sections *sections, 
-                        struct symbols *symbols, struct globals *globals)
+static int parse_symtab(const Elf64_Ehdr *eh, 
+                        const Elf64_Shdr *sh, 
+                        const struct sections *sections, 
+                        struct symbols *symbols, 
+                        struct globals *globals)
 {
     int status = 0;
-    const char* strtab = (const char*) ((const uint8_t*) eh) + elf_section(eh, sh->sh_link)->sh_offset;
-    uint64_t shndx = sh - ((const Elf64_Shdr*) (((const uint8_t*) eh) + eh->e_shoff));
+    assert(sh->sh_type == SHT_SYMTAB);
 
     log_ctx_push(LOG_CTX_SECTION(lookup_strtab_str(eh, sh->sh_name)));
 
@@ -270,6 +354,8 @@ static int parse_symtab(const Elf64_Ehdr *eh, const Elf64_Shdr *sh, const struct
         log_ctx_pop();
         return ENOMEM;
     }
+
+    const char* strtab = (const char*) ((const uint8_t*) eh) + elf_section(eh, sh->sh_link)->sh_offset;
 
     log_trace("Parsing symbol table");
     for (uint32_t idx = 1; idx < sh->sh_size / sh->sh_entsize; ++idx) {
@@ -418,7 +504,7 @@ out:
     log_ctx_pop();
     return status;
 }
-        
+
 static int parse_elf_file(const uint8_t *file_data, 
                           size_t file_size,
                           struct objfile *objfile, 
@@ -450,6 +536,16 @@ static int parse_elf_file(const uint8_t *file_data,
     // Parse symbol table
     list_for_each_entry_safe(s, &symtabs, struct elf_section_entry, entry) {
         status = parse_symtab(eh, s->shdr, sections, symbols, globals);
+        if (status != 0) {
+            goto cleanup;
+        }
+        list_remove(&s->entry);
+        free(s);
+    }
+
+    // Parse relocation tables
+    list_for_each_entry_safe(s, &reltabs, struct elf_section_entry, entry) {
+        status = parse_reltab(eh, s->shdr, sections, symbols);
         if (status != 0) {
             goto cleanup;
         }
