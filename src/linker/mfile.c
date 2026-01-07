@@ -49,6 +49,7 @@ int mfile_open_read(struct mfile **file, const char *pathname)
         }
     }
 
+
     // Memory-map the file
     void *p = mmap(NULL, s.st_size, PROT_READ, MAP_SHARED | MAP_POPULATE, fd, 0);
     if (p == MAP_FAILED) {
@@ -58,6 +59,8 @@ int mfile_open_read(struct mfile **file, const char *pathname)
         log_ctx_pop();
         return EBADF;
     }
+
+    log_debug("Opened memory-mapped file");
 
     // Create file handle
     struct mfile *f = malloc(sizeof(struct mfile));
@@ -106,13 +109,19 @@ void mfile_put(struct mfile *file)
 
     if (--(file->refcnt) == 0) {
 
+        log_ctx_new(file->name);
+
         if (file->fd >= 0) {
             // If memory came from a file, unmap and close file
             munmap((void*) file->data, file->size);
             close(file->fd);
         } 
 
+        log_debug("File closed");
+
         free(file->name);
         free(file);
+
+        log_ctx_pop();
     }
 }
