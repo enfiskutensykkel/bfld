@@ -121,3 +121,21 @@ int sections_insert(struct sections *st, uint64_t idx,
     log_ctx_pop();
     return 0;
 }
+
+
+bool sections_remove(struct sections *st, uint64_t idx)
+{
+    if (idx >= st->capacity) {
+        return false;
+    }
+
+    struct section **s = &(st->entries[idx]);
+    if (*s == NULL) {
+        return false;
+    }
+
+    section_put(*s);
+    *s = NULL;
+    --(st->nsections);
+    return true;
+}

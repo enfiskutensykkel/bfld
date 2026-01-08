@@ -233,8 +233,7 @@ static int parse_sections(const Elf64_Ehdr *eh,
             }
         }
 
-        struct section *section = section_alloc(objfile, shndx, shname,
-                                                sh->sh_offset, type,
+        struct section *section = section_alloc(objfile, shndx, shname, type,
                                                 ((const uint8_t*) eh) + sh->sh_offset,
                                                 sh->sh_size);
         if (section == NULL) {

@@ -10,7 +10,6 @@
 struct section * section_alloc(struct objfile *objfile,
                                uint64_t idx,
                                const char *name,
-                               size_t offset,
                                enum section_type type,
                                const uint8_t *content,
                                size_t size)
@@ -18,13 +17,6 @@ struct section * section_alloc(struct objfile *objfile,
     if (content != NULL) {
         if (content < objfile->file_data || content + size > objfile->file_data + objfile->file_size) {
             log_error("Section content is outside valid range");
-            return NULL;
-        }
-    }
-
-    if (offset > 0) {
-        if (offset + size > objfile->file_size) {
-            log_error("Offset to section content is outside valid range");
             return NULL;
         }
     }
@@ -42,7 +34,6 @@ struct section * section_alloc(struct objfile *objfile,
 
     sect->objfile = objfile_get(objfile);
     sect->idx = idx;
-    sect->offset = offset;
     sect->refcnt = 1;
     sect->align = 0;
     sect->type = type;

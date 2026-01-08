@@ -78,6 +78,12 @@ int sections_insert(struct sections *sections,
 
 
 /*
+ * Release the reference at the specified index.
+ */
+bool sections_remove(struct sections *sections, uint64_t index);
+
+
+/*
  * Look up section in a section table by index.
  * Note that this does not take an additional section reference.
  */

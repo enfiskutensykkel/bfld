@@ -34,7 +34,6 @@ struct objfile;
 struct section
 {
     struct objfile *objfile;        // strong reference to the object file the section is defined in
-    uint64_t offset;                // offset to section content
     char *name;                     // name of the section (NOTE: can be NULL)
     uint64_t idx;                   // section index in the object file (used for debugging)
     int refcnt;                     // reference counter
@@ -71,7 +70,6 @@ struct reloc
 struct section * section_alloc(struct objfile *objfile,
                                uint64_t idx,
                                const char *name,
-                               size_t offset,
                                enum section_type type,
                                const uint8_t *content,
                                size_t size);
