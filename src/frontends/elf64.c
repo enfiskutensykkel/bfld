@@ -207,7 +207,8 @@ static int parse_sections(const Elf64_Ehdr *eh,
                 case SHT_PREINIT_ARRAY:
                     log_warning("Support for type %u sections is not implemented yet",
                             sh->sh_type);
-                    break;
+                    log_pop_ctx();
+                    return ENOTSUP;
 
                 case SHT_NOTE:
                     log_trace("Skipping note section");

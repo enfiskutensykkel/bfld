@@ -43,6 +43,7 @@ struct section
     const uint8_t *content;         // pointer to section content
     size_t nrelocs;                 // number of entries in the relocation list.
     struct list_head relocs;        // list of relocations
+    bool is_live;                   // used for dead-code elimination/mark-and-sweep
 };
 
 

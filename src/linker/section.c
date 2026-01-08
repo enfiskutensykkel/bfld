@@ -41,6 +41,7 @@ struct section * section_alloc(struct objfile *objfile,
     sect->size = size;
     sect->nrelocs = 0;
     list_head_init(&sect->relocs);
+    sect->is_live = false;
     
     return sect;
 }
