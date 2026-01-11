@@ -19,67 +19,54 @@
 #include <archive_frontend.h>
 
 
-//static void print_symbols(FILE *fp, struct linkerctx *ctx)
-//{
-//    static const char *typemap[] = {
-//        [SYMBOL_NOTYPE] = "notype",
-//        [SYMBOL_OBJECT] = "object",
-//        [SYMBOL_TLS] = "tls",
-//        [SYMBOL_SECTION] = "sect",
-//        [SYMBOL_FUNCTION] = "func"
-//    };
-//
-//    static const char *bindmap[] = {
-//        [SYMBOL_WEAK] = "weak",
-//        [SYMBOL_GLOBAL] = "global",
-//        [SYMBOL_LOCAL] = "local"
-//    };
-//
-//    list_for_each_entry(entry, &ctx->processed, struct input_file, list_entry) {
-//        const struct symbols *symbols = entry->symbols;
-//
-//        fprintf(fp, "Symbol table '%s' contains %zu entries:\n",
-//                symbols->name, symbols->nsymbols);
-//
-//        fprintf(fp, "%6s %1s %6s %-16s %6s %6s %-6s %-6s %-32s\n",
-//                "Num", "D", "Offset", "Value", "Size", "Align", "Type", "Bind", "Name");
-//
-//        for (size_t i = 0, n = 0; i < symbols->capacity && n < symbols->nsymbols; ++i) {
-//            const struct symbol *sym = symbols_at(symbols, i);
-//
-//            if (sym == NULL) {
-//                continue;
-//            }
-//
-//            char def = 'U';
-//
-//            if (sym->section != NULL) {
-//                def = 'D';
-//            } else if (sym->is_absolute) {
-//                def = 'A';
-//            } else if (sym->is_common) {
-//                def = 'C';
-//            }
-//
-//            fprintf(fp, "%6zu ", i);
-//            fprintf(fp, "%c ", def);
-//            fprintf(fp, "%6lu ", sym->offset);
-//            fprintf(fp, "%016lx ", sym->value);
-//            fprintf(fp, "%6lu ", sym->size);
-//            fprintf(fp, "%6lu ", sym->align);
-//            fprintf(fp, "%-6s ", typemap[sym->type]);
-//            fprintf(fp, "%-6s ", bindmap[sym->binding]);
-//            fprintf(fp, "%-32.32s", sym->name);
-//            fprintf(fp, "\n");
-//
-//            ++n;
-//        }
-//
-//        fprintf(fp, "\n");
-//    }
-//}
-//
-//
+static void print_symbols(FILE *fp, struct linkerctx *ctx)
+{
+    static const char *typemap[] = {
+        [SYMBOL_NOTYPE] = "notype",
+        [SYMBOL_OBJECT] = "object",
+        [SYMBOL_TLS] = "tls",
+        [SYMBOL_SECTION] = "sect",
+        [SYMBOL_FUNCTION] = "func"
+    };
+
+    static const char *bindmap[] = {
+        [SYMBOL_WEAK] = "weak",
+        [SYMBOL_GLOBAL] = "global",
+        [SYMBOL_LOCAL] = "local"
+    };
+
+    struct rb_node *node = rb_first(&ctx->globals->map);
+
+    fprintf(fp, "%6s %-16s %6s %6s %-6s %-6s %1s %-32s\n",
+            "Offset", "Value", "Size", "Align", "Type", "Bind", "D", "Name");
+
+    while (node != NULL) {
+        const struct symbol *sym = rb_entry(node, struct globals_entry, map_entry)->symbol;
+        node = rb_next(node);
+
+        char def = 'U';
+
+        if (sym->section != NULL) {
+            def = 'D';
+        } else if (sym->is_absolute) {
+            def = 'A';
+        } else if (sym->is_common) {
+            def = 'C';
+        }
+
+        fprintf(fp, "%6lu ", sym->offset);
+        fprintf(fp, "%016lx ", sym->value);
+        fprintf(fp, "%6lu ", sym->size);
+        fprintf(fp, "%6lu ", sym->align);
+        fprintf(fp, "%-6s ", typemap[sym->type]);
+        fprintf(fp, "%-6s ", bindmap[sym->binding]);
+        fprintf(fp, "%c ", def);
+        fprintf(fp, "%-32.32s", sym->name);
+        fprintf(fp, "\n");
+    }
+}
+
+
 //static void print_relocs(FILE *fp, struct linkerctx *ctx)
 //{
 //    list_for_each_entry(entry, &ctx->processed, struct input_file, list_entry) {
@@ -402,7 +389,22 @@ int main(int argc, char **argv)
         exit(3);
     }
 
-    log_notice("output=%s entry=%s", output_file, entry);
+    if (dump_symbols) {
+        print_symbols(stdout, ctx);
+    }
+
+    // Identify sections that we need to keep
+    struct symbol *ep = globals_find_symbol(ctx->globals, entry);
+    if (ep == NULL) {
+        log_fatal("Undefined reference to '%s'", entry);
+        linker_destroy(ctx);
+        exit(3);
+    }
+
+    linker_create_common_section(ctx);
+
+    linker_keep_section(ctx, ep->section);
+    linker_gc_sections(ctx);
 
     linker_destroy(ctx);
     exit(0);

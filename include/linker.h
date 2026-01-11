@@ -11,6 +11,7 @@ extern "C" {
 
 /* Some forward declarations */
 struct sections;
+struct section;
 struct globals;
 struct symbols;
 struct objfile;
@@ -31,6 +32,7 @@ struct linkerctx
     struct list_head archives;      // list of archive files
     struct globals *globals;        // global symbols
     struct sections *sections;      // global list of input sections
+    struct sections *keep;          // list of sections to keep
     struct symbols *unresolved;     // list of unresolved symbols
 };
 
@@ -80,7 +82,13 @@ bool linker_add_input_file(struct linkerctx *ctx,
 bool linker_resolve_globals(struct linkerctx *ctx);
 
 
+bool linker_create_common_section(struct linkerctx *ctx);
+
+
 void linker_gc_sections(struct linkerctx *ctx);
+
+
+void linker_keep_section(struct linkerctx *ctx, struct section *section);
 
 
 #ifdef __cplusplus

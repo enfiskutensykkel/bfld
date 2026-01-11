@@ -102,8 +102,8 @@ int symbol_bind_definition(struct symbol *sym,
             log_error("Redefinition for symbol '%s', was already defined at address 0x%llx", 
                     sym->name, sym->value);
         } else {
-            log_error("Redefinition for symbol '%s', was already defined in %s:%s", sym->name,
-                    sym->section->objfile->name, sym->section->name);
+            log_error("Redefinition for symbol '%s', was already defined in %s", sym->name,
+                    sym->section->name);
         }
         return EALREADY;
     }
@@ -128,8 +128,8 @@ int symbol_bind_definition(struct symbol *sym,
         sym->value = 0;
         sym->offset = offset;
         sym->section = section_get(section);
-        log_trace("Symbol '%s' is defined in %s:%s", sym->name,
-                sym->section->objfile->name, sym->section->name);
+        log_trace("Symbol '%s' is defined in %s", 
+                sym->name, sym->section->name);
     }
 
     // Release old section
@@ -192,9 +192,8 @@ int symbol_merge(struct symbol *existing, const struct symbol *incoming)
                         existing->name, existing->value);
 
             } else {
-                log_error("Multiple definitions for symbol '%s', previously defined in %s:%s",
+                log_error("Multiple definitions for symbol '%s', previously defined in %s",
                         existing->name, 
-                        existing->section->objfile->name,
                         existing->section->name);
             }
             return EEXIST;

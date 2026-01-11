@@ -76,6 +76,10 @@ void symbols_clear(struct symbols *syms)
         }
     }
     syms->maxidx = 0;
+    syms->nsymbols = 0;
+    free(syms->symbols);
+    syms->symbols = NULL;
+    syms->capacity = 0;
 }
 
 

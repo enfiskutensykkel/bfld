@@ -8,24 +8,37 @@ extern "C" {
 
 
 /* 
- * Convenience macro for aligning addresses and sizes to a specified alignment.
+ * Helper function for aligning addresses and sizes to a specified alignment.
  */
-#define align_to(size, alignment) \
-    (((uint64_t) (size) + (1ULL << (alignment)) - 1) & ~(((uint64_t) (1ULL << (alignment)) - 1)))
+static inline
+uint64_t align_to(uint64_t value, uint64_t alignment)
+{
+    if (alignment <= 1) {
+        return value;
+    }
+
+    uint64_t mask = alignment - 1;
+
+    if (value > UINT64_MAX - mask) {
+        return UINT64_MAX;
+    }
+
+    return (value + mask) & ~mask;
+}
 
 
 /*
  * Helper function to round up to nearest power of 2.
  */
 static inline 
-uint64_t align_pow2(uint64_t v) 
+uint64_t align_pow2(uint64_t value) 
 {
-    if (v <= 1) {
+    if (value <= 1) {
         return 1;
     }
 
     // FIXME: fall back to some generic method if this available
-    return (uint64_t) 1ULL << (64 - __builtin_clzll(v - 1));
+    return (uint64_t) 1ULL << (64 - __builtin_clzll(value - 1));
 }
 
 

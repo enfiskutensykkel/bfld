@@ -14,6 +14,10 @@ struct section * section_alloc(struct objfile *objfile,
                                size_t size)
 {
     if (content != NULL) {
+        if (objfile == NULL) {
+            return NULL;
+        }
+
         if (content < objfile->file_data || content + size > objfile->file_data + objfile->file_size) {
             log_error("Section content is outside valid range");
             return NULL;
@@ -25,13 +29,20 @@ struct section * section_alloc(struct objfile *objfile,
         return NULL;
     }
 
-    sect->name = strdup(name);
+    const char *filename = objfile != NULL ? objfile->name : "";
+
+    sect->name = malloc(strlen(filename) + 1 + strlen(name) + 1);
     if (sect->name == NULL) {
         free(sect);
         return NULL;
     }
+    sprintf(sect->name, "%s:%s", filename, name);
 
-    sect->objfile = objfile_get(objfile);
+    if (objfile != NULL) {
+        sect->objfile = objfile_get(objfile);
+    } else {
+        sect->objfile = NULL;
+    }
     sect->refcnt = 1;
     sect->align = 0;
     sect->type = type;
@@ -60,7 +71,9 @@ void section_put(struct section *sect)
     assert(sect->refcnt > 0);
 
     if (--(sect->refcnt) == 0) {
-        objfile_put(sect->objfile);
+        if (sect->objfile != NULL) {
+            objfile_put(sect->objfile);
+        }
         section_clear_relocs(sect);
 
         if (sect->name != NULL) {

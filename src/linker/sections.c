@@ -75,11 +75,15 @@ void sections_clear(struct sections *st)
     for (size_t i = 0; i < st->capacity && st->nsections > 0; ++i) {
         if (st->sections[i] != NULL) {
             section_put(st->sections[i]);
-            st->sections[i] = NULL;
+            //st->sections[i] = NULL;
             st->nsections--;
         }
     }
     st->maxidx = 0;
+    st->nsections = 0;
+    free(st->sections);
+    st->sections = NULL;
+    st->capacity = 0;
 }
 
 

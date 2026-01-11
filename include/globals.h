@@ -36,6 +36,10 @@ struct globals_entry
 };
 
 
+#define globals_symbol(node) \
+    rb_entry(node, struct globals_entry, map_entry)->symbol
+
+
 /*
  * Create a global symbol table.
  */

@@ -5,7 +5,9 @@
 #include "linker.h"
 #include "objfile.h"
 #include "utils/list.h"
+#include "utils/align.h"
 #include "sections.h"
+#include "section.h"
 #include "symbols.h"
 #include "symbol.h"
 #include "globals.h"
@@ -240,6 +242,16 @@ struct linkerctx * linker_create(const char *name)
         return NULL;
     }
 
+    ctx->keep = sections_alloc("keep");
+    if (ctx->keep == NULL) {
+        symbols_put(ctx->unresolved);
+        sections_put(ctx->sections);
+        globals_put(ctx->globals);
+        free(ctx);
+        log_ctx_pop();
+        return NULL;
+    }
+    
     if (name != NULL) {
         ctx->name = strdup(name);
     }
@@ -278,6 +290,7 @@ void linker_destroy(struct linkerctx *ctx)
         symbols_put(ctx->unresolved);
         globals_put(ctx->globals);
         sections_put(ctx->sections);
+        sections_put(ctx->keep);
 
         if (ctx->name != NULL) {
             free(ctx->name);
@@ -478,7 +491,7 @@ bool linker_resolve_globals(struct linkerctx *ctx)
             }
 
             if (!symbol_is_defined(sym)) {
-                log_error("Unresolved global symbol '%s'", sym->name);
+                log_error("Undefined reference to symbol '%s'", sym->name);
                 symbol_put(sym);
                 return false;
             }
@@ -492,24 +505,107 @@ bool linker_resolve_globals(struct linkerctx *ctx)
         remove_archive_file(file);
     }
 
+    // Create a fake .bss setion for common symbols
+    struct section *sect = section_alloc(NULL, ".common", SECTION_ZERO, NULL, 0);
+    if (sect == NULL) {
+        log_fatal("Unable to create common section");
+        return false;
+    }
+
+    sections_push(ctx->sections, sect);
+    section_put(sect);
+
     return true;
+}
+
+
+bool linker_create_common_section(struct linkerctx *ctx)
+{
+    bool success = false;
+    struct symbols buckets[16] = {0};  // supports up to 2^15 buckets (32 kB alignment)
+
+    struct rb_node *node = rb_first(&ctx->globals->map);
+
+    // Identify common symbols and sort them based on alignment
+    while (node != NULL) {
+        struct symbol *symbol = globals_symbol(node);
+        node = rb_next(node);
+
+        if (!symbol->is_common) {
+            continue;
+        }
+
+        uint64_t power = 0;
+        uint64_t align = symbol->align > 0 ? symbol->align : 1;
+
+        while (align >>= 1) {
+            ++power;
+        }
+
+        if (power < 16) {
+            symbols_push(&buckets[power], symbol);
+        } else {
+            log_warning("Symbol '%s' has a very high alignment requirement. Fall back to 32 kB.",
+                    symbol->name);
+            symbols_push(&buckets[15], symbol);
+        }
+    }
+
+    struct section *common = section_alloc(NULL, ".common", SECTION_ZERO, NULL, 0);
+    if (common == NULL) {
+        goto leave;
+    }
+
+    // Calculate offsets and pack common symbols
+    uint64_t offset = 0;
+    uint64_t max_align = 0;
+    for (int i = 15; i >= 0; --i) {
+        const struct symbols *syms = &buckets[i];
+
+        for (uint64_t idx = 1; idx <= syms->maxidx; ++idx) {
+            struct symbol *sym = symbols_at(syms, idx);
+            offset = align_to(offset, sym->align);
+            symbol_bind_definition(sym, common, offset, sym->size);
+            offset += sym->size;
+            max_align = sym->align > max_align ? sym->align : max_align;
+        }
+    }
+    common->size = offset;
+    common->align = max_align;
+
+    if (offset > 0) {
+        sections_push(ctx->sections, common);
+    }
+    section_put(common);
+    success = true;
+
+leave:
+    for (int i = 0; i < 16; ++i) {
+        symbols_clear(&buckets[i]);
+    }
+    return success;
 }
 
 
 void linker_gc_sections(struct linkerctx *ctx)
 {
-    struct sections *wl = sections_alloc("worklist");
-    if (wl == NULL) {
-        return;
+    struct sections wl = {0};
+
+    // Start with using all sections marked as kept
+    for (uint64_t i = 0, n = 0; i < ctx->keep->capacity && n < ctx->keep->nsections; ++i) {
+        struct section *s = sections_at(ctx->keep, i);
+        if (s != NULL) {
+            ++n;
+            s->is_alive = true;
+            sections_push(&wl, s);
+        }
     }
 
-    // TODO: Add all entry points to wl
-
     // Mark all "alive" sections
-    while (wl->nsections > 0) {
-        assert(wl->sections[wl->maxidx] != NULL);
+    while (wl.nsections > 0) {
+        assert(wl.sections[wl.maxidx] != NULL);
 
-        struct section *sect = sections_pop(wl);
+        struct section *sect = sections_pop(&wl);
         assert(sect->is_alive);
     
         // Follow relocations and mark target sections as alive
@@ -521,7 +617,7 @@ void linker_gc_sections(struct linkerctx *ctx)
                 struct section *target = sym->section;
 
                 if (!target->is_alive) {
-                    sections_push(wl, target);
+                    sections_push(&wl, target);
                     target->is_alive = true;
                 }
             }
@@ -530,7 +626,14 @@ void linker_gc_sections(struct linkerctx *ctx)
         section_put(sect);
     }
 
-    //ctx->sections
+    sections_sweep_dead(ctx->sections, true);
 
-    sections_put(wl);
+    sections_clear(&wl);
+}
+
+
+void linker_keep_section(struct linkerctx *ctx, struct section *sect)
+{
+    sections_push(ctx->keep, sect);
+    sect->is_alive = true;
 }
