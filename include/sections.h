@@ -119,15 +119,6 @@ struct section * sections_at(const struct sections *sections, uint64_t index)
 
 
 /*
- * Remove sections that aren't marked as "live" (is_alive set to false).
- *
- * If compact is set to false, "holes" in the table are kept (sparse array).
- * If compact is set to true, the table is compacted.
- */
-void sections_sweep_dead(struct sections *sections, bool compact);
-
-
-/*
  * Clear the sections table.
  */
 void sections_clear(struct sections *sections);

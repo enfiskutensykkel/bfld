@@ -59,6 +59,12 @@ void globals_put(struct globals *globals);
 
 
 /*
+ * Clear the global symbol table and remove all entries.
+ */
+void globals_clear(struct globals *globals);
+
+
+/*
  * Insert symbol in the global symbol table.
  * 
  * If the symbol's name is unique, a strong reference to

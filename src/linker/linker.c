@@ -13,6 +13,7 @@
 #include "globals.h"
 #include "mfile.h"
 #include "archive.h"
+#include "image.h"
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
@@ -256,8 +257,9 @@ struct linkerctx * linker_create(const char *name)
         ctx->name = strdup(name);
     }
 
-    ctx->march = 0;
+    ctx->target = 0;
     ctx->log_ctx = log_ctx;
+    ctx->gc_sections = false;
     list_head_init(&ctx->archives);
     return ctx;
 }
@@ -363,12 +365,12 @@ bool linker_add_input_file(struct linkerctx *ctx, struct objfile *objfile,
         return false;
     }
 
-    if (ctx->march != 0 && ctx->march != march) {
-        log_fatal("Mixing machine code architecture is not supported");
+    if (ctx->target != 0 && ctx->target != march) {
+        log_fatal("Differing machine code targets is not supported");
         log_ctx_pop();
         return false;
     }
-    ctx->march = march;
+    ctx->target = march;
 
     const struct backend *be = backend_lookup(march);
     if (be == NULL) {
@@ -500,26 +502,11 @@ bool linker_resolve_globals(struct linkerctx *ctx)
         symbol_put(sym);
     }
 
-    // All symbols are loaded, we can release all archives
-    list_for_each_entry_safe(file, &ctx->archives, struct archive_file, list_entry) {
-        remove_archive_file(file);
-    }
-
-    // Create a fake .bss setion for common symbols
-    struct section *sect = section_alloc(NULL, ".common", SECTION_ZERO, NULL, 0);
-    if (sect == NULL) {
-        log_fatal("Unable to create common section");
-        return false;
-    }
-
-    sections_push(ctx->sections, sect);
-    section_put(sect);
-
     return true;
 }
 
 
-bool linker_create_common_section(struct linkerctx *ctx)
+static bool create_common_section(struct linkerctx *ctx)
 {
     bool success = false;
     struct symbols buckets[16] = {0};  // supports up to 2^15 buckets (32 kB alignment)
@@ -531,7 +518,7 @@ bool linker_create_common_section(struct linkerctx *ctx)
         struct symbol *symbol = globals_symbol(node);
         node = rb_next(node);
 
-        if (!symbol->is_common) {
+        if (!symbol->is_common || !symbol->is_used) {
             continue;
         }
 
@@ -574,6 +561,7 @@ bool linker_create_common_section(struct linkerctx *ctx)
     common->align = max_align;
 
     if (offset > 0) {
+        common->is_alive = true;
         sections_push(ctx->sections, common);
     }
     section_put(common);
@@ -587,9 +575,12 @@ leave:
 }
 
 
-void linker_gc_sections(struct linkerctx *ctx)
+void linker_gc(struct linkerctx *ctx)
 {
     struct sections wl = {0};
+    ctx->gc_sections = true;
+
+    sections_reserve(&wl, ctx->sections->capacity);
 
     // Start with using all sections marked as kept
     for (uint64_t i = 0, n = 0; i < ctx->keep->capacity && n < ctx->keep->nsections; ++i) {
@@ -613,20 +604,23 @@ void linker_gc_sections(struct linkerctx *ctx)
             struct symbol *sym = r->symbol;
             assert(sym != NULL);
 
-            if (symbol_is_defined(sym) && sym->section != NULL) {
-                struct section *target = sym->section;
+            if (!sym->is_used) {
+                sym->is_used = true;
+                log_debug("Marking symbol '%s' as used", sym->name);
 
-                if (!target->is_alive) {
-                    sections_push(&wl, target);
-                    target->is_alive = true;
+                if (symbol_is_defined(sym) && sym->section != NULL) {
+                    struct section *target = sym->section;
+
+                    if (!target->is_alive) {
+                        sections_push(&wl, target);
+                        target->is_alive = true;
+                    }
                 }
             }
         }
 
         section_put(sect);
     }
-
-    sections_sweep_dead(ctx->sections, true);
 
     sections_clear(&wl);
 }
@@ -636,4 +630,81 @@ void linker_keep_section(struct linkerctx *ctx, struct section *sect)
 {
     sections_push(ctx->keep, sect);
     sect->is_alive = true;
+}
+
+
+void linker_keep_symbol(struct linkerctx *ctx, struct symbol *sym)
+{
+    sym->is_used = true;
+    if (symbol_is_defined(sym)) {
+        if (sym->section != NULL) {
+            linker_keep_section(ctx, sym->section);
+        } else {
+            // find section with address
+        }
+    }
+}
+
+
+struct image * linker_create_image(struct linkerctx *ctx, 
+                                   const char *name, 
+                                   uint64_t base_addr)
+{
+    const struct backend *be = backend_lookup(ctx->target);
+    if (be == NULL) {
+        return NULL;
+    }
+
+    if (!create_common_section(ctx)) {
+        return NULL;
+    }
+
+    struct image *img = image_alloc(name, be->target, be->cpu_align, 
+                                    be->min_page_size, be->max_page_size, be->is_be);
+    if (img == NULL) {
+        return NULL;
+    }
+
+    struct sections *sects = ctx->sections;
+    while (sects->nsections > 0) {
+        struct section *sect = sections_pop(sects);
+
+        if (sect->is_alive || !ctx->gc_sections) {
+            image_reserve_capacity(img, sect->type, sects->capacity);
+            image_add_section(img, sect);
+        }
+
+        section_put(sect);
+    }
+
+    image_pack(img, base_addr);
+
+    symbols_reserve(&img->symbols, ctx->globals->nsymbols + 1);
+
+    struct rb_node *node = rb_first(&ctx->globals->map);
+
+    while (node != NULL) {
+        struct symbol *sym = globals_symbol(node);
+        node = rb_next(node);
+
+        if (ctx->gc_sections && !symbol_is_alive(sym)) {
+            continue;
+        }
+
+        symbols_push(&img->symbols, sym);
+
+        if (sym->is_absolute || sym->section == NULL) {
+            continue;
+        }
+
+        sym->value = sym->section->vaddr + sym->value;
+    }
+
+    globals_clear(ctx->globals);
+
+    list_for_each_entry_safe(file, &ctx->archives, struct archive_file, list_entry) {
+        remove_archive_file(file);
+    }
+
+    return img;
 }

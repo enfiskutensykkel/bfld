@@ -14,11 +14,13 @@ struct sections;
 struct section;
 struct globals;
 struct symbols;
+struct symbol;
 struct objfile;
 struct objfile_frontend;
 struct archive;
 struct archive_frontend;
 struct backend;
+struct image;
 
 
 /* 
@@ -28,7 +30,8 @@ struct linkerctx
 {
     char *name;                     // linker name (used for debugging, NOTE: can be NULL)
     int log_ctx;                    // log context
-    uint32_t march;                 // machine code architecture
+    bool gc_sections;               // perform garbage collection on dead sections
+    uint32_t target;                // machine code architecture target
     struct list_head archives;      // list of archive files
     struct globals *globals;        // global symbols
     struct sections *sections;      // global list of input sections
@@ -82,13 +85,18 @@ bool linker_add_input_file(struct linkerctx *ctx,
 bool linker_resolve_globals(struct linkerctx *ctx);
 
 
-bool linker_create_common_section(struct linkerctx *ctx);
-
-
-void linker_gc_sections(struct linkerctx *ctx);
+void linker_gc(struct linkerctx *ctx);
 
 
 void linker_keep_section(struct linkerctx *ctx, struct section *section);
+
+
+void linker_keep_symbol(struct linkerctx *ctx, struct symbol *symbol);
+
+
+struct image * linker_create_image(struct linkerctx *ctx, 
+                                   const char *name, 
+                                   uint64_t base_addr);
 
 
 #ifdef __cplusplus

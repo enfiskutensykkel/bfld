@@ -188,33 +188,6 @@ bool sections_remove(struct sections *st, uint64_t idx)
 }
 
 
-void sections_sweep_dead(struct sections *st, bool compact)
-{
-    size_t n = 0;
-
-    for (size_t i = 0; i < st->capacity; ++i) {
-        struct section **s = &st->sections[i];
-
-        if (*s == NULL) {
-            continue;
-        }
-
-        if ((*s)->is_alive) {
-            if (compact && i != n) {
-                st->sections[n] = *s;
-                *s = NULL;
-            }
-            ++n;
-        } else {
-            section_put(*s);
-            *s = NULL;
-        }
-    }
-
-    st->nsections = n;
-}
-
-
 struct section * sections_pop(struct sections *st)
 {
     if (st->maxidx > 0) {

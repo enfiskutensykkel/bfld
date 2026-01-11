@@ -59,7 +59,10 @@ static int x86_64_apply_reloc(uint8_t *sect, uint64_t offset,
 
 const struct backend x86_64_be = {
     .name = "x86-64",
-    .march_align = 16,
+    .target = EM_X86_64,
+    .cpu_align = 16,
+    .min_page_size = 4096,
+    .max_page_size = 4096,
     .apply_reloc = x86_64_apply_reloc
 };
 

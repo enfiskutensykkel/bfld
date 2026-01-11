@@ -37,6 +37,7 @@ add_library(linkerlib SHARED
     src/linker/sections.c
     src/linker/symbols.c
     src/linker/globals.c
+    src/linker/image.c
 )
 target_include_directories(linkerlib PUBLIC include)  # also includes "include/utils"
 target_include_directories(linkerlib PRIVATE include/utils)

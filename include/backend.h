@@ -4,6 +4,7 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include "utils/bswap.h"
@@ -26,9 +27,29 @@ struct backend
     const char *name;
 
     /*
-     * Machine code architecture alignment.
+     * Target machine code architecture.
      */
-    uint64_t march_align;
+    uint32_t target;
+
+    /*
+     * CPU code alignment requirements.
+     */
+    uint64_t cpu_align;
+
+    /*
+     * Minimum page size.
+     */
+    uint64_t min_page_size;
+
+    /*
+     * Maximum page size.
+     */
+    uint64_t max_page_size;
+
+    /*
+     * Is the target architecture big endian?
+     */
+    bool is_be;
 
     /*
      * Size of an entry in the Global Offset Table (GOT).
@@ -92,13 +113,13 @@ struct backend
 /*
  * Register a linker back-end.
  */
-void backend_register(const struct backend *backend, uint32_t march);
+void backend_register(const struct backend *backend, uint32_t target);
 
 
 /*
  * Look up a linker back-end based on the machine code architecture.
  */
-const struct backend * backend_lookup(uint32_t march);
+const struct backend * backend_lookup(uint32_t target);
 
 
 #ifdef __cplusplus

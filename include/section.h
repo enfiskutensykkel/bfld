@@ -4,6 +4,7 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include "utils/list.h"
@@ -17,7 +18,8 @@ enum section_type
     SECTION_ZERO,       // section without contents, i.e., uninitialized variables (.bss, .common)
     SECTION_DATA,       // section with data contents, for example variables (.data)
     SECTION_RODATA,     // section contains read-only data, for example strings (.rodata)
-    SECTION_TEXT        // section contains machine code (.text)
+    SECTION_TEXT,       // section contains machine code (.text)
+    SECTION_MAX_TYPES
 };
 
 
@@ -37,8 +39,9 @@ struct section
     char *name;                     // name of the section (NOTE: can be NULL)
     int refcnt;                     // reference counter
     enum section_type type;         // section type 
+    uint64_t vaddr;                 // finalized virtual address
     uint64_t align;                 // section alignment requirements (addr must be a multiple of align)
-    size_t size;                    // size of the section
+    uint64_t size;                  // size of the section
     const uint8_t *content;         // pointer to section content
     size_t nrelocs;                 // number of entries in the relocation list.
     struct list_head relocs;        // list of relocations
@@ -71,7 +74,7 @@ struct section * section_alloc(struct objfile *objfile,
                                const char *name,
                                enum section_type type,
                                const uint8_t *content,
-                               size_t size);
+                               uint64_t size);
 
 
 /*
@@ -112,8 +115,10 @@ struct section * section_get(struct section *section);
 void section_put(struct section *section);
 
 
-
-// TODO: int section_apply_relocs(...)
+/*
+ * Convenience function to get a string representation of a section type.
+ */
+const char * section_type_to_string(enum section_type type);
 
 
 #ifdef __cplusplus

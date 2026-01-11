@@ -17,9 +17,10 @@
 #include <archive.h>
 #include <objfile_frontend.h>
 #include <archive_frontend.h>
+#include <image.h>
 
 
-static void print_symbols(FILE *fp, struct linkerctx *ctx)
+static void print_symbols(FILE *fp, struct image *img)
 {
     static const char *typemap[] = {
         [SYMBOL_NOTYPE] = "notype",
@@ -35,73 +36,52 @@ static void print_symbols(FILE *fp, struct linkerctx *ctx)
         [SYMBOL_LOCAL] = "local"
     };
 
-    struct rb_node *node = rb_first(&ctx->globals->map);
+    fprintf(fp, "%-20s %6s %-16s %6s %6s %-6s %-6s %-32s\n",
+            "Definition", "Offset", "Value", "Size", "Align", "Type", "Bind", "Name");
 
-    fprintf(fp, "%6s %-16s %6s %6s %-6s %-6s %1s %-32s\n",
-            "Offset", "Value", "Size", "Align", "Type", "Bind", "D", "Name");
+    for (uint64_t idx = 1; idx <= img->symbols.nsymbols; ++idx) {
+        const struct symbol *sym = symbols_at(&img->symbols, idx);
 
-    while (node != NULL) {
-        const struct symbol *sym = rb_entry(node, struct globals_entry, map_entry)->symbol;
-        node = rb_next(node);
-
-        char def = 'U';
-
-        if (sym->section != NULL) {
-            def = 'D';
+        const char *defname = "UNKNOWN";
+        if (!symbol_is_defined(sym)) {
+            defname = "UNDEFINED";
         } else if (sym->is_absolute) {
-            def = 'A';
-        } else if (sym->is_common) {
-            def = 'C';
+            defname = "ABSOLUTE";
+        } else if (sym->section != NULL && sym->section->name != NULL) {
+            defname = sym->section->name;
         }
 
+        fprintf(fp, "%-20.20s ", defname);
         fprintf(fp, "%6lu ", sym->offset);
         fprintf(fp, "%016lx ", sym->value);
         fprintf(fp, "%6lu ", sym->size);
         fprintf(fp, "%6lu ", sym->align);
         fprintf(fp, "%-6s ", typemap[sym->type]);
         fprintf(fp, "%-6s ", bindmap[sym->binding]);
-        fprintf(fp, "%c ", def);
         fprintf(fp, "%-32.32s", sym->name);
         fprintf(fp, "\n");
     }
 }
 
 
-//static void print_relocs(FILE *fp, struct linkerctx *ctx)
-//{
-//    list_for_each_entry(entry, &ctx->processed, struct input_file, list_entry) {
-//        const struct sections *sections = entry->sections;
-//
-//        fprintf(fp, "Section table '%s' contains %zu entries:\n",
-//                sections->name, sections->nsections);
-//
-//        for (size_t i = 0, n = 0; i < sections->capacity && n < sections->nsections; ++i) {
-//            const struct section *sect = sections_at(sections, i);
-//
-//            if (sect == NULL) {
-//                continue;
-//            }
-//
-//            fprintf(fp, "Section %zu '%s' has %zu relocations:\n", i, sect->name, sect->nrelocs);
-//
-//            fprintf(fp, "%6s %-2s %6s %6s %-32s\n",
-//                    "Num", "T", "Offset", "Addend", "Symbol");
-//
-//            size_t j = 0;
-//            list_for_each_entry(reloc, &sect->relocs, const struct reloc, list_entry) {
-//                fprintf(fp, "%6zu ", j++);
-//                fprintf(fp, "%02x ", reloc->type);
-//                fprintf(fp, "%6lu ", reloc->offset);
-//                fprintf(fp, "%6ld ", reloc->addend);
-//                fprintf(fp, "%-32.32s", reloc->symbol->name);
-//                fprintf(fp, "\n");
-//            }
-//
-//            ++n;
-//        }
-//        fprintf(fp, "\n");
-//    }
-//}
+static void print_layout(FILE *fp, struct image *img)
+{
+    fprintf(fp, "Memory layout for image '%s\n", img->name);
+    fprintf(fp, "Base address: 0x%016lx\n", img->base_addr);
+    fprintf(fp, "Entry point : 0x%016lx\n", img->entrypoint);
+    fprintf(fp, "Memory size : %lu\n", img->size);
+
+    fprintf(fp, "Sections:\n");
+    list_for_each_entry(grp, &img->groups, struct section_group, list_entry) {
+        fprintf(fp, "-- Addr=0x%016lx, Size=%06lu: %s\n", grp->vaddr, grp->size, grp->name);
+        
+        for (uint64_t idx = 1; idx <= grp->sections.nsections; ++idx) {
+            const struct section *sect = sections_at(&grp->sections, idx);
+            fprintf(fp, "    [%06lu] Addr=0x%016lx Size=%06lu: %s\n", 
+                    idx, sect->vaddr, sect->size, sect->name);
+        }
+    }
+}
 
 
 static char * format_option(char *buf, 
@@ -296,8 +276,8 @@ int main(int argc, char **argv)
 {
     int c;
     int idx = -1;
-    static int dump_symbols = 0;
-    static int dump_relocs = 0;
+    static int show_symbols = 0;
+    static int show_layout = 0;
 
     const char *output_file = "a.out";
     const char *entry = "_start";
@@ -307,8 +287,8 @@ int main(int argc, char **argv)
         {"help", no_argument, 0, 'h'},
         {"output", required_argument, 0, 'o'},
         {"entry", required_argument, 0, 'e'},
-        {"dump-symbols", no_argument, &dump_symbols, 10},
-        {"dump-relocs", no_argument, &dump_relocs, 1},
+        {"show-symbols", no_argument, &show_symbols, 10},
+        {"show-layout", no_argument, &show_layout, 1},
         {0, 0, 0, 0}
     };
 
@@ -353,8 +333,8 @@ int main(int argc, char **argv)
                 print_option(stdout, "-v", "--verbose", optional_argument, "level", "Increase log level.");
                 print_option(stdout, "-o", "--output", required_argument, "FILE", "Set output file name.");
                 print_option(stdout, "-e", "--entry", required_argument, "ADDRESS", "Set start address.");
-                print_option(stdout, "--dump-symbols", NULL, no_argument, NULL, "Print symbols.");
-                print_option(stdout, "--dump-relocs", NULL, no_argument, NULL, "Print relocations.");
+                print_option(stdout, "--show-symbols", NULL, no_argument, NULL, "Print global symbol table.");
+                print_option(stdout, "--show-layout", NULL, no_argument, NULL, "Print image layout information.");
                 linker_destroy(ctx);
                 exit(0);
 
@@ -389,10 +369,6 @@ int main(int argc, char **argv)
         exit(3);
     }
 
-    if (dump_symbols) {
-        print_symbols(stdout, ctx);
-    }
-
     // Identify sections that we need to keep
     struct symbol *ep = globals_find_symbol(ctx->globals, entry);
     if (ep == NULL) {
@@ -401,11 +377,22 @@ int main(int argc, char **argv)
         exit(3);
     }
 
-    linker_create_common_section(ctx);
+    linker_keep_symbol(ctx, ep);
+    
+    linker_gc(ctx);
 
-    linker_keep_section(ctx, ep->section);
-    linker_gc_sections(ctx);
+    struct image *img = linker_create_image(ctx, output_file, 0x400000);
+
+    if (show_symbols) {
+        print_symbols(stdout, img);
+    }
 
     linker_destroy(ctx);
+
+    if (show_layout) {
+        print_layout(stdout, img);
+    }
+
+    image_put(img);
     exit(0);
 }

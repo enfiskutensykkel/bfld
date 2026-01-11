@@ -57,6 +57,7 @@ struct symbol * symbol_alloc(const char *name, enum symbol_type type,
     sym->size = 0;
     sym->is_absolute = false;
     sym->is_common = false;
+    sym->is_used = false;
     sym->section = NULL;
     sym->offset = 0;
 
@@ -214,4 +215,24 @@ int symbol_merge(struct symbol *existing, const struct symbol *incoming)
     existing->type = incoming->type;
 
     return 0;
+}
+
+
+bool symbol_is_alive(const struct symbol *sym)
+{
+    // Symbols that are kept, exported or referenced by a relocation
+    // are always considered "alive"
+    if (sym->is_used) {
+        return true;
+    }
+
+    if (!symbol_is_defined(sym)) {
+        return false; // disregard undefined symbols
+    }
+
+    if (sym->is_absolute || sym->section == NULL) {
+        return false; // disregard absolute symbols that aren't used
+    }
+
+    return sym->section->is_alive;
 }

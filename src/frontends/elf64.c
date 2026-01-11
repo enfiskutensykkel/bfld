@@ -308,13 +308,17 @@ static int parse_reltab(const Elf64_Ehdr *eh,
         int64_t addend = 0;
 
         if (sh->sh_type == SHT_RELA) {
-            const Elf64_Rela *r = (const Elf64_Rela*) (((const uint8_t*) eh) + sh->sh_offset);
+            const Elf64_Rela *relatab = (const Elf64_Rela*) (((const uint8_t*) eh) + sh->sh_offset);
+            const Elf64_Rela *r = &relatab[idx];
+        
             type = ELF64_R_TYPE(r->r_info);
             offset = r->r_offset;
             addend = r->r_addend;
             sym = symbols_at(syms, ELF64_R_SYM(r->r_info));
         } else {
-            const Elf64_Rel *r = (const Elf64_Rel*) (((const uint8_t*) eh) + sh->sh_offset);
+            const Elf64_Rel *reltab = (const Elf64_Rel*) (((const uint8_t*) eh) + sh->sh_offset);
+            const Elf64_Rel *r = &reltab[idx];
+
             type = ELF64_R_TYPE(r->r_info);
             offset = r->r_offset;
             sym = symbols_at(syms, ELF64_R_SYM(r->r_info));

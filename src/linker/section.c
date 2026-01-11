@@ -7,11 +7,28 @@
 #include <string.h>
 
 
+const char * section_type_to_string(enum section_type type)
+{
+    switch (type) {
+        case SECTION_ZERO:
+            return ".bss";
+        case SECTION_DATA:
+            return ".data";
+        case SECTION_RODATA:
+            return ".rodata";
+        case SECTION_TEXT:
+            return ".text";
+        default:
+            return ".unknown";
+    }
+}
+
+
 struct section * section_alloc(struct objfile *objfile,
                                const char *name,
                                enum section_type type,
                                const uint8_t *content,
-                               size_t size)
+                               uint64_t size)
 {
     if (content != NULL) {
         if (objfile == NULL) {
@@ -29,20 +46,26 @@ struct section * section_alloc(struct objfile *objfile,
         return NULL;
     }
 
-    const char *filename = objfile != NULL ? objfile->name : "";
-
-    sect->name = malloc(strlen(filename) + 1 + strlen(name) + 1);
-    if (sect->name == NULL) {
-        free(sect);
-        return NULL;
-    }
-    sprintf(sect->name, "%s:%s", filename, name);
-
     if (objfile != NULL) {
+        const char *filename = objfile->name != NULL ? objfile->name : "<unknown>";
+        sect->name = malloc(strlen(filename) + 1 + strlen(name) + 1);
+        if (sect->name == NULL) {
+            free(sect);
+            return NULL;
+        }
+        sprintf(sect->name, "%s:%s", filename, name);
+
         sect->objfile = objfile_get(objfile);
     } else {
+        sect->name = malloc(strlen(name) + 1);
+        if (sect->name == NULL) {
+            free(sect);
+            return NULL;
+        }
+        strcpy(sect->name, name);
         sect->objfile = NULL;
     }
+    sect->vaddr = 0;
     sect->refcnt = 1;
     sect->align = 0;
     sect->type = type;
@@ -112,6 +135,8 @@ struct reloc * section_add_reloc(struct section *section,
 
     list_insert_tail(&section->relocs, &reloc->list_entry);
     ++(section->nrelocs);
+
+    log_debug("Added relocation relative to symbol '%s'", symbol->name);
 
     return reloc;
 }
