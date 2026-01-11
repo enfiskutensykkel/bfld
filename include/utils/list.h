@@ -1,5 +1,5 @@
-#ifndef _BFLD_UTILS_LIST_H
-#define _BFLD_UTILS_LIST_H
+#ifndef BFLD_UTILS_LIST_H
+#define BFLD_UTILS_LIST_H
 #ifdef __cplusplus
 extern "C" {
 #endif

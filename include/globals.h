@@ -1,5 +1,5 @@
-#ifndef _BFLD_GLOBALS_H
-#define _BFLD_GLOBALS_H
+#ifndef BFLD_GLOBALS_H
+#define BFLD_GLOBALS_H
 #ifdef __cplusplus
 extern "C" {
 #endif

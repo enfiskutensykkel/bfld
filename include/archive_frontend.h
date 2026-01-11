@@ -1,5 +1,5 @@
-#ifndef _BFLD_ARCHIVE_FRONTEND_H
-#define _BFLD_ARCHIVE_FRONTEND_H
+#ifndef BFLD_ARCHIVE_FRONTEND_H
+#define BFLD_ARCHIVE_FRONTEND_H
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -1,5 +1,5 @@
-#ifndef _BFLD_SYMBOLS_H
-#define _BFLD_SYMBOLS_H
+#ifndef BFLD_SYMBOLS_H
+#define BFLD_SYMBOLS_H
 #ifdef __cplusplus
 extern "C" {
 #endif

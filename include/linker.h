@@ -1,5 +1,5 @@
-#ifndef _BFLD_LINKER_CONTEXT_H
-#define _BFLD_LINKER_CONTEXT_H
+#ifndef BFLD_LINKER_H
+#define BFLD_LINKER_H
 #ifdef __cplusplus
 extern "C" {
 #endif

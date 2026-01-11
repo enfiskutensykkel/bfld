@@ -1,5 +1,5 @@
-#ifndef _BFLD_MEMORY_MAPPED_FILE_H
-#define _BFLD_MEMORY_MAPPED_FILE_H
+#ifndef BFLD_MEMORY_MAPPED_FILE_H
+#define BFLD_MEMORY_MAPPED_FILE_H
 #ifdef __cplusplus
 extern "C" {
 #endif

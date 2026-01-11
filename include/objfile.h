@@ -1,5 +1,5 @@
-#ifndef _BFLD_OBJECT_FILE_H
-#define _BFLD_OBJECT_FILE_H
+#ifndef BFLD_OBJECT_FILE_H
+#define BFLD_OBJECT_FILE_H
 #ifdef __cplusplus
 extern "C" {
 #endif

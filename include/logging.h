@@ -1,5 +1,5 @@
-#ifndef _BFLD_LOGGING_H
-#define _BFLD_LOGGING_H
+#ifndef BFLD_LOGGING_H
+#define BFLD_LOGGING_H
 #ifdef __cplusplus
 extern "C" {
 #endif

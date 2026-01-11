@@ -1,5 +1,5 @@
-#ifndef _BFLD_SECTION_H
-#define _BFLD_SECTION_H
+#ifndef BFLD_SECTION_H
+#define BFLD_SECTION_H
 #ifdef __cplusplus
 extern "C" {
 #endif
