@@ -27,25 +27,11 @@ struct linkerctx
 {
     char *name;                     // linker name (used for debugging, NOTE: can be NULL)
     int log_ctx;                    // log context
-    struct list_head unprocessed;   // list of input files that should be processed
-    struct list_head processed;     // list of input files that are finished processed
+    uint32_t march;                 // machine code architecture
     struct list_head archives;      // list of archive files
     struct globals *globals;        // global symbols
-};
-
-
-/*
- * Input file that should be processed by the linker.
- */
-struct input_file
-{
-    char *name;                     // filename
-    uint32_t march;                 // machine code architecture
-    struct linkerctx *ctx;          // weak reference to linker context
-    struct list_head list_entry;    // linked list entry
-    struct sections *sections;      // sections in this input file
-    struct symbols *symbols;        // local symbols in this file
-    const struct backend *backend;
+    struct sections *sections;      // global list of input sections
+    struct symbols *unresolved;     // list of unresolved symbols
 };
 
 
@@ -75,17 +61,17 @@ void linker_destroy(struct linkerctx *ctx);
 /*
  * Add an archive file to the list of archives.
  */
-struct archive_file * linker_add_archive(struct linkerctx *ctx,
-                                         struct archive *archive,
-                                         const struct archive_frontend *frontend);
+bool linker_add_archive(struct linkerctx *ctx,
+                        struct archive *archive,
+                        const struct archive_frontend *frontend);
 
 
 /*
  * Add an object file to the input file list.
  */
-struct input_file * linker_add_input_file(struct linkerctx *ctx,
-                                          struct objfile *objfile,
-                                          const struct objfile_frontend *frontend);
+bool linker_add_input_file(struct linkerctx *ctx,
+                           struct objfile *objfile,
+                           const struct objfile_frontend *frontend);
 
 
 /*
@@ -93,6 +79,8 @@ struct input_file * linker_add_input_file(struct linkerctx *ctx,
  */
 bool linker_resolve_globals(struct linkerctx *ctx);
 
+
+void linker_gc_sections(struct linkerctx *ctx);
 
 
 #ifdef __cplusplus

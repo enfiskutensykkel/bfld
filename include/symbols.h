@@ -9,6 +9,10 @@ extern "C" {
 #include <stdbool.h>
 
 
+// Forward declaration of symbol
+struct symbol;
+
+
 /*
  * Local symbol table.
  * Manages symbols by tracking them by index.
@@ -19,7 +23,8 @@ struct symbols
     int refcnt;                 // reference counter
     size_t capacity;            // size of the array/table
     size_t nsymbols;            // number of symbols in the array
-    struct symbol **entries;    // array/table of symbols (ordered by index)
+    uint64_t maxidx;            // the highest inserted index
+    struct symbol **symbols;    // array/table of symbols (ordered by index)
 };
 
 
@@ -52,6 +57,11 @@ void symbols_put(struct symbols *symbols);
 bool symbols_reserve(struct symbols *symbols, size_t n);
 
 
+/*
+ * Clear the symbol table.
+ */
+void symbols_clear(struct symbols *symbols);
+
 
 /*
  * Insert a symbol in the local symbol table at the specified index.
@@ -76,6 +86,22 @@ int symbols_insert(struct symbols *symbols,
 
 
 /*
+ * Release the reference at the specified index.
+ */
+bool symbols_remove(struct symbols *symbols, uint64_t index);
+
+
+/*
+ * Insert a symbol in the back of the symbol table.
+ * Takes a strong reference to the symbol and returns
+ * the index the symbol was inserted into.
+ *
+ * Note: Returns 0 if there was not enough space to insert the symbol.
+ */
+uint64_t symbols_push(struct symbols *symbols, struct symbol *symbol);
+
+
+/*
  * Look up symbol at the specified index.
  * Note that this does not take an additional symbol reference.
  */
@@ -83,11 +109,18 @@ static inline
 struct symbol * symbols_at(const struct symbols *symbols, uint64_t index)
 {
     if (index < symbols->capacity) {
-        return symbols->entries[index];
+        return symbols->symbols[index];
     }
     return NULL;
 }
 
+
+/*
+ * Helper function to "pop" the symbol with the highest index off the table.
+ * Note that this does NOT release the symbol reference.
+ * The caller must call symbol_put() on the returned reference.
+ */
+struct symbol * symbols_pop(struct symbols *symbols);
 
 #ifdef __cplusplus
 }

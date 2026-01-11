@@ -26,11 +26,6 @@ struct backend
     const char *name;
 
     /*
-     * Machine code architecture the back-end supports.
-     */
-    uint32_t march;
-
-    /*
      * Machine code architecture alignment.
      */
     uint64_t march_align;
@@ -97,7 +92,7 @@ struct backend
 /*
  * Register a linker back-end.
  */
-void backend_register(const struct backend *backend);
+void backend_register(const struct backend *backend, uint32_t march);
 
 
 /*

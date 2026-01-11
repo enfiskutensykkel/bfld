@@ -47,8 +47,7 @@ struct objfile_frontend
                       size_t file_size,
                       struct objfile *objfile,
                       struct sections *sections,
-                      struct symbols *symbols,
-                      struct globals *globals);
+                      struct symbols *symbols);
 };
 
 

@@ -19,102 +19,102 @@
 #include <archive_frontend.h>
 
 
-static void print_symbols(FILE *fp, struct linkerctx *ctx)
-{
-    static const char *typemap[] = {
-        [SYMBOL_NOTYPE] = "notype",
-        [SYMBOL_OBJECT] = "object",
-        [SYMBOL_TLS] = "tls",
-        [SYMBOL_SECTION] = "sect",
-        [SYMBOL_FUNCTION] = "func"
-    };
-
-    static const char *bindmap[] = {
-        [SYMBOL_WEAK] = "weak",
-        [SYMBOL_GLOBAL] = "global",
-        [SYMBOL_LOCAL] = "local"
-    };
-
-    list_for_each_entry(entry, &ctx->processed, struct input_file, list_entry) {
-        const struct symbols *symbols = entry->symbols;
-
-        fprintf(fp, "Symbol table '%s' contains %zu entries:\n",
-                symbols->name, symbols->nsymbols);
-
-        fprintf(fp, "%6s %1s %6s %-16s %6s %6s %-6s %-6s %-32s\n",
-                "Num", "D", "Offset", "Value", "Size", "Align", "Type", "Bind", "Name");
-
-        for (size_t i = 0, n = 0; i < symbols->capacity && n < symbols->nsymbols; ++i) {
-            const struct symbol *sym = symbols_at(symbols, i);
-
-            if (sym == NULL) {
-                continue;
-            }
-
-            char def = 'U';
-
-            if (sym->section != NULL) {
-                def = 'D';
-            } else if (sym->is_absolute) {
-                def = 'A';
-            } else if (sym->is_common) {
-                def = 'C';
-            }
-
-            fprintf(fp, "%6zu ", i);
-            fprintf(fp, "%c ", def);
-            fprintf(fp, "%6lu ", sym->offset);
-            fprintf(fp, "%016lx ", sym->value);
-            fprintf(fp, "%6lu ", sym->size);
-            fprintf(fp, "%6lu ", sym->align);
-            fprintf(fp, "%-6s ", typemap[sym->type]);
-            fprintf(fp, "%-6s ", bindmap[sym->binding]);
-            fprintf(fp, "%-32.32s", sym->name);
-            fprintf(fp, "\n");
-
-            ++n;
-        }
-
-        fprintf(fp, "\n");
-    }
-}
-
-
-static void print_relocs(FILE *fp, struct linkerctx *ctx)
-{
-    list_for_each_entry(entry, &ctx->processed, struct input_file, list_entry) {
-        const struct sections *sections = entry->sections;
-
-        fprintf(fp, "Section table '%s' contains %zu entries:\n",
-                sections->name, sections->nsections);
-
-        for (size_t i = 0, n = 0; i < sections->capacity && n < sections->nsections; ++i) {
-            const struct section *sect = sections_at(sections, i);
-
-            if (sect == NULL) {
-                continue;
-            }
-
-            fprintf(fp, "Section %zu '%s' has %zu relocations:\n", i, sect->name, sect->nrelocs);
-
-            fprintf(fp, "%6s %-2s %6s %6s %-32s\n",
-                    "Num", "T", "Offset", "Addend", "Symbol");
-
-            size_t j = 0;
-            list_for_each_entry(reloc, &sect->relocs, const struct reloc, list_entry) {
-                fprintf(fp, "%6zu ", j++);
-                fprintf(fp, "%02x ", reloc->type);
-                fprintf(fp, "%6lu ", reloc->offset);
-                fprintf(fp, "%6ld ", reloc->addend);
-                fprintf(fp, "%-32.32s", reloc->symbol->name);
-                fprintf(fp, "\n");
-            }
-
-            ++n;
-        }
-        fprintf(fp, "\n");
-    }
-}
+//static void print_symbols(FILE *fp, struct linkerctx *ctx)
+//{
+//    static const char *typemap[] = {
+//        [SYMBOL_NOTYPE] = "notype",
+//        [SYMBOL_OBJECT] = "object",
+//        [SYMBOL_TLS] = "tls",
+//        [SYMBOL_SECTION] = "sect",
+//        [SYMBOL_FUNCTION] = "func"
+//    };
+//
+//    static const char *bindmap[] = {
+//        [SYMBOL_WEAK] = "weak",
+//        [SYMBOL_GLOBAL] = "global",
+//        [SYMBOL_LOCAL] = "local"
+//    };
+//
+//    list_for_each_entry(entry, &ctx->processed, struct input_file, list_entry) {
+//        const struct symbols *symbols = entry->symbols;
+//
+//        fprintf(fp, "Symbol table '%s' contains %zu entries:\n",
+//                symbols->name, symbols->nsymbols);
+//
+//        fprintf(fp, "%6s %1s %6s %-16s %6s %6s %-6s %-6s %-32s\n",
+//                "Num", "D", "Offset", "Value", "Size", "Align", "Type", "Bind", "Name");
+//
+//        for (size_t i = 0, n = 0; i < symbols->capacity && n < symbols->nsymbols; ++i) {
+//            const struct symbol *sym = symbols_at(symbols, i);
+//
+//            if (sym == NULL) {
+//                continue;
+//            }
+//
+//            char def = 'U';
+//
+//            if (sym->section != NULL) {
+//                def = 'D';
+//            } else if (sym->is_absolute) {
+//                def = 'A';
+//            } else if (sym->is_common) {
+//                def = 'C';
+//            }
+//
+//            fprintf(fp, "%6zu ", i);
+//            fprintf(fp, "%c ", def);
+//            fprintf(fp, "%6lu ", sym->offset);
+//            fprintf(fp, "%016lx ", sym->value);
+//            fprintf(fp, "%6lu ", sym->size);
+//            fprintf(fp, "%6lu ", sym->align);
+//            fprintf(fp, "%-6s ", typemap[sym->type]);
+//            fprintf(fp, "%-6s ", bindmap[sym->binding]);
+//            fprintf(fp, "%-32.32s", sym->name);
+//            fprintf(fp, "\n");
+//
+//            ++n;
+//        }
+//
+//        fprintf(fp, "\n");
+//    }
+//}
+//
+//
+//static void print_relocs(FILE *fp, struct linkerctx *ctx)
+//{
+//    list_for_each_entry(entry, &ctx->processed, struct input_file, list_entry) {
+//        const struct sections *sections = entry->sections;
+//
+//        fprintf(fp, "Section table '%s' contains %zu entries:\n",
+//                sections->name, sections->nsections);
+//
+//        for (size_t i = 0, n = 0; i < sections->capacity && n < sections->nsections; ++i) {
+//            const struct section *sect = sections_at(sections, i);
+//
+//            if (sect == NULL) {
+//                continue;
+//            }
+//
+//            fprintf(fp, "Section %zu '%s' has %zu relocations:\n", i, sect->name, sect->nrelocs);
+//
+//            fprintf(fp, "%6s %-2s %6s %6s %-32s\n",
+//                    "Num", "T", "Offset", "Addend", "Symbol");
+//
+//            size_t j = 0;
+//            list_for_each_entry(reloc, &sect->relocs, const struct reloc, list_entry) {
+//                fprintf(fp, "%6zu ", j++);
+//                fprintf(fp, "%02x ", reloc->type);
+//                fprintf(fp, "%6lu ", reloc->offset);
+//                fprintf(fp, "%6ld ", reloc->addend);
+//                fprintf(fp, "%-32.32s", reloc->symbol->name);
+//                fprintf(fp, "\n");
+//            }
+//
+//            ++n;
+//        }
+//        fprintf(fp, "\n");
+//    }
+//}
 
 
 static char * format_option(char *buf, 
@@ -275,7 +275,7 @@ static bool linker_load_file(struct linkerctx *ctx, const char *pathname)
         struct archive *ar = archive_alloc(file, file->name, file->data, file->size);
 
         if (ar != NULL) {
-            bool success = linker_add_archive(ctx, ar, arfe) != NULL;
+            bool success = linker_add_archive(ctx, ar, arfe);
             archive_put(ar);
             mfile_put(file);
             log_ctx_pop();
@@ -289,7 +289,7 @@ static bool linker_load_file(struct linkerctx *ctx, const char *pathname)
         struct objfile *obj = objfile_alloc(file, file->name, file->data, file->size);
 
         if (obj != NULL) {
-            bool success = linker_add_input_file(ctx, obj, objfe) != NULL;
+            bool success = linker_add_input_file(ctx, obj, objfe);
             objfile_put(obj);
             mfile_put(file);
             log_ctx_pop();
@@ -398,22 +398,10 @@ int main(int argc, char **argv)
     }
 
     if (!linker_resolve_globals(ctx)) {
-        //  TODO: 
         linker_destroy(ctx);
         exit(3);
     }
 
-    if (dump_symbols) {
-        // FIXME: do this for the merged sections instead
-        print_symbols(stdout, ctx);
-    }
-
-    if (dump_relocs) {
-        print_relocs(stdout, ctx);
-    }
-
-    // TODO: mark-and-sweep sections for dead code elimination (DCE), but we might need a section group concept
-    
     log_notice("output=%s entry=%s", output_file, entry);
 
     linker_destroy(ctx);

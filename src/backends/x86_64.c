@@ -59,7 +59,6 @@ static int x86_64_apply_reloc(uint8_t *sect, uint64_t offset,
 
 const struct backend x86_64_be = {
     .name = "x86-64",
-    .march = EM_X86_64,
     .march_align = 16,
     .apply_reloc = x86_64_apply_reloc
 };
@@ -68,5 +67,5 @@ const struct backend x86_64_be = {
 __attribute__((constructor))
 static void x86_64_be_init(void)
 {
-    backend_register(&x86_64_be);
+    backend_register(&x86_64_be, EM_X86_64);
 }

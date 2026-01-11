@@ -7,6 +7,7 @@ extern "C" {
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include "section.h"
 
 
 // Forward declaration of section
@@ -23,7 +24,8 @@ struct sections
     int refcnt;                 // reference counter
     size_t capacity;            // size of the table/array
     size_t nsections;           // number of sections in the array
-    struct section **entries;   // table/array of sections by index
+    uint64_t maxidx;            // the highest inserted index
+    struct section **sections;  // table/array of sections by index
 };
 
 
@@ -78,9 +80,28 @@ int sections_insert(struct sections *sections,
 
 
 /*
+ * Insert a section in the back of the section table.
+ * Takes a strong reference to the section and returns the index
+ * the section was inserted into.
+ *
+ * Note: Returns 0 if there was not enough space to insert the section.
+ */
+uint64_t sections_push(struct sections *sections, struct section *section);
+
+
+/*
  * Release the reference at the specified index.
  */
 bool sections_remove(struct sections *sections, uint64_t index);
+
+
+/*
+ * Helper function to "pop" the section with the highest index off the table.
+ *
+ * Note that this does NOT release the section reference.
+ * The caller must call section_put() on the returned reference.
+ */
+struct section * sections_pop(struct sections *sections);
 
 
 /*
@@ -91,10 +112,25 @@ static inline
 struct section * sections_at(const struct sections *sections, uint64_t index)
 {
     if (index < sections->capacity) {
-        return sections->entries[index];
+        return sections->sections[index];
     }
     return NULL;
 }
+
+
+/*
+ * Remove sections that aren't marked as "live" (is_alive set to false).
+ *
+ * If compact is set to false, "holes" in the table are kept (sparse array).
+ * If compact is set to true, the table is compacted.
+ */
+void sections_sweep_dead(struct sections *sections, bool compact);
+
+
+/*
+ * Clear the sections table.
+ */
+void sections_clear(struct sections *sections);
 
 
 #ifdef __cplusplus

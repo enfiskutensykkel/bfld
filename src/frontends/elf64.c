@@ -207,7 +207,7 @@ static int parse_sections(const Elf64_Ehdr *eh,
                 case SHT_PREINIT_ARRAY:
                     log_warning("Support for type %u sections is not implemented yet",
                             sh->sh_type);
-                    log_pop_ctx();
+                    log_ctx_pop();
                     return ENOTSUP;
 
                 case SHT_NOTE:
@@ -234,7 +234,7 @@ static int parse_sections(const Elf64_Ehdr *eh,
             }
         }
 
-        struct section *section = section_alloc(objfile, shndx, shname, type,
+        struct section *section = section_alloc(objfile, shname, type,
                                                 ((const uint8_t*) eh) + sh->sh_offset,
                                                 sh->sh_size);
         if (section == NULL) {
@@ -242,7 +242,7 @@ static int parse_sections(const Elf64_Ehdr *eh,
             return ENOMEM;
         }
 
-        int status = sections_insert(sections, section->idx, section, NULL);
+        int status = sections_insert(sections, shndx, section, NULL);
         section_put(section);
         if (status != 0) {
             log_fatal("Could not add section to section table");
@@ -346,8 +346,7 @@ static int parse_reltab(const Elf64_Ehdr *eh,
 static int parse_symtab(const Elf64_Ehdr *eh, 
                         const Elf64_Shdr *sh, 
                         const struct sections *sections, 
-                        struct symbols *symbols, 
-                        struct globals *globals)
+                        struct symbols *symbols)
 {
     int status = 0;
     assert(sh->sh_type == SHT_SYMTAB);
@@ -476,32 +475,12 @@ static int parse_symtab(const Elf64_Ehdr *eh,
             goto out;
         }
 
-        struct symbol *existing = symbol;
-
-        // If we have a non-local symbol, insert it into the global symbol table
-        if (symbol->binding != SYMBOL_LOCAL) {
-            status = globals_insert_symbol(globals, symbol, &existing);
-            if (status == EEXIST) {
-                // symbol already existed in the symbol table, merge them and keep existing
-                status = symbol_merge(existing, symbol);
-                if (status != 0) {
-                    symbol_put(symbol);
-                    goto out;
-                }
-            } else if (status != 0) {
-                symbol_put(symbol);
-                goto out;
-            }
-        }
-
         // We insert the existing symbol so we are updated on changes to it
-        status = symbols_insert(symbols, idx, existing, NULL);
+        status = symbols_insert(symbols, idx, symbol, NULL);
+        symbol_put(symbol);
         if (status != 0) {
-            symbol_put(symbol);
             goto out;
         }
-
-        symbol_put(symbol);
     }
 
 out:
@@ -513,8 +492,7 @@ static int parse_elf_file(const uint8_t *file_data,
                           size_t file_size,
                           struct objfile *objfile, 
                           struct sections *sections, 
-                          struct symbols *symbols,
-                          struct globals *globals)
+                          struct symbols *symbols)
 {
     int status = 0;
     const Elf64_Ehdr* eh = (const void*) file_data;
@@ -537,7 +515,7 @@ static int parse_elf_file(const uint8_t *file_data,
 
     // Parse symbol table
     list_for_each_entry_safe(s, &symtabs, struct elf_section_entry, entry) {
-        status = parse_symtab(eh, s->shdr, sections, symbols, globals);
+        status = parse_symtab(eh, s->shdr, sections, symbols);
         if (status != 0) {
             goto cleanup;
         }

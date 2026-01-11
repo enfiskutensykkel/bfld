@@ -3,6 +3,7 @@
 #include "sections.h"
 #include "section.h"
 #include "logging.h"
+#include "symbol.h"
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
@@ -21,8 +22,9 @@ struct sections * sections_alloc(const char *name)
     }
 
     st->capacity = 0; 
-    st->entries = NULL;
+    st->sections = NULL;
     st->nsections = 0;
+    st->maxidx = 0;
     st->refcnt = 1;
     return st;
 }
@@ -45,14 +47,14 @@ bool sections_reserve(struct sections *st, size_t n)
     log_trace("Extending section table capacity to %zu", new_capacity);
     log_ctx_pop();
 
-    struct section **entries = realloc(st->entries, sizeof(struct section*) * new_capacity);
-    if (entries == NULL) {
+    struct section **sections = realloc(st->sections, sizeof(struct section*) * new_capacity);
+    if (sections == NULL) {
         return false;
     }
 
     // Zero out the new entries
-    memset(&entries[st->capacity], 0, (new_capacity - st->capacity) * sizeof(struct section*));
-    st->entries = entries;
+    memset(&sections[st->capacity], 0, (new_capacity - st->capacity) * sizeof(struct section*));
+    st->sections = sections;
     st->capacity = new_capacity;
 
     return true;
@@ -68,25 +70,55 @@ struct sections * sections_get(struct sections *st)
 }
 
 
+void sections_clear(struct sections *st)
+{
+    for (size_t i = 0; i < st->capacity && st->nsections > 0; ++i) {
+        if (st->sections[i] != NULL) {
+            section_put(st->sections[i]);
+            st->sections[i] = NULL;
+            st->nsections--;
+        }
+    }
+    st->maxidx = 0;
+}
+
+
 void sections_put(struct sections *st)
 {
     assert(st != NULL);
     assert(st->refcnt > 0);
 
     if (--(st->refcnt) == 0) {
-        for (size_t i = 0; i < st->capacity && st->nsections > 0; ++i) {
-            if (st->entries[i] != NULL) {
-                section_put(st->entries[i]);
-                st->entries[i] = NULL;
-                --(st->nsections);
-            }
-        }
-        free(st->entries);
+        sections_clear(st);
+        free(st->sections);
         if (st->name != NULL) {
             free(st->name);
         }
         free(st);
     }
+}
+
+
+uint64_t sections_push(struct sections *st, struct section *sect)
+{
+    uint64_t idx;
+    uint64_t maxidx = st->maxidx;
+
+    do {
+        idx = ++maxidx;
+
+        if (idx >= st->capacity) {
+            if (!sections_reserve(st, idx + 1)) {
+                return 0;
+            }
+        }
+
+    } while (st->sections[idx] != NULL);
+
+    st->sections[idx] = section_get(sect);
+    st->nsections++;
+    st->maxidx = maxidx;
+    return idx;
 }
 
 
@@ -105,7 +137,7 @@ int sections_insert(struct sections *st, uint64_t idx,
         }
     }
 
-    pos = &(st->entries[idx]);
+    pos = &(st->sections[idx]);
     if (*pos != NULL) {
         log_error("Section table already contains a section with index %llu", idx);
         log_ctx_pop();
@@ -116,7 +148,11 @@ int sections_insert(struct sections *st, uint64_t idx,
     }
 
     *pos = section_get(sect);
-    ++(st->nsections);
+    st->nsections++;
+
+    if (idx > st->maxidx) {
+        st->maxidx = idx;
+    }
 
     log_ctx_pop();
     return 0;
@@ -129,13 +165,61 @@ bool sections_remove(struct sections *st, uint64_t idx)
         return false;
     }
 
-    struct section **s = &(st->entries[idx]);
+    struct section **s = &(st->sections[idx]);
     if (*s == NULL) {
         return false;
     }
 
     section_put(*s);
     *s = NULL;
-    --(st->nsections);
+    st->nsections--;
+
+    if (idx == st->maxidx) {
+        while (st->maxidx > 0 && st->sections[st->maxidx] == NULL) {
+            st->maxidx--;
+        }
+    }
+
     return true;
+}
+
+
+void sections_sweep_dead(struct sections *st, bool compact)
+{
+    size_t n = 0;
+
+    for (size_t i = 0; i < st->capacity; ++i) {
+        struct section **s = &st->sections[i];
+
+        if (*s == NULL) {
+            continue;
+        }
+
+        if ((*s)->is_alive) {
+            if (compact && i != n) {
+                st->sections[n] = *s;
+                *s = NULL;
+            }
+            ++n;
+        } else {
+            section_put(*s);
+            *s = NULL;
+        }
+    }
+
+    st->nsections = n;
+}
+
+
+struct section * sections_pop(struct sections *st)
+{
+    if (st->maxidx > 0) {
+        assert(st->maxidx < st->capacity);
+        assert(st->sections[st->maxidx] != NULL);
+
+        struct section *sect = section_get(st->sections[st->maxidx]);
+        sections_remove(st, st->maxidx);
+        return sect;
+    }
+    return NULL;
 }
