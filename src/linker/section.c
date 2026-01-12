@@ -136,7 +136,7 @@ struct reloc * section_add_reloc(struct section *section,
     list_insert_tail(&section->relocs, &reloc->list_entry);
     ++(section->nrelocs);
 
-    log_debug("Added relocation relative to symbol '%s'", symbol->name);
+    log_debug("Added relocation to target symbol '%s'", symbol->name);
 
     return reloc;
 }

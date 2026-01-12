@@ -479,7 +479,6 @@ static int parse_symtab(const Elf64_Ehdr *eh,
             goto out;
         }
 
-        // We insert the existing symbol so we are updated on changes to it
         status = symbols_insert(symbols, idx, symbol, NULL);
         symbol_put(symbol);
         if (status != 0) {

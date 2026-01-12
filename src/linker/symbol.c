@@ -120,7 +120,7 @@ int symbol_bind_definition(struct symbol *sym,
         sym->value = offset;
         sym->offset = 0;
         sym->align = 0;  // FIXME: make sure that address is an alignment of align
-        log_trace("Symbol '%s' is defined at address 0x%lx", 
+        log_debug("Symbol '%s' is defined at address 0x%lx", 
                 sym->name, sym->value);
 
     } else {
@@ -129,7 +129,7 @@ int symbol_bind_definition(struct symbol *sym,
         sym->value = 0;
         sym->offset = offset;
         sym->section = section_get(section);
-        log_trace("Symbol '%s' is defined in %s", 
+        log_debug("Symbol '%s' is defined in %s", 
                 sym->name, sym->section->name);
     }
 

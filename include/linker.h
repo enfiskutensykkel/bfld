@@ -35,7 +35,6 @@ struct linkerctx
     struct list_head archives;      // list of archive files
     struct globals *globals;        // global symbols
     struct sections *sections;      // global list of input sections
-    struct sections *keep;          // list of sections to keep
     struct symbols *unresolved;     // list of unresolved symbols
 };
 
@@ -85,13 +84,7 @@ bool linker_add_input_file(struct linkerctx *ctx,
 bool linker_resolve_globals(struct linkerctx *ctx);
 
 
-void linker_gc(struct linkerctx *ctx);
-
-
-void linker_keep_section(struct linkerctx *ctx, struct section *section);
-
-
-void linker_keep_symbol(struct linkerctx *ctx, struct symbol *symbol);
+void linker_gc_sections(struct linkerctx *ctx, struct sections *keep);
 
 
 struct image * linker_create_image(struct linkerctx *ctx, 

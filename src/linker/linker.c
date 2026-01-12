@@ -243,16 +243,6 @@ struct linkerctx * linker_create(const char *name)
         return NULL;
     }
 
-    ctx->keep = sections_alloc("keep");
-    if (ctx->keep == NULL) {
-        symbols_put(ctx->unresolved);
-        sections_put(ctx->sections);
-        globals_put(ctx->globals);
-        free(ctx);
-        log_ctx_pop();
-        return NULL;
-    }
-    
     if (name != NULL) {
         ctx->name = strdup(name);
     }
@@ -292,7 +282,6 @@ void linker_destroy(struct linkerctx *ctx)
         symbols_put(ctx->unresolved);
         globals_put(ctx->globals);
         sections_put(ctx->sections);
-        sections_put(ctx->keep);
 
         if (ctx->name != NULL) {
             free(ctx->name);
@@ -403,15 +392,6 @@ bool linker_add_input_file(struct linkerctx *ctx, struct objfile *objfile,
         return false;
     }
 
-    // Add file's sections to the global section list
-    for (uint64_t i = 0, n = 0; i < sections->capacity && n < sections->nsections; ++i) {
-        struct section *sect = sections_at(sections, i);
-        if (sect != NULL) {
-            sections_push(ctx->sections, sect);
-            ++n;
-        }
-    }
-
     // Add file's symbols to the global symbol table
     for (uint64_t i = 0, n = 0; i < symbols->capacity && n < symbols->nsymbols; ++i) {
         struct symbol *sym = symbols_at(symbols, i);
@@ -443,6 +423,27 @@ bool linker_add_input_file(struct linkerctx *ctx, struct objfile *objfile,
         if (!symbol_is_defined(existing)) {
             symbols_push(ctx->unresolved, existing);
         } 
+    }
+
+    for (uint64_t i = 0, n = 0; i < sections->capacity && n < sections->nsections; ++i) {
+        struct section *sect = sections_at(sections, i);
+        if (sect == NULL) {
+            continue;
+        }
+
+        // Add file's sections to the global section list
+        sections_push(ctx->sections, sect);
+        ++n;
+
+        // Fix relocations
+        list_for_each_entry_safe(reloc, &sect->relocs, struct reloc, list_entry) {
+            struct symbol *global = globals_find_symbol(ctx->globals, reloc->symbol->name);
+
+            if (global != NULL && global != reloc->symbol) {
+                symbol_put(reloc->symbol);
+                reloc->symbol = symbol_get(global);
+            }
+        }
     }
 
     log_trace("Added object file to input files");
@@ -575,7 +576,7 @@ leave:
 }
 
 
-void linker_gc(struct linkerctx *ctx)
+void linker_gc_sections(struct linkerctx *ctx, struct sections *keep)
 {
     struct sections wl = {0};
     ctx->gc_sections = true;
@@ -583,8 +584,8 @@ void linker_gc(struct linkerctx *ctx)
     sections_reserve(&wl, ctx->sections->capacity);
 
     // Start with using all sections marked as kept
-    for (uint64_t i = 0, n = 0; i < ctx->keep->capacity && n < ctx->keep->nsections; ++i) {
-        struct section *s = sections_at(ctx->keep, i);
+    for (uint64_t i = 0, n = 0; i < keep->capacity && n < keep->nsections; ++i) {
+        struct section *s = sections_at(keep, i);
         if (s != NULL) {
             ++n;
             s->is_alive = true;
@@ -606,7 +607,7 @@ void linker_gc(struct linkerctx *ctx)
 
             if (!sym->is_used) {
                 sym->is_used = true;
-                log_debug("Marking symbol '%s' as used", sym->name);
+                log_debug("Marking symbol '%s' as alive", sym->name);
 
                 if (symbol_is_defined(sym) && sym->section != NULL) {
                     struct section *target = sym->section;
@@ -614,6 +615,7 @@ void linker_gc(struct linkerctx *ctx)
                     if (!target->is_alive) {
                         sections_push(&wl, target);
                         target->is_alive = true;
+                        log_debug("Marking section %s as alive", target->name);
                     }
                 }
             }
@@ -623,26 +625,6 @@ void linker_gc(struct linkerctx *ctx)
     }
 
     sections_clear(&wl);
-}
-
-
-void linker_keep_section(struct linkerctx *ctx, struct section *sect)
-{
-    sections_push(ctx->keep, sect);
-    sect->is_alive = true;
-}
-
-
-void linker_keep_symbol(struct linkerctx *ctx, struct symbol *sym)
-{
-    sym->is_used = true;
-    if (symbol_is_defined(sym)) {
-        if (sym->section != NULL) {
-            linker_keep_section(ctx, sym->section);
-        } else {
-            // find section with address
-        }
-    }
 }
 
 
@@ -678,29 +660,26 @@ struct image * linker_create_image(struct linkerctx *ctx,
     }
 
     image_pack(img, base_addr);
-
     symbols_reserve(&img->symbols, ctx->globals->nsymbols + 1);
 
-    struct rb_node *node = rb_first(&ctx->globals->map);
+    while (ctx->globals->map.root != NULL) {
+        struct rb_node *node = ctx->globals->map.root;
+        struct globals_entry *entry = rb_entry(node, struct globals_entry, map_entry);
+        struct symbol *sym = entry->symbol;
 
-    while (node != NULL) {
-        struct symbol *sym = globals_symbol(node);
-        node = rb_next(node);
+        rb_remove(&ctx->globals->map, node);
 
-        if (ctx->gc_sections && !symbol_is_alive(sym)) {
-            continue;
+        if (symbol_is_alive(sym) || !ctx->gc_sections) {
+            if (sym->section != NULL) {
+                sym->value = sym->section->vaddr + sym->offset;
+            }
+
+            symbols_push(&img->symbols, sym);
         }
 
-        symbols_push(&img->symbols, sym);
-
-        if (sym->is_absolute || sym->section == NULL) {
-            continue;
-        }
-
-        sym->value = sym->section->vaddr + sym->value;
+        symbol_put(entry->symbol);
+        free(entry);
     }
-
-    globals_clear(ctx->globals);
 
     list_for_each_entry_safe(file, &ctx->archives, struct archive_file, list_entry) {
         remove_archive_file(file);

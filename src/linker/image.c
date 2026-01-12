@@ -3,6 +3,7 @@
 #include "section.h"
 #include "sections.h"
 #include "symbols.h"
+#include "symbol.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
@@ -179,4 +180,14 @@ void image_pack(struct image *img, uint64_t base_addr)
     }
 
     img->size = vaddr - base_addr;
+
+    for (size_t i = 1; i <= img->symbols.nsymbols; ++i) {
+        struct symbol *sym = symbols_at(&img->symbols, i);
+
+        if (sym->is_absolute || sym->section == NULL) {
+            continue;
+        }
+
+        sym->value = sym->section->vaddr + sym->offset;
+    }
 }
