@@ -46,5 +46,4 @@ endmacro()
 
 
 # Add test directories
-add_subdirectory(rbtree)
-add_subdirectory(deque)
+add_subdirectory(utils)

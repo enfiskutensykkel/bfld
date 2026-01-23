@@ -6,7 +6,8 @@
 #include <stdint.h>
 #include <assert.h>
 
-named_deque(int, intdeque);
+
+DEQUE_DECLARE(int, intdeque);
 
 
 int main(int argc, char **argv)

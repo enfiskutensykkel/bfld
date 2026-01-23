@@ -6,20 +6,38 @@ extern "C" {
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 
+/*
+ * Double-ended queue (deque).
+ *
+ * Double-ended queues are useful for O(1) tail and head insertions,
+ * and can be used to implement FIFO and LIFO queues.
+ *
+ * This implementation uses a dynamic array with potential O(n)
+ * grow complexity. The user should preferably reserve the maximum
+ * amount of entries if this is known in advance to avoid costly
+ * grows.
+ */
 struct deque
 {
     void **q;
-    size_t head;
-    size_t size;
-    size_t capacity;
+    uint64_t head;
+    uint64_t size;
+    uint64_t capacity;
 };
 
 
+/*
+ * Initialize an empty deque.
+ */
 #define DEQUE_INIT (struct deque) {NULL, 0, 0, 0}
 
 
+/*
+ * Initialize an empty deque.
+ */
 static inline
 void deque_init(struct deque *d)
 {
@@ -30,41 +48,131 @@ void deque_init(struct deque *d)
 }
 
 
+/*
+ * Clear the deque and free the buffer.
+ */
 void deque_clear(struct deque *d);
 
 
-bool deque_reserve(struct deque *d, size_t capacity);
+/*
+ * Reserve space in the internal deque buffer.
+ * Returns true if the deque is able to hold at least
+ * capacity entries, and false otherwise.
+ */
+bool deque_reserve(struct deque *d, uint64_t capacity);
 
 
-bool deque_push_back(struct deque *d, void *entry);
-
-
-bool deque_push_front(struct deque *d, void *entry);
-
-
-void * deque_pop_front(struct deque *d);
-
-
-void * deque_pop_back(struct deque *d);
-
-
+/*
+ * Push an entry to the back of the deque (tail insert).
+ * Returns true if the entry was inserted, and false otherwise.
+ */
 static inline
-size_t deque_size(const struct deque *d)
+bool deque_push_back(struct deque *d, void *entry)
+{
+    if (d->size == d->capacity) {
+        if (!deque_reserve(d, d->capacity != 0 ? d->capacity * 2 : 8)) {
+            return false;
+        }
+    }
+
+    uint64_t tail = (d->head + d->size) & (d->capacity - 1);
+    d->q[tail] = entry;
+    d->size++;
+    return true;
+}
+
+
+/*
+ * Push an entry to the back of the deque (head insert).
+ * Returns true if the entry was inserted, and false otherwise.
+ */
+static inline
+bool deque_push_front(struct deque *d, void *entry)
+{
+    if (d->size == d->capacity) {
+        if (!deque_reserve(d, d->capacity != 0 ? d->capacity * 2 : 8)) {
+            return false;
+        }
+    }
+
+    d->head--;
+    d->q[d->head & (d->capacity - 1)] = entry;
+    d->size++;
+    return true;
+}
+
+
+/*
+ * Pop off an entry from the front of the deque (head remove).
+ * Returns the entry or NULL if size is 0.
+ */
+static inline
+void * deque_pop_front(struct deque *d)
+{
+    void *entry = NULL;
+
+    if (d->size != 0) {
+        entry = d->q[d->head & (d->capacity - 1)];
+        d->head++;
+        d->size--;
+    }
+
+    return entry;
+}
+
+
+/*
+ * Pop off an entry from the back of the deque (tail remove).
+ * Returns the entry or NULL if size is 0.
+ */
+static inline
+void * deque_pop_back(struct deque *d)
+{
+    void *entry = NULL;
+
+    if (d->size != 0) {
+        uint64_t tail = d->head + d->size - 1;
+        entry = d->q[tail & (d->capacity - 1)];
+        d->size--;
+    }
+
+    return entry;
+}
+
+
+/*
+ * Get the number of entries in the deque.
+ */
+static inline
+uint64_t deque_size(const struct deque *d)
 {
     return d->size;
 }
 
 
-#define named_deque(type, name) \
+/*
+ * Is the deque empty?
+ */
+static inline
+bool deque_empty(const struct deque *d)
+{
+    return d->size == 0;
+}
+
+
+/*
+ * Declare a type-safe deque with a given name.
+ */
+#define DEQUE_DECLARE(type, name) \
     struct name { \
         type **q; \
-        size_t head; \
-        size_t size; \
-        size_t capacity; \
+        uint64_t head; \
+        uint64_t size; \
+        uint64_t capacity; \
     }; \
     \
     static inline \
-    bool name##_reserve(struct name *d, size_t capacity) \
+    bool name##_reserve(struct name *d, uint64_t capacity) \
     { \
         return deque_reserve((struct deque*) d, capacity); \
     } \
@@ -99,7 +207,12 @@ size_t deque_size(const struct deque *d)
         return (type*) deque_pop_back((struct deque*) d); \
     } \
     static inline \
-    size_t name##_size(const struct name *d) \
+    bool name##_empty(const struct name *d) \
+    { \
+        return d->size == 0; \
+    } \
+    static inline \
+    uint64_t name##_size(const struct name *d) \
     { \
         return d->size; \
     }
