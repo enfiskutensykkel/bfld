@@ -20,6 +20,7 @@ extern "C" {
 struct sections
 {
     struct deque q;     // internal queue structure
+    uint64_t nsections; // number of sections in the queue
 };
 
 
@@ -63,6 +64,7 @@ bool sections_push(struct sections *sectq, struct section *sect)
         section_put(sect);
         return false;
     }
+    sectq->nsections = sectq->q.size;
     return true;
 }
 
@@ -87,7 +89,9 @@ struct section * sections_peek(const struct sections *sectq, uint64_t position)
 static inline
 struct section * sections_pop(struct sections *sectq)
 {
-    return (struct section*) deque_pop_front(&sectq->q);
+    struct section *sect = (struct section*) deque_pop_front(&sectq->q);
+    sectq->nsections = sectq->q.size;
+    return sect;
 }
 
 

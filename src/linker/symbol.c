@@ -49,7 +49,6 @@ struct symbol * symbol_alloc(const char *name, enum symbol_type type,
         return NULL;
     }
 
-    sym->value = 0;
     sym->binding = binding;
     sym->type = type;
     sym->refcnt = 1;
@@ -101,7 +100,7 @@ int symbol_bind_definition(struct symbol *sym,
     if (symbol_is_defined(sym) && sym->binding != SYMBOL_WEAK && !sym->is_common) {
         if (sym->is_absolute) {
             log_error("Redefinition for symbol '%s', was already defined at address 0x%llx", 
-                    sym->name, sym->value);
+                    sym->name, sym->offset);
         } else {
             log_error("Redefinition for symbol '%s', was already defined in %s", sym->name,
                     sym->section->name);
@@ -117,16 +116,14 @@ int symbol_bind_definition(struct symbol *sym,
         // This is an absolute definition
         sym->section = NULL;
         sym->is_absolute = true;
-        sym->value = offset;
-        sym->offset = 0;
-        sym->align = 0;  // FIXME: make sure that address is an alignment of align
+        sym->offset = offset;
+        sym->align = 0;  
         log_debug("Symbol '%s' is defined at address 0x%lx", 
-                sym->name, sym->value);
+                sym->name, sym->offset);
 
     } else {
         // This is a relative definition
         sym->is_absolute = false;
-        sym->value = 0;
         sym->offset = offset;
         sym->section = section_get(section);
         log_debug("Symbol '%s' is defined in %s", 
@@ -190,7 +187,7 @@ int symbol_merge(struct symbol *existing, const struct symbol *incoming)
         if (symbol_is_defined(existing) && existing->binding != SYMBOL_WEAK) {
             if (existing->is_absolute) {
                 log_error("Multiple definitions for symbol '%s', previously defined at address 0x%lx",
-                        existing->name, existing->value);
+                        existing->name, existing->offset);
 
             } else {
                 log_error("Multiple definitions for symbol '%s', previously defined in %s",

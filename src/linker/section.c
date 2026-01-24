@@ -65,7 +65,6 @@ struct section * section_alloc(struct objfile *objfile,
         strcpy(sect->name, name);
         sect->objfile = NULL;
     }
-    //sect->vaddr = 0;
     sect->refcnt = 1;
     sect->align = 0;
     sect->type = type;
@@ -74,6 +73,7 @@ struct section * section_alloc(struct objfile *objfile,
     sect->nrelocs = 0;
     list_head_init(&sect->relocs);
     sect->is_alive = false;
+    sect->output = NULL;
     
     return sect;
 }

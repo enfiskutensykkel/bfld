@@ -39,9 +39,8 @@ struct output_section
 {
     struct section_group *group;    // weak reference to the output image
     struct list_head list_entry;    // linked list entry
-    uint64_t vaddr;                 // finalized virtual address for the setion
+    uint64_t offset;                // finalized virtual address offset
     uint64_t size;                  // section size
-    uint64_t align;                 // section alignment requirements
     struct section *section;        // reference to section content
 };
 
@@ -62,11 +61,13 @@ struct image
     uint64_t size;                  // total memory size
     int refcnt;                     // reference counter
     struct list_head groups;        // section groups
-    struct globals *globals;        // global symbol table reference
+    struct symbols symbols;         // symbols used by the image
 };
 
 
-
+/*
+ * Create an output image.
+ */
 struct image * image_alloc(const char *name, 
                            uint32_t target, 
                            uint64_t cpu_align,
@@ -92,6 +93,13 @@ void image_put(struct image *image);
  * This takes a section reference.
  */
 bool image_add_section(struct image *image, struct section *section);
+
+
+/*
+ * Add a symbol to the image.
+ * This takes a symbol reference.
+ */
+bool image_add_symbol(struct image *image, struct symbol *symbol);
 
 
 /*

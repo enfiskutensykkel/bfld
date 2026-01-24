@@ -47,6 +47,7 @@ struct linkerctx * linker_create(const char *name)
 
     ctx->target = 0;
     list_head_init(&ctx->archives);
+    ctx->gc_sections = false;
     return ctx;
 }
 
@@ -304,7 +305,7 @@ bool linker_resolve_globals(struct linkerctx *ctx)
 }
 
 
-static bool create_common_section(struct linkerctx *ctx)
+bool linker_create_common_section(struct linkerctx *ctx)
 {
     bool success = false;
     struct symbols buckets[16] = {0};  // supports up to 2^15 buckets (32 kB alignment)
@@ -316,7 +317,7 @@ static bool create_common_section(struct linkerctx *ctx)
         struct symbol *symbol = globals_symbol(node);
         node = rb_next(node);
 
-        if (!symbol->is_common || !symbol->is_used) {
+        if (!symbol->is_common || (!symbol->is_used && ctx->gc_sections)) {
             continue;
         }
 
@@ -359,6 +360,7 @@ static bool create_common_section(struct linkerctx *ctx)
     common->align = max_align;
 
     if (offset > 0) {
+        log_debug("Created artificial section %s", common->name);
         common->is_alive = true;
         sections_push(&ctx->sections, common);
     }
@@ -377,6 +379,8 @@ void linker_gc_sections(struct linkerctx *ctx, const struct sections *keep)
 {
     struct sections wl = {0};
     struct section *sect;
+
+    ctx->gc_sections = true;
 
     sections_reserve(&wl, ctx->sections.q.capacity);
 
@@ -420,64 +424,3 @@ void linker_gc_sections(struct linkerctx *ctx, const struct sections *keep)
     sections_clear(&wl);
 }
 
-
-//struct image * linker_create_image(struct linkerctx *ctx, 
-//                                   const char *name, 
-//                                   uint64_t base_addr,
-//                                   bool gc_sections)
-//{
-//    const struct backend *be = backend_lookup(ctx->target);
-//    if (be == NULL) {
-//        return NULL;
-//    }
-//
-//    if (!create_common_section(ctx)) {
-//        return NULL;
-//    }
-//
-//    struct image *img = image_alloc(name, be->target, be->cpu_align, 
-//                                    be->min_page_size, be->max_page_size, be->is_be);
-//    if (img == NULL) {
-//        return NULL;
-//    }
-//
-//    const struct sections *sects = ctx->sections;
-//    while (sects->nsections > 0) {
-//        struct section *sect = sections_pop(sects);
-//
-//        if (sect->is_alive || !ctx->gc_sections) {
-//            image_reserve_capacity(img, sect->type, sects->capacity);
-//            image_add_section(img, sect);
-//        }
-//
-//        section_put(sect);
-//    }
-//
-//    image_pack(img, base_addr);
-//    symbols_reserve(&img->symbols, ctx->globals->nsymbols + 1);
-//
-//    while (ctx->globals->map.root != NULL) {
-//        struct rb_node *node = ctx->globals->map.root;
-//        struct globals_entry *entry = rb_entry(node, struct globals_entry, map_entry);
-//        struct symbol *sym = entry->symbol;
-//
-//        rb_remove(&ctx->globals->map, node);
-//
-//        if (symbol_is_alive(sym) || !ctx->gc_sections) {
-//            if (sym->section != NULL) {
-//                sym->value = sym->section->vaddr + sym->offset;
-//            }
-//
-//            symbols_push(&img->symbols, sym);
-//        }
-//
-//        symbol_put(entry->symbol);
-//        free(entry);
-//    }
-//
-//    list_for_each_entry_safe(file, &ctx->archives, struct archive_file, list_entry) {
-//        remove_archive_file(file);
-//    }
-//
-//    return img;
-//}

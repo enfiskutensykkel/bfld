@@ -3,6 +3,8 @@ extern int bar;
 
 int something_in_common;
 
+int another_common;
+
 int initd = 3;
 
 int foo(void)

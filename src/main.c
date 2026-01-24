@@ -17,54 +17,61 @@
 #include <archive.h>
 #include <objfile_frontend.h>
 #include <archive_frontend.h>
+#include <backend.h>
 #include <image.h>
 
 
-//static void print_symbols(FILE *fp, struct image *img)
-//{
-//    static const char *typemap[] = {
-//        [SYMBOL_NOTYPE] = "notype",
-//        [SYMBOL_OBJECT] = "object",
-//        [SYMBOL_TLS] = "tls",
-//        [SYMBOL_SECTION] = "sect",
-//        [SYMBOL_FUNCTION] = "func"
-//    };
-//
-//    static const char *bindmap[] = {
-//        [SYMBOL_WEAK] = "weak",
-//        [SYMBOL_GLOBAL] = "global",
-//        [SYMBOL_LOCAL] = "local"
-//    };
-//
-//    fprintf(fp, "%-16s %6s %6s %-6s %-6s %-20s %-32s\n",
-//            "Value", "Size", "Align", "Type", "Bind", "Definition", "Name");
-//
-//    for (uint64_t idx = 1; idx <= img->symbols.nsymbols; ++idx) {
-//        const struct symbol *sym = symbols_at(&img->symbols, idx);
-//
-//        if (sym->type == SYMBOL_SECTION) {
-//            continue;
-//        }
-//
-//        const char *defname = "UNKNOWN";
-//        if (!symbol_is_defined(sym)) {
-//            defname = "UNDEFINED";
-//        } else if (sym->is_absolute) {
-//            defname = "ABSOLUTE";
-//        } else if (sym->section != NULL && sym->section->name != NULL) {
-//            defname = sym->section->name;
-//        }
-//
-//        fprintf(fp, "%016lx ", sym->value);
-//        fprintf(fp, "%6lu ", sym->size);
-//        fprintf(fp, "%6lu ", sym->align);
-//        fprintf(fp, "%-6s ", typemap[sym->type]);
-//        fprintf(fp, "%-6s ", bindmap[sym->binding]);
-//        fprintf(fp, "%-20.20s ", defname);
-//        fprintf(fp, "%-32.32s", sym->name);
-//        fprintf(fp, "\n");
-//    }
-//}
+static void print_symbols(FILE *fp, const struct image *img)
+{
+    static const char *typemap[] = {
+        [SYMBOL_NOTYPE] = "notype",
+        [SYMBOL_OBJECT] = "object",
+        [SYMBOL_TLS] = "tls",
+        [SYMBOL_SECTION] = "sect",
+        [SYMBOL_FUNCTION] = "func"
+    };
+
+    static const char *bindmap[] = {
+        [SYMBOL_WEAK] = "weak",
+        [SYMBOL_GLOBAL] = "global",
+        [SYMBOL_LOCAL] = "local"
+    };
+
+    fprintf(fp, "%-16s %6s %6s %-6s %-6s %-20s %-32s\n",
+            "Value", "Size", "Align", "Type", "Bind", "Definition", "Name");
+
+    for (uint64_t idx = 0; idx < img->symbols.nsymbols; ++idx) {
+        const struct symbol *sym = symbols_peek(&img->symbols, idx);
+
+        uint64_t value = 0;
+
+        const char *defname = "UNKNOWN";
+        if (!symbol_is_defined(sym)) {
+            defname = "UNDEFINED";
+        } else if (sym->is_absolute) {
+            defname = "ABSOLUTE";
+            value = sym->offset;
+        } else if (sym->section != NULL) {
+            struct section *sect = sym->section;
+
+            if (sect->output != NULL) {
+                defname = sect->output->group->name;
+                value = (sect->output->group->vaddr
+                         + sect->output->offset
+                         + sym->offset);
+            }
+        }
+
+        fprintf(fp, "%016lx ", value);
+        fprintf(fp, "%6lu ", sym->size);
+        fprintf(fp, "%6lu ", sym->align);
+        fprintf(fp, "%-6s ", typemap[sym->type]);
+        fprintf(fp, "%-6s ", bindmap[sym->binding]);
+        fprintf(fp, "%-20.20s ", defname);
+        fprintf(fp, "%-32.32s", sym->name);
+        fprintf(fp, "\n");
+    }
+}
 
 
 //static void print_layout(FILE *fp, struct image *img)
@@ -102,7 +109,8 @@ static void keep_symbol(struct sections *keep, struct symbol *sym)
         if (sym->section != NULL) {
             keep_section(keep, sym->section);
         } else {
-            // find section with address
+            // TODO: find section with address
+            log_warning("Absolute symbol is not supported");
         }
     }
 }
@@ -239,6 +247,7 @@ static void print_option(FILE *fp,
         n = wordlen(word);
         
         if (curr + n > 79) {
+            fprintf(fp, "\n%s", buffer);
             curr = col;
         }
         curr += n + 1;
@@ -296,6 +305,53 @@ static bool linker_load_file(struct linkerctx *ctx, const char *pathname)
 }
 
 
+static struct image * linker_create_image(const char *name,
+                                          struct linkerctx *ctx,
+                                          uint64_t baseaddr)
+{
+    const struct backend *be = backend_lookup(ctx->target);
+    if (be == NULL) {
+        log_fatal("Unsupported machine code architecture");
+        return NULL;
+    }
+
+    struct image *img = image_alloc(name, ctx->target, be->cpu_align,
+                                    be->min_page_size, be->max_page_size, be->is_be);
+    if (img == NULL) {
+        log_fatal("Unable to create output image");
+        return NULL;
+    }
+
+    for (uint64_t i = 0; i < ctx->sections.nsections; ++i) {
+        struct section *sect = sections_peek(&ctx->sections, i);
+
+        if (ctx->gc_sections && !sect->is_alive) {
+            continue;
+        }
+
+        if (!image_add_section(img, sect)) {
+            image_put(img);
+            return NULL;
+        }
+    }
+
+    struct rb_node *node = rb_first(&ctx->globals->map);
+
+    while (node != NULL) {
+        struct symbol *sym = globals_symbol(node);
+        node = rb_next(node);
+
+        if (ctx->gc_sections && !symbol_is_alive(sym)) {
+            continue;
+        }
+
+        image_add_symbol(img, sym);
+    }
+
+    image_pack(img, baseaddr);
+    return img;
+}
+
 
 int main(int argc, char **argv)
 {
@@ -303,6 +359,7 @@ int main(int argc, char **argv)
     int idx = -1;
     static int show_symbols = 0;
     static int show_layout = 0;
+    static int gc_sections = 1;
 
     const char *output_file = "a.out";
     const char *entry = "_start";
@@ -314,6 +371,8 @@ int main(int argc, char **argv)
         {"entry", required_argument, 0, 'e'},
         {"show-symbols", no_argument, &show_symbols, 10},
         {"show-layout", no_argument, &show_layout, 1},
+        {"gc-sections", no_argument, &gc_sections, 1},
+        {"no-gc-sections", no_argument, &gc_sections, 0},
         {0, 0, 0, 0}
     };
 
@@ -358,6 +417,7 @@ int main(int argc, char **argv)
                 print_option(stdout, "-v", "--verbose", optional_argument, "level", "Increase log level.");
                 print_option(stdout, "-o", "--output", required_argument, "FILE", "Set output file name.");
                 print_option(stdout, "-e", "--entry", required_argument, "ADDRESS", "Set start address.");
+                print_option(stdout, "--[no-]gc-sections", NULL, no_argument, NULL, "Enable or disable garbage collection of dead code (default is to garbage collect).");
                 print_option(stdout, "--show-symbols", NULL, no_argument, NULL, "Print global symbol table.");
                 print_option(stdout, "--show-layout", NULL, no_argument, NULL, "Print image layout information.");
                 linker_destroy(ctx);
@@ -402,27 +462,32 @@ int main(int argc, char **argv)
         linker_destroy(ctx);
         exit(3);
     }
+    log_debug("Entry point: '%s'", ep->name);
 
-    struct sections keep = {0};
+    if (gc_sections) {
+        struct sections keep = {0};
+        keep_symbol(&keep, ep);
+        linker_gc_sections(ctx, &keep);
+        sections_clear(&keep);
+    }
 
-    keep_symbol(&keep, ep);
-    
-    linker_gc_sections(ctx, &keep);
-    sections_clear(&keep);
+    if (!linker_create_common_section(ctx)) {
+        linker_destroy(ctx);
+        exit(2);
+    }
 
-    //struct image *img = linker_create_image(ctx, output_file, 0x400000);
-    //img->entrypoint = ep->value;
-
-    if (show_symbols) {
-        //print_symbols(stdout, img);
+    struct image *img = linker_create_image(output_file, ctx, 0x400000);
+    if (img == NULL) {
+        linker_destroy(ctx);
+        exit(2);
     }
 
     linker_destroy(ctx);
 
-    if (show_layout) {
-        //print_layout(stdout, img);
+    if (show_symbols) {
+        print_symbols(stdout, img);
     }
 
-    //image_put(img);
+    image_put(img);
     exit(0);
 }

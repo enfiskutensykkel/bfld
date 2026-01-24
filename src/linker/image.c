@@ -1,7 +1,6 @@
 #include "logging.h"
 #include "image.h"
 #include "section.h"
-#include "sections.h"
 #include "symbols.h"
 #include "symbol.h"
 #include <stdint.h>
@@ -25,8 +24,8 @@ static struct section_group * add_group(struct image *img, enum section_type typ
     grp->type = type;
     grp->vaddr = 0;
     grp->size = 0;
-    grp->align = 0;
-    memset(&grp->sections, 0, sizeof(grp->sections));
+    grp->align = grp->type == SECTION_TEXT ? img->cpu_align : 0;
+    list_head_init(&grp->sections);
 
     if (list_empty(&img->groups) || type == SECTION_ZERO) {
         list_insert_tail(&img->groups, &grp->list_entry);
@@ -34,9 +33,12 @@ static struct section_group * add_group(struct image *img, enum section_type typ
         struct section_group *last = list_last_entry(&img->groups, struct section_group, list_entry);
         if (last->type == SECTION_ZERO) {
             list_insert_tail(&last->list_entry, &grp->list_entry);
+        } else {
+            list_insert(&last->list_entry, &grp->list_entry);
         }
     }
 
+    log_debug("Created output section group %s", grp->name);
     return grp;
 }
 
@@ -51,18 +53,20 @@ static struct section_group * get_group(struct image *img, enum section_type typ
     }
 
     // Couldn't find group, try to create it
-    log_trace("Creating section group '%s'", section_type_to_string(type));
     return add_group(img, type);
 }
 
 
 static void remove_group(struct section_group *grp)
 {
-    sections_clear(&grp->sections);
-    list_remove(&grp->list_entry);
-    if (grp->name != NULL) {
-        free(grp->name);
+    list_for_each_entry_safe(outsect, &grp->sections, struct output_section, list_entry) {
+        list_remove(&outsect->list_entry);
+        section_put(outsect->section);
+        free(outsect);
     }
+
+    free(grp->name);
+    list_remove(&grp->list_entry);
     free(grp);
 }
 
@@ -92,7 +96,7 @@ struct image * image_alloc(const char *name, uint32_t target, uint64_t cpu_align
     img->is_be = is_be;
 
     list_head_init(&img->groups);
-    memset(&img->symbols, 0, sizeof(img->symbols));
+    memset(&img->symbols, 0, sizeof(struct symbols));
     return img;
 }
 
@@ -103,11 +107,12 @@ void image_put(struct image *img)
     assert(img->refcnt > 0);
 
     if (--(img->refcnt) == 0) {
-        symbols_clear(&img->symbols);
 
         list_for_each_entry_safe(grp, &img->groups, struct section_group, list_entry) {
             remove_group(grp);
         }
+
+        symbols_clear(&img->symbols);
 
         if (img->name != NULL) {
             free(img->name);
@@ -128,35 +133,55 @@ struct image * image_get(struct image *img)
 
 bool image_add_section(struct image *img, struct section *sect)
 {
-    struct section_group *grp = get_group(img, sect->type);
-    if (grp == NULL) {
+    assert(sect->output == NULL && "Section already assigned to an image");
+
+    if (sect->output != NULL) {
         return false;
     }
 
-    if (sections_push(&grp->sections, sect) > 0) {
-        if (sect->type == SECTION_TEXT && sect->align <= img->cpu_align) {
-            sect->align = img->cpu_align;
-        }
-
-        if (sect->align > grp->align) {
-            grp->align = sect->align;
-        }
-
-        return true;
+    struct output_section *outsect = malloc(sizeof(struct output_section));
+    if (outsect == NULL) {
+        return false;
     }
 
-    return false;
+    struct section_group *grp = get_group(img, sect->type);
+    if (grp == NULL) {
+        free(outsect);
+        return false;
+    }
+
+    outsect->group = grp;
+    outsect->section = section_get(sect);
+    outsect->size = sect->size;
+    sect->output = outsect;
+
+    struct output_section *prev = list_last_entry(&grp->sections, 
+                                                  struct output_section,
+                                                  list_entry);
+
+    list_insert_tail(&grp->sections, &outsect->list_entry);
+
+    if (sect->align > grp->align) {
+        grp->align = sect->align;
+    }
+
+    if (prev != NULL) {
+        uint64_t offset = prev->offset + prev->size;
+        outsect->offset = align_to(offset, sect->align);
+    } else {
+        outsect->offset = 0;
+    }
+
+    grp->size += outsect->size;
+    log_debug("Added section %s to output section group %s", 
+            sect->name, grp->name);
+    return true;
 }
 
 
-bool image_reserve_capacity(struct image *img, enum section_type type, size_t n)
+bool image_add_symbol(struct image *img, struct symbol *sym)
 {
-    struct section_group *grp = get_group(img, type);
-    if (grp == NULL) {
-        return false;
-    }
-
-    return sections_reserve(&grp->sections, n);
+    return symbols_push(&img->symbols, sym);
 }
 
 
@@ -167,27 +192,8 @@ void image_pack(struct image *img, uint64_t base_addr)
 
     list_for_each_entry(grp, &img->groups, struct section_group, list_entry) {
         grp->vaddr = align_to(vaddr, grp->align);
-        uint64_t offset = 0;
-
-        for (size_t i = 1; i <= grp->sections.maxidx; ++i) {
-            struct section *sect = sections_at(&grp->sections, i);
-            sect->vaddr = align_to(grp->vaddr + offset, sect->align);
-            offset = (sect->vaddr - grp->vaddr) + sect->size;
-        }
-
-        grp->size = offset;
         vaddr = align_to(grp->vaddr + grp->size, img->max_page_size);
     }
 
     img->size = vaddr - base_addr;
-
-    for (size_t i = 1; i <= img->symbols.nsymbols; ++i) {
-        struct symbol *sym = symbols_at(&img->symbols, i);
-
-        if (sym->is_absolute || sym->section == NULL) {
-            continue;
-        }
-
-        sym->value = sym->section->vaddr + sym->offset;
-    }
 }

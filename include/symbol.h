@@ -41,16 +41,15 @@ struct symbol
 {
     char *name;                     // symbol name
     int refcnt;                     // reference counter
-    uint64_t value;                 // finalized address of the symbol (absolute or relative to section start)
     enum symbol_binding binding;    // symbol binding type
     enum symbol_type type;          // symbol type
-    uint64_t align;                 // symbol address alignment requirement (value must be a multiple of align)
+    uint64_t align;                 // symbol address alignment requirement (finalized address must be a multiple of align)
     uint64_t size;                  // symbol size
     bool is_absolute;               // is the definition offset relative to a section base address or an absolute address
     bool is_common;                 // does the symbol refer to a common section?
     bool is_used;                   // is the symbol used? set if forced kept, exported or used in a reloc
     struct section *section;        // strong reference to the section where the symbol is defined
-    uint64_t offset;                // offset into the section to the definition 
+    uint64_t offset;                // offset into the section to the definition or absolute address
 };
 
 

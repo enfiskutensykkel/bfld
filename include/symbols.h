@@ -20,6 +20,7 @@ extern "C" {
 struct symbols
 {
     struct deque q;     // internal queue structure
+    uint64_t nsymbols;  // number of symbols in the queue
 };
 
 
@@ -63,6 +64,7 @@ bool symbols_push(struct symbols *symq, struct symbol *sym)
         symbol_put(sym);
         return false;
     }
+    symq->nsymbols = symq->q.size;
     return true;
 }
 
@@ -87,7 +89,9 @@ struct symbol * symbols_peek(const struct symbols *symq, uint64_t position)
 static inline
 struct symbol * symbols_pop(struct symbols *symq)
 {
-    return (struct symbol*) deque_pop_front(&symq->q);
+   struct symbol *sym = (struct symbol*) deque_pop_front(&symq->q);
+   symq->nsymbols = symq->q.size;
+   return sym;
 }
 
 

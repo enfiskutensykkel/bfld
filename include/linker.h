@@ -27,6 +27,7 @@ struct image;
 struct linkerctx
 {
     char *name;                     // linker name (used for debugging, NOTE: can be NULL)
+    bool gc_sections;               // should we keep all sections and symbols?
     uint32_t target;                // machine code architecture target
     struct list_head archives;      // list of archive files
     struct globals *globals;        // global symbols
@@ -80,14 +81,17 @@ bool linker_add_input_file(struct linkerctx *ctx,
 bool linker_resolve_globals(struct linkerctx *ctx);
 
 
+/*
+ * Mark sections and symbols as alive.
+ */
 void linker_gc_sections(struct linkerctx *ctx, 
                         const struct sections *keep);
 
 
-//struct image * linker_create_image(struct linkerctx *ctx, 
-//                                   const char *name, 
-//                                   uint64_t base_addr,
-//                                   bool gc_sections);
+/*
+ * Create a common section.
+ */
+bool linker_create_common_section(struct linkerctx *ctx);
 
 
 #ifdef __cplusplus
