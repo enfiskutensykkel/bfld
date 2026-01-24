@@ -8,120 +8,199 @@ extern "C" {
 #include <stddef.h>
 #include <stdbool.h>
 #include "section.h"
-
-
-// Forward declaration of section
-struct section;
+#include "utils/deque.h"
+#include "utils/table.h"
 
 
 /* 
- * Section table.
- * Manages sections by tracking them by index.
+ * Sections worklist.
+ * Used to process sections in order.
+ * Must be initialized to zero before use.
  */
 struct sections
 {
-    char *name;                 // section table name (NOTE: can be NULL)
-    int refcnt;                 // reference counter
-    size_t capacity;            // size of the table/array
-    size_t nsections;           // number of sections in the array
-    uint64_t maxidx;            // the highest inserted index
-    struct section **sections;  // table/array of sections by index
+    struct deque q;     // internal queue structure
 };
 
 
 /*
- * Allocate a section table.
+ * Local sections table.
+ * Used for looking up sections based on index.
+ * Must be initialized to zero before use.
  */
-struct sections * sections_alloc(const char *name);
+struct section_table
+{
+    struct table tbl;   // internal table structure
+    uint64_t capacity;  // the size of the table
+    uint64_t nsections; // number of sections in the table
+};
 
 
 /*
- * Take a section table reference.
- */
-struct sections * sections_get(struct sections *sections);
-
-
-/*
- * Release section table reference.
- */
-void sections_put(struct sections *sections);
-
-
-/*
- * Reserve space for at least n sections in a section table.
+ * Reserve space for at least n sections in the section queue.
  *
- * Returns true if the section table is able to hold the requested 
+ * Returns true if the section queue is able to hold the requested 
  * number of sections.
  *
  * Returns false if the requested number of sections is too large.
  */
-bool sections_reserve(struct sections *sections, size_t n);
-
-
-/*
- * Insert a section in the section table at the specified index.
- *
- * If the specified index is free, a strong reference to the section
- * is taken, the section is inserted at the specified index, and
- * 0 is returned.
- *
- * Returns EEXIST if there already is a section at the specified index. 
- *
- * If the optional existing pointer is not NULL and there already is a section
- * at the specified index, the pointer is set to the existing section. 
- * Otherwise the existing pointer is untouched.
- *
- * Returns ENOMEM if there is not enough space to insert the section.
- */
-int sections_insert(struct sections *sections, 
-                    uint64_t index, 
-                    struct section *section,
-                    struct section **existing);
-
-
-/*
- * Insert a section in the back of the section table.
- * Takes a strong reference to the section and returns the index
- * the section was inserted into.
- *
- * Note: Returns 0 if there was not enough space to insert the section.
- */
-uint64_t sections_push(struct sections *sections, struct section *section);
-
-
-/*
- * Release the reference at the specified index.
- */
-bool sections_remove(struct sections *sections, uint64_t index);
-
-
-/*
- * Helper function to "pop" the section with the highest index off the table.
- *
- * Note that this does NOT release the section reference.
- * The caller must call section_put() on the returned reference.
- */
-struct section * sections_pop(struct sections *sections);
-
-
-/*
- * Look up section in a section table by index.
- * Note that this does not take an additional section reference.
- */
 static inline
-struct section * sections_at(const struct sections *sections, uint64_t index)
+bool sections_reserve(struct sections *sectq, size_t n)
 {
-    if (index < sections->capacity) {
-        return sections->sections[index];
-    }
-    return NULL;
+    return deque_reserve(&sectq->q, n);
 }
 
 
 /*
- * Clear the sections table.
+ * Insert a section at the back of the section queue.
+ * Note that this takes a strong reference to the section.
+ * Returns true if the section was inserted, or false if insertion failed.
  */
-void sections_clear(struct sections *sections);
+static inline
+bool sections_push(struct sections *sectq, struct section *sect)
+{
+    if (!deque_push_back(&sectq->q, section_get(sect))) {
+        section_put(sect);
+        return false;
+    }
+    return true;
+}
+
+
+/*
+ * Peek at the section at the given position relative 
+ * to the start of the queue.
+ */
+static inline
+struct section * sections_peek(const struct sections *sectq, uint64_t position)
+{
+    return (struct section*) deque_peek(&sectq->q, position);
+}
+
+
+/*
+ * Remove the first section in the section queue and return it.
+ * Note that this does NOT release the section reference.
+ * The caller must call section_put() on the returned section reference.
+ * Returns NULL if the queue is empty.
+ */
+static inline
+struct section * sections_pop(struct sections *sectq)
+{
+    return (struct section*) deque_pop_front(&sectq->q);
+}
+
+
+/*
+ * Clear the section queue.
+ * Releases all sections currently in the queue.
+ */
+static inline
+void sections_clear(struct sections *sectq)
+{
+    struct section *sect;
+
+    while ((sect = sections_pop(sectq)) != NULL) {
+        section_put(sect);
+    }
+    deque_clear(&sectq->q);
+}
+
+
+/*
+ * Is the section queue empty?
+ */
+static inline
+bool sections_empty(const struct sections *sectq)
+{
+    return sections_peek(sectq, 0) != NULL;
+}
+
+
+/*
+ * Reserve space for at least n sections in the section table.
+ *
+ * Returns true if the section table is able to hold the requested
+ * number of sections.
+ *
+ * Returns false if the requested number of sections is too large.
+ */
+static inline
+bool section_table_reserve(struct section_table *secttab, uint64_t n)
+{
+    return table_reserve(&secttab->tbl, n);
+}
+
+
+/*
+ * Get the section at the specified index.
+ */
+static inline
+struct section * section_table_at(const struct section_table *secttab, uint64_t idx)
+{
+    return (struct section*) table_at(&secttab->tbl, idx);
+}
+
+
+/*
+ * Insert a section at the specified index.
+ *
+ * Returns true if the section was inserted at the specified index.
+ *
+ * Returns false if insertion failed, either because
+ * there is no space or if the specified index already
+ * holds a section.
+ *
+ * If the existing pointer is not-NULL, existing it is
+ * set to point to the existing entry.
+ *
+ * Note that this takes a section reference on successful insertion.
+ */
+static inline
+bool section_table_insert(struct section_table *secttab, uint64_t idx,
+                          struct section *sect, struct section **existing)
+{
+    if (!table_insert(&secttab->tbl, idx, (void*) section_get(sect), (void**) existing)) {
+        section_put(sect);
+        return false;
+    }
+    secttab->nsections++;
+    secttab->capacity = secttab->tbl.capacity;
+    return true;
+}
+
+
+/*
+ * Remove the section at the specified index.
+ * Note that this releases the section reference.
+ */
+static inline
+void section_table_remove(struct section_table *secttab, uint64_t idx)
+{
+    struct section *sect = table_remove(&secttab->tbl, idx);
+
+    if (sect != NULL) {
+        section_put(sect);
+        secttab->nsections--;
+    }
+}
+
+
+/*
+ * Clear the section table and release all sections.
+ */
+static inline
+void section_table_clear(struct section_table *secttab)
+{
+    uint64_t idx;
+
+    for (idx = 0; secttab->nsections > 0 && idx < secttab->tbl.capacity; ++idx) {
+        section_table_remove(secttab, idx);
+    }
+
+    table_clear(&secttab->tbl);
+    secttab->capacity = 0;
+}
 
 
 #ifdef __cplusplus

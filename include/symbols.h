@@ -7,120 +7,199 @@ extern "C" {
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
-
-
-// Forward declaration of symbol
-struct symbol;
+#include "symbol.h"
+#include "utils/deque.h"
+#include "utils/table.h"
 
 
 /*
- * Local symbol table.
- * Manages symbols by tracking them by index.
+ * Symbols worklist.
+ * Used to process symbols in order.
+ * Must be initialized to zero before use.
  */
 struct symbols
 {
-    char *name;                 // symbol table name (NOTE: can be NULL)
-    int refcnt;                 // reference counter
-    size_t capacity;            // size of the array/table
-    size_t nsymbols;            // number of symbols in the array
-    uint64_t maxidx;            // the highest inserted index
-    struct symbol **symbols;    // array/table of symbols (ordered by index)
+    struct deque q;     // internal queue structure
 };
 
 
 /*
- * Allocate a local symbol table.
+ * Local symbols table.
+ * Used for looking up symbols by index rather than name.
+ * Must be initialized to zero before use.
  */
-struct symbols * symbols_alloc(const char *name);
+struct symbol_table
+{
+    struct table tbl;   // internal table structure
+    uint64_t capacity;  // table capacity
+    uint64_t nsymbols;  // number of symbols in the table
+};
 
 
 /*
- * Take a local symbol table reference.
- */
-struct symbols * symbols_get(struct symbols *symbols);
-
-
-/*
- * Release local symbol table reference.
- */
-void symbols_put(struct symbols *symbols);
-
-
-/*
- * Reserve space for at least n symbols in the symbol table.
+ * Reserve space for at least n symbols in the symbol queue
  *
- * Returns true if the symbol table is able to hold the requested
+ * Returns true if the symbol queue is able to hold the requested
  * number of symbols.
  *
  * Returns false if the requested number of sections is too large.
  */
-bool symbols_reserve(struct symbols *symbols, size_t n);
-
-
-/*
- * Clear the symbol table.
- */
-void symbols_clear(struct symbols *symbols);
-
-
-/*
- * Insert a symbol in the local symbol table at the specified index.
- *
- * If the specified index is free, a reference to the symbol is taken,
- * the symbol is inserted at the specified index and the function returns 0.
- *
- * If there already is a symbol at the specified index, this function returns
- * EEXIST. 
- *
- * If the optional existing pointer is not NULL and there is already a symbol
- * at the specified index, the pointer is set to the existing symbol.
- * Otherwise the existing pointer is untouched.
- *
- * This function may return ENOMEM if there is not enough space to insert
- * the symbol at the specified index.
- */
-int symbols_insert(struct symbols *symbols,
-                   uint64_t index,
-                   struct symbol *symbol,
-                   struct symbol **existing);
-
-
-/*
- * Release the reference at the specified index.
- */
-bool symbols_remove(struct symbols *symbols, uint64_t index);
-
-
-/*
- * Insert a symbol in the back of the symbol table.
- * Takes a strong reference to the symbol and returns
- * the index the symbol was inserted into.
- *
- * Note: Returns 0 if there was not enough space to insert the symbol.
- */
-uint64_t symbols_push(struct symbols *symbols, struct symbol *symbol);
-
-
-/*
- * Look up symbol at the specified index.
- * Note that this does not take an additional symbol reference.
- */
 static inline
-struct symbol * symbols_at(const struct symbols *symbols, uint64_t index)
+bool symbols_reserve(struct symbols *symq, size_t n)
 {
-    if (index < symbols->capacity) {
-        return symbols->symbols[index];
-    }
-    return NULL;
+    return deque_reserve(&symq->q, n);
 }
 
 
 /*
- * Helper function to "pop" the symbol with the highest index off the table.
+ * Insert a symbol at the back of the symbol queue.
+ * Note that this takes a strong reference to the symbol.
+ * Returns true if the symbol was inserted, or false if insertion failed.
+ */
+static inline 
+bool symbols_push(struct symbols *symq, struct symbol *sym)
+{
+    if (!deque_push_back(&symq->q, symbol_get(sym))) {
+        symbol_put(sym);
+        return false;
+    }
+    return true;
+}
+
+
+/*
+ * Peek at the symbol at the given position relative to
+ * the start of the queue.
+ */
+static inline
+struct symbol * symbols_peek(const struct symbols *symq, uint64_t position)
+{
+    return (struct symbol*) deque_peek(&symq->q, position);
+}
+
+
+/*
+ * Remove the first symbol in the queue and return it.
  * Note that this does NOT release the symbol reference.
  * The caller must call symbol_put() on the returned reference.
+ * Returns NULL if the queue is empty.
  */
-struct symbol * symbols_pop(struct symbols *symbols);
+static inline
+struct symbol * symbols_pop(struct symbols *symq)
+{
+    return (struct symbol*) deque_pop_front(&symq->q);
+}
+
+
+/*
+ * Clear the symbol queue.
+ * Releaseas all symbols remaining in the queue.
+ */
+static inline
+void symbols_clear(struct symbols *symq)
+{
+    struct symbol *sym;
+
+    while ((sym = symbols_pop(symq)) != NULL) {
+        symbol_put(sym);
+    }
+    deque_clear(&symq->q);
+}
+
+
+/*
+ * Is the symbol queue empty?
+ */
+static inline
+bool symbols_empty(const struct symbols *symq)
+{
+    return symbols_peek(symq, 0) != NULL;
+}
+
+
+/*
+ * Reserve space for at least n symbols in the symbol table.
+ * Returns true if the symbol table can hold the required number
+ * of symbols.
+ * Returns false if the requested number of symbols is too large.
+ */
+static inline
+bool symbol_table_reserve(struct symbol_table *symtab, uint64_t n)
+{
+    return table_reserve(&symtab->tbl, n);
+}
+
+
+/*
+ * Get the symbol at the specified index.
+ */
+static inline
+struct symbol * symbol_table_at(const struct symbol_table *symtab, uint64_t idx)
+{
+    return (struct symbol*) table_at(&symtab->tbl, idx);
+}
+
+
+/*
+ * Insert a symbol at the specified index.
+ *
+ * Returns true if the symbol was inserted at the specified index.
+ *
+ * Returns false if insertion failed, either because
+ * there is no space or if the specified index already
+ * holds a symbol.
+ *
+ * If the existing pointer is not-NULL, existing it is
+ * set to point to the existing entry.
+ *
+ * Note that this takes a symbol reference on successful insertion.
+ */
+static inline
+bool symbol_table_insert(struct symbol_table *symtab, uint64_t idx,
+                         struct symbol *sym, struct symbol **existing)
+{
+    if (!table_insert(&symtab->tbl, idx, (void*) symbol_get(sym), (void**) existing)) {
+        symbol_put(sym);
+        return false;
+    }
+    symtab->nsymbols++;
+    symtab->capacity = symtab->tbl.capacity;
+    return true;
+}
+
+
+/*
+ * Remove the symbol at the specified index.
+ * Note that this releases the symbol reference/
+ */
+static inline
+void symbol_table_remove(struct symbol_table *symtab, uint64_t idx)
+{
+    struct symbol *sym = table_remove(&symtab->tbl, idx);
+
+    if (sym != NULL) {
+        symbol_put(sym);
+        symtab->nsymbols--;
+    }
+}
+
+
+/*
+ * Clear the symbol table and release all sections.
+ */
+static inline
+void symbol_table_clear(struct symbol_table *symtab)
+{
+    uint64_t idx;
+
+    for (idx = 0; symtab->nsymbols > 0 && idx < symtab->tbl.capacity; ++idx) {
+        symbol_table_remove(symtab, idx);
+    }
+
+    table_clear(&symtab->tbl);
+    symtab->capacity = 0;
+}
+
 
 #ifdef __cplusplus
 }

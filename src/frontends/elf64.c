@@ -12,16 +12,6 @@
 #include <utils/align.h>
 
 
-//static const uint32_t x86_64_reloc_map[256] = {
-//    [R_X86_64_NONE] = RELOC_X86_64_NONE,
-//    [R_X86_64_64] = RELOC_X86_64_ABS64,
-//    [R_X86_64_PC32] = RELOC_X86_64_PC32,
-//    [R_X86_64_32] = RELOC_X86_64_ABS32,
-//    [R_X86_64_32S] = RELOC_X86_64_ABS32S,
-//    [R_X86_64_PLT32] = RELOC_X86_64_PC32,  // FIXME: Hack because we're static-only for the moment
-//};
-
-
 /*
  * Data structure for tracking ELF sections we want 
  * to revisit after the initial parsing.
@@ -119,11 +109,11 @@ static inline int add_section(struct list_head *list, const Elf64_Shdr *sh)
  */
 static int parse_sections(const Elf64_Ehdr *eh, 
                           struct objfile *objfile, 
-                          struct sections *sections,
+                          struct section_table *sections,
                           struct list_head *reltabs,
                           struct list_head *symtabs)
 {
-    sections_reserve(sections, eh->e_shnum);
+    section_table_reserve(sections, eh->e_shnum);
 
     log_trace("Scanning sections");
 
@@ -242,10 +232,10 @@ static int parse_sections(const Elf64_Ehdr *eh,
             return ENOMEM;
         }
 
-        int status = sections_insert(sections, shndx, section, NULL);
+        bool added = section_table_insert(sections, shndx, section, NULL);
         section_put(section);
-        if (status != 0) {
-            log_fatal("Could not add section to section table");
+        if (!added) {
+            log_fatal("Could not add section %llu to section table", shndx);
             log_ctx_pop();
             return ENOMEM;
         }
@@ -263,8 +253,8 @@ static int parse_sections(const Elf64_Ehdr *eh,
  */
 static int parse_reltab(const Elf64_Ehdr *eh, 
                         const Elf64_Shdr *sh, 
-                        const struct sections *sects, 
-                        const struct symbols*syms)
+                        const struct section_table *sects, 
+                        const struct symbol_table *syms)
 {
     log_ctx_push(LOG_CTX_SECTION(lookup_strtab_str(eh, sh->sh_name)));
 
@@ -291,7 +281,7 @@ static int parse_reltab(const Elf64_Ehdr *eh,
             return EINVAL;
     }
 
-    struct section *sect = sections_at(sects, sh->sh_info);
+    struct section *sect = section_table_at(sects, sh->sh_info);
 
     if (sect == NULL) {
         log_fatal("Relocation table refers to unknown section %u", sh->sh_info);
@@ -314,14 +304,14 @@ static int parse_reltab(const Elf64_Ehdr *eh,
             type = ELF64_R_TYPE(r->r_info);
             offset = r->r_offset;
             addend = r->r_addend;
-            sym = symbols_at(syms, ELF64_R_SYM(r->r_info));
+            sym = symbol_table_at(syms, ELF64_R_SYM(r->r_info));
         } else {
             const Elf64_Rel *reltab = (const Elf64_Rel*) (((const uint8_t*) eh) + sh->sh_offset);
             const Elf64_Rel *r = &reltab[idx];
 
             type = ELF64_R_TYPE(r->r_info);
             offset = r->r_offset;
-            sym = symbols_at(syms, ELF64_R_SYM(r->r_info));
+            sym = symbol_table_at(syms, ELF64_R_SYM(r->r_info));
         }
 
         if (sym == NULL) {
@@ -349,15 +339,15 @@ static int parse_reltab(const Elf64_Ehdr *eh,
  */
 static int parse_symtab(const Elf64_Ehdr *eh, 
                         const Elf64_Shdr *sh, 
-                        const struct sections *sections, 
-                        struct symbols *symbols)
+                        const struct section_table *sections, 
+                        struct symbol_table *symbols)
 {
     int status = 0;
     assert(sh->sh_type == SHT_SYMTAB);
 
     log_ctx_push(LOG_CTX_SECTION(lookup_strtab_str(eh, sh->sh_name)));
 
-    if (!symbols_reserve(symbols, sh->sh_size / sh->sh_entsize)) {
+    if (!symbol_table_reserve(symbols, sh->sh_size / sh->sh_entsize)) {
         log_ctx_pop();
         return ENOMEM;
     }
@@ -391,7 +381,7 @@ static int parse_symtab(const Elf64_Ehdr *eh,
                 break;
             
             default:
-                section = sections_at(sections, sym->st_shndx);
+                section = section_table_at(sections, sym->st_shndx);
                 if (section == NULL) {
                     log_error("Symbol '%s' (index %u) refers to invalid segment %u",
                             name, idx, sym->st_shndx);
@@ -479,9 +469,11 @@ static int parse_symtab(const Elf64_Ehdr *eh,
             goto out;
         }
 
-        status = symbols_insert(symbols, idx, symbol, NULL);
+        bool added = symbol_table_insert(symbols, idx, symbol, NULL);
         symbol_put(symbol);
-        if (status != 0) {
+        if (!added) {
+            log_fatal("Could not add symbol %llu to symbol table", idx);
+            status = ENOMEM;
             goto out;
         }
     }
@@ -494,8 +486,8 @@ out:
 static int parse_elf_file(const uint8_t *file_data, 
                           size_t file_size,
                           struct objfile *objfile, 
-                          struct sections *sections, 
-                          struct symbols *symbols)
+                          struct section_table *sections, 
+                          struct symbol_table *symbols)
 {
     int status = 0;
     const Elf64_Ehdr* eh = (const void*) file_data;

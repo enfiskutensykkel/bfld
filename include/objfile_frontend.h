@@ -46,8 +46,8 @@ struct objfile_frontend
     int (*parse_file)(const uint8_t *file_data, 
                       size_t file_size,
                       struct objfile *objfile,
-                      struct sections *sections,
-                      struct symbols *symbols);
+                      struct section_table *sections,
+                      struct symbol_table *symbols);
 };
 
 

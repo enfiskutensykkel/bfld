@@ -20,72 +20,72 @@
 #include <image.h>
 
 
-static void print_symbols(FILE *fp, struct image *img)
-{
-    static const char *typemap[] = {
-        [SYMBOL_NOTYPE] = "notype",
-        [SYMBOL_OBJECT] = "object",
-        [SYMBOL_TLS] = "tls",
-        [SYMBOL_SECTION] = "sect",
-        [SYMBOL_FUNCTION] = "func"
-    };
+//static void print_symbols(FILE *fp, struct image *img)
+//{
+//    static const char *typemap[] = {
+//        [SYMBOL_NOTYPE] = "notype",
+//        [SYMBOL_OBJECT] = "object",
+//        [SYMBOL_TLS] = "tls",
+//        [SYMBOL_SECTION] = "sect",
+//        [SYMBOL_FUNCTION] = "func"
+//    };
+//
+//    static const char *bindmap[] = {
+//        [SYMBOL_WEAK] = "weak",
+//        [SYMBOL_GLOBAL] = "global",
+//        [SYMBOL_LOCAL] = "local"
+//    };
+//
+//    fprintf(fp, "%-16s %6s %6s %-6s %-6s %-20s %-32s\n",
+//            "Value", "Size", "Align", "Type", "Bind", "Definition", "Name");
+//
+//    for (uint64_t idx = 1; idx <= img->symbols.nsymbols; ++idx) {
+//        const struct symbol *sym = symbols_at(&img->symbols, idx);
+//
+//        if (sym->type == SYMBOL_SECTION) {
+//            continue;
+//        }
+//
+//        const char *defname = "UNKNOWN";
+//        if (!symbol_is_defined(sym)) {
+//            defname = "UNDEFINED";
+//        } else if (sym->is_absolute) {
+//            defname = "ABSOLUTE";
+//        } else if (sym->section != NULL && sym->section->name != NULL) {
+//            defname = sym->section->name;
+//        }
+//
+//        fprintf(fp, "%016lx ", sym->value);
+//        fprintf(fp, "%6lu ", sym->size);
+//        fprintf(fp, "%6lu ", sym->align);
+//        fprintf(fp, "%-6s ", typemap[sym->type]);
+//        fprintf(fp, "%-6s ", bindmap[sym->binding]);
+//        fprintf(fp, "%-20.20s ", defname);
+//        fprintf(fp, "%-32.32s", sym->name);
+//        fprintf(fp, "\n");
+//    }
+//}
 
-    static const char *bindmap[] = {
-        [SYMBOL_WEAK] = "weak",
-        [SYMBOL_GLOBAL] = "global",
-        [SYMBOL_LOCAL] = "local"
-    };
 
-    fprintf(fp, "%-16s %6s %6s %-6s %-6s %-20s %-32s\n",
-            "Value", "Size", "Align", "Type", "Bind", "Definition", "Name");
-
-    for (uint64_t idx = 1; idx <= img->symbols.nsymbols; ++idx) {
-        const struct symbol *sym = symbols_at(&img->symbols, idx);
-
-        if (sym->type == SYMBOL_SECTION) {
-            continue;
-        }
-
-        const char *defname = "UNKNOWN";
-        if (!symbol_is_defined(sym)) {
-            defname = "UNDEFINED";
-        } else if (sym->is_absolute) {
-            defname = "ABSOLUTE";
-        } else if (sym->section != NULL && sym->section->name != NULL) {
-            defname = sym->section->name;
-        }
-
-        fprintf(fp, "%016lx ", sym->value);
-        fprintf(fp, "%6lu ", sym->size);
-        fprintf(fp, "%6lu ", sym->align);
-        fprintf(fp, "%-6s ", typemap[sym->type]);
-        fprintf(fp, "%-6s ", bindmap[sym->binding]);
-        fprintf(fp, "%-20.20s ", defname);
-        fprintf(fp, "%-32.32s", sym->name);
-        fprintf(fp, "\n");
-    }
-}
-
-
-static void print_layout(FILE *fp, struct image *img)
-{
-    fprintf(fp, "Memory layout for image '%s\n", img->name);
-    fprintf(fp, "Base address: 0x%016lx\n", img->base_addr);
-    fprintf(fp, "Entry point : 0x%016lx\n", img->entrypoint);
-    fprintf(fp, "Memory size : %lu\n", img->size);
-
-    fprintf(fp, "Output sections:\n");
-    list_for_each_entry(grp, &img->groups, struct section_group, list_entry) {
-        fprintf(fp, "-- Addr=0x%016lx, Size=%06lu, Section='%s'\n", grp->vaddr, grp->size, grp->name);
-        
-        fprintf(fp, "   Input sections:\n");
-        for (uint64_t idx = 1; idx <= grp->sections.nsections; ++idx) {
-            const struct section *sect = sections_at(&grp->sections, idx);
-            fprintf(fp, "     [%06lu] Addr=0x%016lx, Size=%06lu, Section='%s'\n", 
-                    idx, sect->vaddr, sect->size, sect->name);
-        }
-    }
-}
+//static void print_layout(FILE *fp, struct image *img)
+//{
+//    fprintf(fp, "Memory layout for image '%s\n", img->name);
+//    fprintf(fp, "Base address: 0x%016lx\n", img->base_addr);
+//    fprintf(fp, "Entry point : 0x%016lx\n", img->entrypoint);
+//    fprintf(fp, "Memory size : %lu\n", img->size);
+//
+//    fprintf(fp, "Output sections:\n");
+//    list_for_each_entry(grp, &img->groups, struct section_group, list_entry) {
+//        fprintf(fp, "-- Addr=0x%016lx, Size=%06lu, Section='%s'\n", grp->vaddr, grp->size, grp->name);
+//        
+//        fprintf(fp, "   Input sections:\n");
+//        for (uint64_t idx = 0; idx <= grp->sections.nsections; ++idx) {
+//            const struct section *sect = sections_at(&grp->sections, idx);
+//            fprintf(fp, "     [%06lu] Addr=0x%016lx, Size=%06lu, Section='%s'\n", 
+//                    idx, sect->vaddr, sect->size, sect->name);
+//        }
+//    }
+//}
 
 
 static void keep_section(struct sections *keep, struct section *sect)
@@ -389,6 +389,7 @@ int main(int argc, char **argv)
         }
     }
 
+    // Resolve all unresolved symbols
     if (!linker_resolve_globals(ctx)) {
         linker_destroy(ctx);
         exit(3);
@@ -409,19 +410,19 @@ int main(int argc, char **argv)
     linker_gc_sections(ctx, &keep);
     sections_clear(&keep);
 
-    struct image *img = linker_create_image(ctx, output_file, 0x400000);
-    img->entrypoint = ep->value;
+    //struct image *img = linker_create_image(ctx, output_file, 0x400000);
+    //img->entrypoint = ep->value;
 
     if (show_symbols) {
-        print_symbols(stdout, img);
+        //print_symbols(stdout, img);
     }
 
     linker_destroy(ctx);
 
     if (show_layout) {
-        print_layout(stdout, img);
+        //print_layout(stdout, img);
     }
 
-    image_put(img);
+    //image_put(img);
     exit(0);
 }

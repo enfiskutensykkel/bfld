@@ -15,10 +15,14 @@ extern "C" {
  * Double-ended queues are useful for O(1) tail and head insertions,
  * and can be used to implement FIFO and LIFO queues.
  *
- * This implementation uses a dynamic array with potential O(n)
- * grow complexity. The user should preferably reserve the maximum
+ * This implementation uses a dynamic array with potential O(n) worst
+ * case grow complexity. The user should preferably reserve the maximum
  * amount of entries if this is known in advance to avoid costly
  * grows.
+ *
+ * This deque implementation may wrap around, meaning iterating it is 
+ * not cache-friendly. Ues this structure primarily if O(1) insertions
+ * and deletions are the primary use-case.
  */
 struct deque
 {
@@ -161,61 +165,72 @@ bool deque_empty(const struct deque *d)
 
 
 /*
- * Declare a type-safe deque with a given name.
+ * Peek at the first entry in the deque.
  */
-#define DEQUE_DECLARE(type, name) \
-    struct name { \
-        type **q; \
-        uint64_t head; \
-        uint64_t size; \
-        uint64_t capacity; \
-    }; \
-    \
-    static inline \
-    bool name##_reserve(struct name *d, uint64_t capacity) \
-    { \
-        return deque_reserve((struct deque*) d, capacity); \
-    } \
-    static inline \
-    void name##_init(struct name *d) \
-    { \
-        deque_init((struct deque*) d); \
-    } \
-    static inline \
-    void name##_clear(struct name *d) \
-    { \
-        deque_clear((struct deque*) d); \
-    } \
-    static inline \
-    bool name##_push_back(struct name *d, type *entry) \
-    { \
-        deque_push_back((struct deque*) d, (void*) entry); \
-    } \
-    static inline \
-    bool name##_push_front(struct name *d, type *entry) \
-    { \
-        deque_push_front((struct deque*) d, (void*) entry); \
-    } \
-    static inline \
-    type * name##_pop_front(struct name *d) \
-    { \
-        return (type*) deque_pop_front((struct deque*) d); \
-    } \
-    static inline \
-    type * name##_pop_back(struct name *d) \
-    { \
-        return (type*) deque_pop_back((struct deque*) d); \
-    } \
-    static inline \
-    bool name##_empty(const struct name *d) \
-    { \
-        return d->size == 0; \
-    } \
-    static inline \
-    uint64_t name##_size(const struct name *d) \
-    { \
-        return d->size; \
+static inline
+void * deque_front(const struct deque *d)
+{
+    void *entry = NULL;
+
+    if (d->size > 0) {
+        entry = d->q[d->head & (d->capacity - 1)];
     }
+
+    return entry;
+}
+
+
+/*
+ * Peek at the first entry in the deque.
+ */
+static inline
+void * deque_head(const struct deque *d)
+{
+    return deque_front(d);
+}
+
+
+/*
+ * Peek at the last entry in the deque.
+ */
+static inline
+void * deque_back(const struct deque *d)
+{
+    void *entry = NULL;
+
+    if (d->size > 0) {
+        uint64_t tail = d->head + d->size - 1;
+        entry = d->q[tail & (d->capacity - 1)];
+    }
+
+    return entry;
+}
+
+
+/*
+ * Peek at the last entry in the deque.
+ */
+static inline
+void * deque_tail(const struct deque *d)
+{
+    return deque_back(d);
+}
+
+
+/*
+ * Peek at the entry at the given position relative to the head/first entry.
+ */
+static inline
+void * deque_peek(const struct deque *d, uint64_t position)
+{
+    void *entry = NULL;
+
+    if (position < d->size) {
+        entry = d->q[(d->head + position) & (d->capacity - 1)];
+    }
+
+    return entry;
+}
 
 
 #ifdef __cplusplus

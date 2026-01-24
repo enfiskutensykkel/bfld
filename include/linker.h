@@ -8,13 +8,11 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 #include "utils/list.h"
+#include "sections.h"
+#include "symbols.h"
 
 /* Some forward declarations */
-struct sections;
-struct section;
 struct globals;
-struct symbols;
-struct symbol;
 struct objfile;
 struct objfile_frontend;
 struct archive;
@@ -29,13 +27,11 @@ struct image;
 struct linkerctx
 {
     char *name;                     // linker name (used for debugging, NOTE: can be NULL)
-    int log_ctx;                    // log context
-    bool gc_sections;               // perform garbage collection on dead sections
     uint32_t target;                // machine code architecture target
     struct list_head archives;      // list of archive files
     struct globals *globals;        // global symbols
-    struct sections *sections;      // global list of input sections
-    struct symbols *unresolved;     // list of unresolved symbols
+    struct sections sections;       // worklist of input sections
+    struct symbols unresolved;      // worklist of unresolved symbols
 };
 
 
@@ -84,12 +80,14 @@ bool linker_add_input_file(struct linkerctx *ctx,
 bool linker_resolve_globals(struct linkerctx *ctx);
 
 
-void linker_gc_sections(struct linkerctx *ctx, struct sections *keep);
+void linker_gc_sections(struct linkerctx *ctx, 
+                        const struct sections *keep);
 
 
-struct image * linker_create_image(struct linkerctx *ctx, 
-                                   const char *name, 
-                                   uint64_t base_addr);
+//struct image * linker_create_image(struct linkerctx *ctx, 
+//                                   const char *name, 
+//                                   uint64_t base_addr,
+//                                   bool gc_sections);
 
 
 #ifdef __cplusplus

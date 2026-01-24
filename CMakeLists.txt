@@ -27,17 +27,18 @@ endif ()
 
 # Create shared library of the linker code
 add_library(linkerlib SHARED 
+    src/utils/deque.c
+    src/utils/table.c
     src/utils/rbtree.c
     src/linker/mfile.c 
+    src/linker/registry.c
     src/linker/linker.c
     src/linker/objfile.c
     src/linker/archive.c
     src/linker/section.c
     src/linker/symbol.c
-    src/linker/sections.c
-    src/linker/symbols.c
     src/linker/globals.c
-    src/linker/image.c
+    #src/linker/image.c
 )
 target_include_directories(linkerlib PUBLIC include)  # also includes "include/utils"
 target_include_directories(linkerlib PRIVATE include/utils)

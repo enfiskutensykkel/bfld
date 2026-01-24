@@ -15,12 +15,12 @@ struct symbol;
 /*
  * Global symbol table.
  * Manages symbols by tracking them by their name.
+ * Note that this must be initialized by setting all members to zero.
  */
 struct globals
 {
-    char *name;                 // global symbol table name (used for debugging purposes, NOTE: can be NULL)
     int refcnt;                 // reference counter
-    size_t nsymbols;            // number of symbols in the symbol table
+    uint64_t nsymbols;          // number of symbols in the symbol table
     struct rb_tree map;         // map of symbols by name
 };
 
@@ -43,7 +43,7 @@ struct globals_entry
 /*
  * Create a global symbol table.
  */
-struct globals * globals_alloc(const char *name);
+struct globals * globals_alloc();
 
 
 /*

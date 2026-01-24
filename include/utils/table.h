@@ -89,39 +89,6 @@ void * table_remove(struct table *t, uint64_t index)
 void table_clear(struct table *t);
 
 
-#define TABLE_DECLARE(type, name) \
-    struct name \
-    { \
-        type **table; \
-        uint64_t capacity; \
-    }; \
-    static inline \
-    bool name##_reserve(struct name *tbl, uint64_t capacity) \
-    { \
-        return table_reserve((struct table*) tbl, capacity); \
-    } \
-    static inline \
-    type * name##_at(const struct name *t, uint64_t index) \
-    { \
-        return (type*) table_at((const struct table*) t, index); \
-    } \
-    static inline \
-    bool name##_insert(struct name *t, uint64_t index, type *entry, type **existing) \
-    { \
-        return table_insert((struct table*) t, index, (void*) entry, (void**) existing); \
-    } \
-    static inline \
-    type * name##_remove(struct name *t, uint64_t index) \
-    { \
-        return (type*) table_remove((struct table*) t, index); \
-    } \
-    static inline \
-    void name##_clear(struct name *t) \
-    { \
-        table_clear((struct table*) t); \
-    }
-    
-
 #ifdef __cplusplus
 }
 #endif

@@ -20,236 +20,32 @@
 #include <errno.h>
 
 
-/*
- * Archive file front-end entry.
- * Used to track registered front-ends.
- */
-struct archive_fe_entry
-{
-    struct list_head node;
-    const struct archive_frontend *frontend;
-};
-
-
-/*
- * Object file front-end entry
- * Used to track registered front-ends.
- */
-struct objfile_fe_entry
-{
-    struct list_head node;
-    const struct objfile_frontend *frontend;
-};
-
-
-/*
- * Linker machine code architecture back-end.
- */
-struct be_entry
-{
-    struct list_head node;
-    const struct backend *backend;
-    uint32_t march;
-};
-
-
-
 int log_level = 1;  // initial log level
 int log_ctx = 0;    // initial log context
 log_ctx_t log_ctx_stack[LOG_CTX_MAX] = {0};
 
 
-/*
- * List of object file front-ends.
- */ 
-static struct list_head objfile_frontends = LIST_HEAD_INIT(objfile_frontends);
-
-
-/*
- * List of archive file front-ends.
- */
-static struct list_head archive_frontends = LIST_HEAD_INIT(archive_frontends);
-
-
-/*
- * List of back-ends.
- */
-static struct list_head backends = LIST_HEAD_INIT(backends);
-
-
-void archive_frontend_register(const struct archive_frontend *fe)
-{
-    if (fe == NULL || fe->name == NULL) {
-        return;
-    }
-
-    if (fe->probe_file == NULL || fe->parse_file == NULL) {
-        return;
-    }
-
-    struct archive_fe_entry *entry = malloc(sizeof(struct archive_fe_entry));
-    if (entry == NULL) {
-        return;
-    }
-
-    entry->frontend = fe;
-    list_insert_tail(&archive_frontends, &entry->node);
-}
-
-
-void objfile_frontend_register(const struct objfile_frontend *fe)
-{
-    if (fe == NULL || fe->name == NULL) {
-        return;
-    }
-
-    if (fe->probe_file == NULL || fe->parse_file == NULL) {
-        return;
-    }
-
-    struct objfile_fe_entry *entry = malloc(sizeof(struct objfile_fe_entry));
-    if (entry == NULL) {
-        return;
-    }
-
-    entry->frontend = fe;
-    list_insert_tail(&objfile_frontends, &entry->node);
-}
-
-
-void backend_register(const struct backend *be, uint32_t march)
-{
-    if (be == NULL || be->name == NULL || march == 0) {
-        return;
-    }
-
-    if (be->apply_reloc == NULL) {
-        return;
-    }
-
-    if (backend_lookup(march) != NULL) {
-        // already registered
-        return;
-    }
-
-    struct be_entry *entry = malloc(sizeof(struct be_entry));
-    if (entry == NULL) {
-        return;
-    }
-
-    entry->backend = be;
-    entry->march = march;
-    list_insert_tail(&backends, &entry->node);
-}
-
-
-/*
- * Remove all registered front-ends and back-ends.
- */
-__attribute__((destructor(65535)))
-static void remove_registered(void)
-{
-    list_for_each_entry_safe(entry, &objfile_frontends, struct objfile_fe_entry, node) {
-        list_remove(&entry->node);
-        free(entry);
-    }
-
-    list_for_each_entry_safe(entry, &archive_frontends, struct archive_fe_entry, node) {
-        list_remove(&entry->node);
-        free(entry);
-    }
-
-    list_for_each_entry_safe(entry, &backends, struct be_entry, node) {
-        list_remove(&entry->node);
-        free(entry);
-    }
-}
-
-
-const struct objfile_frontend * objfile_frontend_probe(const uint8_t *data, size_t size, uint32_t *march)
-{
-    uint32_t m = 0;
-
-    list_for_each_entry(entry, &objfile_frontends, struct objfile_fe_entry, node) {
-        const struct objfile_frontend *fe = entry->frontend;
-
-        if (fe->probe_file(data, size, &m)) {
-            if (march != NULL) {
-                *march = m;
-            }
-            return fe;
-        }
-    }
-    return NULL;
-}
-
-
-const struct archive_frontend * archive_frontend_probe(const uint8_t *data, size_t size)
-{
-    list_for_each_entry(entry, &archive_frontends, struct archive_fe_entry, node) {
-        const struct archive_frontend *fe = entry->frontend;
-
-        if (fe->probe_file(data, size)) {
-            return fe;
-        }
-    }
-    return NULL;
-}
-
-
-const struct backend * backend_lookup(uint32_t march) 
-{
-    list_for_each_entry(entry, &backends, struct be_entry, node) {
-        if (entry->march == march) {
-            return entry->backend;
-        }
-    }
-
-    return NULL;
-}
-
-
 struct linkerctx * linker_create(const char *name)
 {
-    int log_ctx = log_ctx_new("");
-
     struct linkerctx *ctx = malloc(sizeof(struct linkerctx));
     if (ctx == NULL) {
-        log_ctx_pop();
         return NULL;
     }
 
-    ctx->globals = globals_alloc("globals");
+    ctx->globals = globals_alloc();
     if (ctx->globals == NULL) {
         free(ctx);
-        log_ctx_pop();
         return NULL;
     }
 
-    ctx->sections = sections_alloc("sections");
-    if (ctx->sections == NULL) {
-        globals_put(ctx->globals);
-        free(ctx);
-        log_ctx_pop();
-        return NULL;
-    }
-
-    ctx->unresolved = symbols_alloc("unresolved");
-    if (ctx->unresolved == NULL) {
-        sections_put(ctx->sections);
-        globals_put(ctx->globals);
-        free(ctx);
-        log_ctx_pop();
-        return NULL;
-    }
+    memset(&ctx->sections, 0, sizeof(struct sections));
+    memset(&ctx->unresolved, 0, sizeof(struct symbols));
 
     if (name != NULL) {
         ctx->name = strdup(name);
     }
 
     ctx->target = 0;
-    ctx->log_ctx = log_ctx;
-    ctx->gc_sections = false;
     list_head_init(&ctx->archives);
     return ctx;
 }
@@ -266,28 +62,19 @@ static void remove_archive_file(struct archive_file *file)
 void linker_destroy(struct linkerctx *ctx)
 {
     if (ctx != NULL) {
-        assert(log_ctx > 0);
-        assert(log_ctx == ctx->log_ctx);
-
-        // This should not happen
-        while (log_ctx > ctx->log_ctx) {
-            log_warning("Unwinding log context stack");
-            log_ctx_pop();
-        }
-
         list_for_each_entry_safe(file, &ctx->archives, struct archive_file, list_entry) {
             remove_archive_file(file);
         }
 
-        symbols_put(ctx->unresolved);
+        symbols_clear(&ctx->unresolved);
+        sections_clear(&ctx->sections);
+
         globals_put(ctx->globals);
-        sections_put(ctx->sections);
 
         if (ctx->name != NULL) {
             free(ctx->name);
         }
         free(ctx);
-        log_ctx_pop();
     }
 }
 
@@ -295,7 +82,7 @@ void linker_destroy(struct linkerctx *ctx)
 bool linker_add_archive(struct linkerctx *ctx, struct archive *ar, 
                         const struct archive_frontend *fe)
 {
-    log_ctx_new(ar->name);
+    int current_log_ctx = log_ctx_new(ar->name);
 
     if (fe == NULL) {
         fe = archive_frontend_probe(ar->file_data, ar->file_size);
@@ -309,6 +96,12 @@ bool linker_add_archive(struct linkerctx *ctx, struct archive *ar,
     log_trace("Front-end '%s' is best match for archive", fe->name);
 
     int status = fe->parse_file(ar->file_data, ar->file_size, ar);
+    assert(log_ctx == current_log_ctx);
+    while (log_ctx > current_log_ctx) {
+        log_warning("Unwinding log context stack");
+        log_ctx_pop();
+    }
+
     if (status != 0) {
         log_ctx_pop();
         return false;
@@ -325,6 +118,7 @@ bool linker_add_archive(struct linkerctx *ctx, struct archive *ar,
     arfile->archive = archive_get(ar);
     
     log_trace("Archive file added");
+
     log_ctx_pop();
     return true;
 }
@@ -334,7 +128,7 @@ bool linker_add_input_file(struct linkerctx *ctx, struct objfile *objfile,
                            const struct objfile_frontend *fe)
 {
     uint32_t march = 0;
-    log_ctx_new(objfile->name);
+    int current_log_ctx = log_ctx_new(objfile->name);
 
     if (fe == NULL) {
         fe = objfile_frontend_probe(objfile->file_data, objfile->file_size, &march);
@@ -370,38 +164,35 @@ bool linker_add_input_file(struct linkerctx *ctx, struct objfile *objfile,
 
     log_trace("Front-end '%s' is best match for object file", fe->name);
 
-    struct symbols *symbols = symbols_alloc(objfile->name);
-    if (symbols == NULL) {
-        log_ctx_pop();
-        return false;
-    }
-
-    struct sections *sections = sections_alloc(objfile->name);
-    if (sections == NULL) {
-        symbols_put(symbols);
-        log_ctx_pop();
-        return false;
-    }
+    struct section_table sections = {0};
+    struct symbol_table symbols = {0};
 
     int status = fe->parse_file(objfile->file_data, objfile->file_size, 
-                                objfile, sections, symbols);
-    if (status != 0) {
-        symbols_put(symbols);
-        sections_put(sections);
+                                objfile, &sections, &symbols);
+    assert(log_ctx == current_log_ctx);
+    while (log_ctx > current_log_ctx) {
+        log_warning("Unwinding log context stack");
         log_ctx_pop();
+    }
+
+    if (status != 0) {
+        log_error("Parsing file failed: %d", status);
+        log_ctx_pop();
+        symbol_table_clear(&symbols);
+        section_table_clear(&sections);
         return false;
     }
 
     // Add file's symbols to the global symbol table
-    for (uint64_t i = 0, n = 0; i < symbols->capacity && n < symbols->nsymbols; ++i) {
-        struct symbol *sym = symbols_at(symbols, i);
+    log_debug("File references %llu symbols", symbols.nsymbols);
+    for (uint64_t i = 0; symbols.nsymbols > 0 && i < symbols.capacity; ++i) {
+        struct symbol *sym = symbol_table_at(&symbols, i);
         if (sym == NULL) {
             continue;
         }
 
-        ++n;
-
         if (sym->binding == SYMBOL_LOCAL) {
+            symbol_table_remove(&symbols, i);
             continue;
         }
 
@@ -414,26 +205,29 @@ bool linker_add_input_file(struct linkerctx *ctx, struct objfile *objfile,
         }
 
         if (status != 0) {
-            symbols_put(symbols);
-            sections_put(sections);
             log_ctx_pop();
+            symbol_table_clear(&symbols);
+            section_table_clear(&sections);
             return false;
         }
 
         if (!symbol_is_defined(existing)) {
-            symbols_push(ctx->unresolved, existing);
+            symbols_push(&ctx->unresolved, existing);
         } 
+
+        symbol_table_remove(&symbols, i);
     }
 
-    for (uint64_t i = 0, n = 0; i < sections->capacity && n < sections->nsections; ++i) {
-        struct section *sect = sections_at(sections, i);
+    // Add sections to the list of input sections
+    log_debug("File has %llu sections", sections.nsections);
+    for (uint64_t i = 0; sections.nsections > 0 && i < sections.capacity; ++i) {
+        struct section *sect = section_table_at(&sections, i);
         if (sect == NULL) {
             continue;
         }
 
         // Add file's sections to the global section list
-        sections_push(ctx->sections, sect);
-        ++n;
+        sections_push(&ctx->sections, sect);
 
         // Fix relocations
         list_for_each_entry_safe(reloc, &sect->relocs, struct reloc, list_entry) {
@@ -444,12 +238,14 @@ bool linker_add_input_file(struct linkerctx *ctx, struct objfile *objfile,
                 reloc->symbol = symbol_get(global);
             }
         }
+
+        section_table_remove(&sections, i);
     }
 
     log_trace("Added object file to input files");
 
-    symbols_put(symbols);
-    sections_put(sections);
+    section_table_clear(&sections);
+    symbol_table_clear(&symbols);
     log_ctx_pop();
     return true;
 }
@@ -457,8 +253,9 @@ bool linker_add_input_file(struct linkerctx *ctx, struct objfile *objfile,
 
 bool linker_resolve_globals(struct linkerctx *ctx)
 {
-    while (ctx->unresolved->nsymbols > 0) {
-        struct symbol *sym = symbols_pop(ctx->unresolved);
+    struct symbol *sym;
+
+    while ((sym = symbols_pop(&ctx->unresolved)) != NULL) {
 
         if (!symbol_is_defined(sym) && !sym->is_common) {
             log_debug("Symbol '%s' is undefined", sym->name);
@@ -548,10 +345,10 @@ static bool create_common_section(struct linkerctx *ctx)
     uint64_t offset = 0;
     uint64_t max_align = 0;
     for (int i = 15; i >= 0; --i) {
-        const struct symbols *syms = &buckets[i];
+        struct symbols *syms = &buckets[i];
+        struct symbol *sym;
 
-        for (uint64_t idx = 1; idx <= syms->maxidx; ++idx) {
-            struct symbol *sym = symbols_at(syms, idx);
+        while ((sym = symbols_pop(syms)) != NULL) {
             offset = align_to(offset, sym->align);
             symbol_bind_definition(sym, common, offset, sym->size);
             offset += sym->size;
@@ -563,7 +360,7 @@ static bool create_common_section(struct linkerctx *ctx)
 
     if (offset > 0) {
         common->is_alive = true;
-        sections_push(ctx->sections, common);
+        sections_push(&ctx->sections, common);
     }
     section_put(common);
     success = true;
@@ -576,28 +373,24 @@ leave:
 }
 
 
-void linker_gc_sections(struct linkerctx *ctx, struct sections *keep)
+void linker_gc_sections(struct linkerctx *ctx, const struct sections *keep)
 {
     struct sections wl = {0};
-    ctx->gc_sections = true;
+    struct section *sect;
 
-    sections_reserve(&wl, ctx->sections->capacity);
+    sections_reserve(&wl, ctx->sections.q.capacity);
 
     // Start with using all sections marked as kept
-    for (uint64_t i = 0, n = 0; i < keep->capacity && n < keep->nsections; ++i) {
-        struct section *s = sections_at(keep, i);
-        if (s != NULL) {
-            ++n;
-            s->is_alive = true;
-            sections_push(&wl, s);
+    for (uint64_t i = 0; i < keep->q.capacity; ++i) {
+        sect = sections_peek(keep, i);
+        if (sect != NULL) {
+            sect->is_alive = true;
+            sections_push(&wl, sect);
         }
     }
 
     // Mark all "alive" sections
-    while (wl.nsections > 0) {
-        assert(wl.sections[wl.maxidx] != NULL);
-
-        struct section *sect = sections_pop(&wl);
+    while ((sect = sections_pop(&wl)) != NULL) {
         assert(sect->is_alive);
     
         // Follow relocations and mark target sections as alive
@@ -628,62 +421,63 @@ void linker_gc_sections(struct linkerctx *ctx, struct sections *keep)
 }
 
 
-struct image * linker_create_image(struct linkerctx *ctx, 
-                                   const char *name, 
-                                   uint64_t base_addr)
-{
-    const struct backend *be = backend_lookup(ctx->target);
-    if (be == NULL) {
-        return NULL;
-    }
-
-    if (!create_common_section(ctx)) {
-        return NULL;
-    }
-
-    struct image *img = image_alloc(name, be->target, be->cpu_align, 
-                                    be->min_page_size, be->max_page_size, be->is_be);
-    if (img == NULL) {
-        return NULL;
-    }
-
-    struct sections *sects = ctx->sections;
-    while (sects->nsections > 0) {
-        struct section *sect = sections_pop(sects);
-
-        if (sect->is_alive || !ctx->gc_sections) {
-            image_reserve_capacity(img, sect->type, sects->capacity);
-            image_add_section(img, sect);
-        }
-
-        section_put(sect);
-    }
-
-    image_pack(img, base_addr);
-    symbols_reserve(&img->symbols, ctx->globals->nsymbols + 1);
-
-    while (ctx->globals->map.root != NULL) {
-        struct rb_node *node = ctx->globals->map.root;
-        struct globals_entry *entry = rb_entry(node, struct globals_entry, map_entry);
-        struct symbol *sym = entry->symbol;
-
-        rb_remove(&ctx->globals->map, node);
-
-        if (symbol_is_alive(sym) || !ctx->gc_sections) {
-            if (sym->section != NULL) {
-                sym->value = sym->section->vaddr + sym->offset;
-            }
-
-            symbols_push(&img->symbols, sym);
-        }
-
-        symbol_put(entry->symbol);
-        free(entry);
-    }
-
-    list_for_each_entry_safe(file, &ctx->archives, struct archive_file, list_entry) {
-        remove_archive_file(file);
-    }
-
-    return img;
-}
+//struct image * linker_create_image(struct linkerctx *ctx, 
+//                                   const char *name, 
+//                                   uint64_t base_addr,
+//                                   bool gc_sections)
+//{
+//    const struct backend *be = backend_lookup(ctx->target);
+//    if (be == NULL) {
+//        return NULL;
+//    }
+//
+//    if (!create_common_section(ctx)) {
+//        return NULL;
+//    }
+//
+//    struct image *img = image_alloc(name, be->target, be->cpu_align, 
+//                                    be->min_page_size, be->max_page_size, be->is_be);
+//    if (img == NULL) {
+//        return NULL;
+//    }
+//
+//    const struct sections *sects = ctx->sections;
+//    while (sects->nsections > 0) {
+//        struct section *sect = sections_pop(sects);
+//
+//        if (sect->is_alive || !ctx->gc_sections) {
+//            image_reserve_capacity(img, sect->type, sects->capacity);
+//            image_add_section(img, sect);
+//        }
+//
+//        section_put(sect);
+//    }
+//
+//    image_pack(img, base_addr);
+//    symbols_reserve(&img->symbols, ctx->globals->nsymbols + 1);
+//
+//    while (ctx->globals->map.root != NULL) {
+//        struct rb_node *node = ctx->globals->map.root;
+//        struct globals_entry *entry = rb_entry(node, struct globals_entry, map_entry);
+//        struct symbol *sym = entry->symbol;
+//
+//        rb_remove(&ctx->globals->map, node);
+//
+//        if (symbol_is_alive(sym) || !ctx->gc_sections) {
+//            if (sym->section != NULL) {
+//                sym->value = sym->section->vaddr + sym->offset;
+//            }
+//
+//            symbols_push(&img->symbols, sym);
+//        }
+//
+//        symbol_put(entry->symbol);
+//        free(entry);
+//    }
+//
+//    list_for_each_entry_safe(file, &ctx->archives, struct archive_file, list_entry) {
+//        remove_archive_file(file);
+//    }
+//
+//    return img;
+//}

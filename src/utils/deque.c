@@ -30,7 +30,8 @@ bool deque_reserve(struct deque *d, uint64_t capacity)
         return false;
     }
 
-    if (d->head > 0) {
+    // If the deque has wrapped, we need to move some entries to the new gap
+    if ((d->head + d->size) > d->capacity) {
         uint64_t n = d->capacity - d->head;
         uint64_t head = capacity - n;
         memmove(&q[head], &q[d->head], n * sizeof(void*));

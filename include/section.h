@@ -39,7 +39,7 @@ struct section
     char *name;                     // name of the section (NOTE: can be NULL)
     int refcnt;                     // reference counter
     enum section_type type;         // section type 
-    uint64_t vaddr;                 // finalized virtual address
+    //uint64_t vaddr;                 // finalized virtual address
     uint64_t align;                 // section alignment requirements (addr must be a multiple of align)
     uint64_t size;                  // size of the section
     const uint8_t *content;         // pointer to section content

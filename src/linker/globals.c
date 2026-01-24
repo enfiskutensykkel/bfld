@@ -8,15 +8,11 @@
 #include <errno.h>
 
 
-struct globals * globals_alloc(const char *name)
+struct globals * globals_alloc()
 {
     struct globals *globals = malloc(sizeof(struct globals));
     if (globals == NULL) {
         return NULL;
-    }
-
-    if (name != NULL) {
-        globals->name = strdup(name);
     }
 
     globals->refcnt = 1;
@@ -35,9 +31,20 @@ struct globals * globals_get(struct globals *globals)
 }
 
 
+void globals_put(struct globals *globals)
+{
+    assert(globals != NULL);
+    assert(globals->refcnt > 0);
+
+    if (--(globals->refcnt) == 0) {
+        globals_clear(globals);
+        free(globals);
+    }
+}
+
+
 void globals_clear(struct globals *globals)
 {
-    log_ctx_push(LOG_CTX_NAME(globals->name));
     log_trace("Clearing symbols");
     while (globals->map.root != NULL) {
         struct rb_node *node = globals->map.root;
@@ -48,22 +55,6 @@ void globals_clear(struct globals *globals)
         free(entry);
     }
     globals->nsymbols = 0;
-    log_ctx_pop();
-}
-
-
-void globals_put(struct globals *globals)
-{
-    assert(globals != NULL);
-    assert(globals->refcnt > 0);
-
-    if (--(globals->refcnt) == 0) {
-        globals_clear(globals);
-        if (globals->name != NULL) {
-            free(globals->name);
-        }
-        free(globals);
-    }
 }
 
 

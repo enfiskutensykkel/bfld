@@ -9,8 +9,41 @@ extern "C" {
 #include <stdint.h>
 #include "utils/list.h"
 #include "section.h"
-#include "sections.h"
 #include "symbols.h"
+
+
+// Forward declaration
+struct image;
+
+
+/*
+ * A group of sections with the same type.
+ */
+struct section_group
+{
+    struct image *image;            // weak reference to the output image
+    char *name;                     // name of the section group
+    enum section_type type;         // type of this section group
+    struct list_head list_entry;    // linked list entry
+    uint64_t vaddr;                 // base virtual address for sections in the group
+    uint64_t size;                  // total memory size of the section
+    uint64_t align;                 // alignment requirements
+    struct list_head sections;      // list of output sections that belong to the section group
+};
+
+
+/*
+ * Output section.
+ */
+struct output_section
+{
+    struct section_group *group;    // weak reference to the output image
+    struct list_head list_entry;    // linked list entry
+    uint64_t vaddr;                 // finalized virtual address for the setion
+    uint64_t size;                  // section size
+    uint64_t align;                 // section alignment requirements
+    struct section *section;        // reference to section content
+};
 
 
 /*
@@ -28,25 +61,10 @@ struct image
     uint64_t entrypoint;            // address of the image's entrypoint
     uint64_t size;                  // total memory size
     int refcnt;                     // reference counter
-    struct symbols symbols;         // symbol table
-    struct list_head groups;        // list of section groups
+    struct list_head groups;        // section groups
+    struct globals *globals;        // global symbol table reference
 };
 
-
-/*
- * A group of sections with the same type.
- */
-struct section_group
-{
-    char *name;
-    struct list_head list_entry;    // linked list entry
-    struct image *image;            // weak reference to the output image
-    enum section_type type;         // type of this section group
-    uint64_t vaddr;                 // base virtual address for sections in the group
-    uint64_t size;                  // total memory size of the section
-    uint64_t align;                 // alignment requirements
-    struct sections sections;       // input sections that belong to this group
-};
 
 
 struct image * image_alloc(const char *name, 
@@ -67,10 +85,6 @@ struct image * image_get(struct image *image);
  * Release image reference.
  */
 void image_put(struct image *image);
-
-
-
-bool image_reserve_capacity(struct image *image, enum section_type type, size_t nsections);
 
 
 /*
