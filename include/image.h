@@ -57,7 +57,7 @@ struct image
     uint64_t max_page_size;         // maximum page size
     bool is_be;                     // is big-endian?
     uint64_t base_addr;             // base virtual address of the image
-    uint64_t entrypoint;            // address of the image's entrypoint
+    uint64_t entry;                 // address of the image's entrypoint
     uint64_t size;                  // total memory size
     int refcnt;                     // reference counter
     struct list_head groups;        // section groups
@@ -68,12 +68,7 @@ struct image
 /*
  * Create an output image.
  */
-struct image * image_alloc(const char *name, 
-                           uint32_t target, 
-                           uint64_t cpu_align,
-                           uint64_t min_page_size,
-                           uint64_t max_page_size,
-                           bool is_be);
+struct image * image_alloc(const char *name, uint32_t target);
 
 
 /*

@@ -3,6 +3,7 @@
 #include "section.h"
 #include "symbols.h"
 #include "symbol.h"
+#include "backend.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
@@ -26,19 +27,7 @@ static struct section_group * add_group(struct image *img, enum section_type typ
     grp->size = 0;
     grp->align = grp->type == SECTION_TEXT ? img->cpu_align : 0;
     list_head_init(&grp->sections);
-
-    if (list_empty(&img->groups) || type == SECTION_ZERO) {
-        list_insert_tail(&img->groups, &grp->list_entry);
-    } else {
-        struct section_group *last = list_last_entry(&img->groups, struct section_group, list_entry);
-        if (last->type == SECTION_ZERO) {
-            list_insert_tail(&last->list_entry, &grp->list_entry);
-        } else {
-            list_insert(&last->list_entry, &grp->list_entry);
-        }
-    }
-
-    log_debug("Created output section group %s", grp->name);
+    list_insert_tail(&img->groups, &grp->list_entry);
     return grp;
 }
 
@@ -52,8 +41,7 @@ static struct section_group * get_group(struct image *img, enum section_type typ
         }
     }
 
-    // Couldn't find group, try to create it
-    return add_group(img, type);
+    return NULL;
 }
 
 
@@ -71,9 +59,14 @@ static void remove_group(struct section_group *grp)
 }
 
 
-struct image * image_alloc(const char *name, uint32_t target, uint64_t cpu_align,
-                           uint64_t min_page_size, uint64_t max_page_size, bool is_be)
+struct image * image_alloc(const char *name, uint32_t target)
 {
+    const struct backend *be = backend_lookup(target);
+    if (be == NULL) {
+        log_fatal("Unsupported machine code architecture");
+        return NULL;
+    }
+
     struct image *img = malloc(sizeof(struct image));
     if (img == NULL) {
         return NULL;
@@ -88,15 +81,22 @@ struct image * image_alloc(const char *name, uint32_t target, uint64_t cpu_align
     img->base_addr = 0;
     img->size = 0;
     img->refcnt = 1;
-    img->entrypoint = 0;
-    img->target = target;
-    img->cpu_align = cpu_align;
-    img->min_page_size = min_page_size;
-    img->max_page_size = max_page_size;
-    img->is_be = is_be;
+    img->entry = 0;
+    img->target = be->target;
+    img->cpu_align = be->cpu_align;
+    img->min_page_size = be->min_page_size;
+    img->max_page_size = be->max_page_size;
+    img->is_be = be->is_be;
 
-    list_head_init(&img->groups);
     memset(&img->symbols, 0, sizeof(struct symbols));
+    list_head_init(&img->groups);
+
+    // Create the different section groups
+    add_group(img, SECTION_TEXT);
+    add_group(img, SECTION_RODATA);
+    add_group(img, SECTION_DATA);
+    add_group(img, SECTION_ZERO);
+
     return img;
 }
 
@@ -190,9 +190,14 @@ void image_pack(struct image *img, uint64_t base_addr)
     img->base_addr = base_addr;
     uint64_t vaddr = base_addr;
 
-    list_for_each_entry(grp, &img->groups, struct section_group, list_entry) {
-        grp->vaddr = align_to(vaddr, grp->align);
-        vaddr = align_to(grp->vaddr + grp->size, img->max_page_size);
+    list_for_each_entry_safe(grp, &img->groups, struct section_group, list_entry) {
+        if (grp->size == 0) {
+            remove_group(grp);
+        } else {
+            grp->align = grp->align < img->max_page_size ? img->max_page_size : grp->align;
+            grp->vaddr = align_to(vaddr, grp->align);
+            vaddr = align_to(grp->vaddr + grp->size, img->max_page_size);
+        }
     }
 
     img->size = vaddr - base_addr;

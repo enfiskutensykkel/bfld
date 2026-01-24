@@ -37,13 +37,15 @@ static void print_symbols(FILE *fp, const struct image *img)
         [SYMBOL_LOCAL] = "local"
     };
 
+    fprintf(fp, "Symbol table for image '%s'\n", img->name);
     fprintf(fp, "%-16s %6s %6s %-6s %-6s %-20s %-32s\n",
-            "Value", "Size", "Align", "Type", "Bind", "Definition", "Name");
+            "Address", "Size", "Align", "Type", "Bind", "Section", "Symbol");
 
     for (uint64_t idx = 0; idx < img->symbols.nsymbols; ++idx) {
         const struct symbol *sym = symbols_peek(&img->symbols, idx);
 
         uint64_t value = 0;
+        uint64_t align = sym->align;
 
         const char *defname = "UNKNOWN";
         if (!symbol_is_defined(sym)) {
@@ -64,35 +66,34 @@ static void print_symbols(FILE *fp, const struct image *img)
 
         fprintf(fp, "%016lx ", value);
         fprintf(fp, "%6lu ", sym->size);
-        fprintf(fp, "%6lu ", sym->align);
+        fprintf(fp, "%6lu ", align);
         fprintf(fp, "%-6s ", typemap[sym->type]);
         fprintf(fp, "%-6s ", bindmap[sym->binding]);
         fprintf(fp, "%-20.20s ", defname);
         fprintf(fp, "%-32.32s", sym->name);
         fprintf(fp, "\n");
     }
+    fprintf(fp, "\n");
 }
 
 
-//static void print_layout(FILE *fp, struct image *img)
-//{
-//    fprintf(fp, "Memory layout for image '%s\n", img->name);
-//    fprintf(fp, "Base address: 0x%016lx\n", img->base_addr);
-//    fprintf(fp, "Entry point : 0x%016lx\n", img->entrypoint);
-//    fprintf(fp, "Memory size : %lu\n", img->size);
-//
-//    fprintf(fp, "Output sections:\n");
-//    list_for_each_entry(grp, &img->groups, struct section_group, list_entry) {
-//        fprintf(fp, "-- Addr=0x%016lx, Size=%06lu, Section='%s'\n", grp->vaddr, grp->size, grp->name);
-//        
-//        fprintf(fp, "   Input sections:\n");
-//        for (uint64_t idx = 0; idx <= grp->sections.nsections; ++idx) {
-//            const struct section *sect = sections_at(&grp->sections, idx);
-//            fprintf(fp, "     [%06lu] Addr=0x%016lx, Size=%06lu, Section='%s'\n", 
-//                    idx, sect->vaddr, sect->size, sect->name);
-//        }
-//    }
-//}
+static void print_layout(FILE *fp, const struct image *img)
+{
+    fprintf(fp, "Memory layout for image '%s'\n", img->name);
+    fprintf(fp, "Base address: 0x%016lx\n", img->base_addr);
+    fprintf(fp, "Entry point : 0x%016lx\n", img->entry);
+    fprintf(fp, "Memory size : %lu\n", img->size);
+
+    fprintf(fp, "\n%-16s %6s %6s %-20s\n", "Address", "Size", "Align", "Section");
+    list_for_each_entry(grp, &img->groups, struct section_group, list_entry) {
+        fprintf(fp, "%016lx ", grp->vaddr);
+        fprintf(fp, "%6lu ", grp->size);
+        fprintf(fp, "%6lu ", grp->align);
+        fprintf(fp, "%-20.20s", grp->name);
+        fprintf(fp, "\n");
+    }
+    fprintf(fp, "\n");
+}
 
 
 static void keep_section(struct sections *keep, struct section *sect)
@@ -309,14 +310,7 @@ static struct image * linker_create_image(const char *name,
                                           struct linkerctx *ctx,
                                           uint64_t baseaddr)
 {
-    const struct backend *be = backend_lookup(ctx->target);
-    if (be == NULL) {
-        log_fatal("Unsupported machine code architecture");
-        return NULL;
-    }
-
-    struct image *img = image_alloc(name, ctx->target, be->cpu_align,
-                                    be->min_page_size, be->max_page_size, be->is_be);
+    struct image *img = image_alloc(name, ctx->target);
     if (img == NULL) {
         log_fatal("Unable to create output image");
         return NULL;
@@ -481,8 +475,16 @@ int main(int argc, char **argv)
         linker_destroy(ctx);
         exit(2);
     }
+    img->entry = (ep->section->output->group->vaddr
+                  + ep->section->output->offset
+                  + ep->offset);
+                  
 
     linker_destroy(ctx);
+
+    if (show_layout) {
+        print_layout(stdout, img);
+    }
 
     if (show_symbols) {
         print_symbols(stdout, img);
