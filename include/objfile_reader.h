@@ -24,7 +24,7 @@ extern "C" {
  * bfld can support different front-ends for loading object files
  * in different formats, i.e., ELF, Mach-O, PE/COFF, etc.
  */
-struct objfile_frontend
+struct objfile_reader
 {
     /*
      * The name of the object file reader.
@@ -70,7 +70,7 @@ struct objfile_frontend
  *     ...
  * }
  *
- * const struct objfile_frontend elf_frontend = {
+ * const struct objfile_reader elf_frontend = {
  *   .name = "elf_frontend",
  *   .probe_file = elf_probe,
  *   .parse_file = elf_parser
@@ -78,11 +78,11 @@ struct objfile_frontend
  *
  * __attribute__((constructor)) static void elf_frontend_init(void) {
  *     ...
- *     objfile_frontend_register(&elf_frontend);
+ *     objfile_reader_register(&elf_frontend);
  * }
  *
  */
-void objfile_frontend_register(const struct objfile_frontend *frontend);
+void objfile_reader_register(const struct objfile_reader *frontend);
 
 
 /*
@@ -90,7 +90,7 @@ void objfile_frontend_register(const struct objfile_frontend *frontend);
  * to probe the memory area to find the front-end that supports
  * this format.
  */
-const struct objfile_frontend * objfile_frontend_probe(const uint8_t *file_data, size_t file_size, uint32_t *march);
+const struct objfile_reader * objfile_reader_probe(const uint8_t *file_data, size_t file_size, uint32_t *march);
 
 
 #ifdef __cplusplus

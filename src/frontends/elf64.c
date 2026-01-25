@@ -1,4 +1,4 @@
-#include <objfile_frontend.h>
+#include <objfile_reader.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -543,7 +543,7 @@ cleanup:
 }
 
 
-const struct objfile_frontend elf64_fe = {
+const struct objfile_reader elf64_fe = {
     .name = "Elf64",
     .probe_file = check_elf_header,
     .parse_file = parse_elf_file,
@@ -551,7 +551,7 @@ const struct objfile_frontend elf64_fe = {
 
 
 __attribute__((constructor))
-static void elf_fe_init(void)
+static void elf64_reader_init(void)
 {
-    objfile_frontend_register(&elf64_fe);
+    objfile_reader_register(&elf64_fe);
 }

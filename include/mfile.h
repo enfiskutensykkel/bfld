@@ -27,6 +27,12 @@ int mfile_open_read(struct mfile **file, const char *pathname);
 
 
 /*
+ * Open a file for writing and memory map its output content.
+ */
+int mfile_open_write(struct mfile **file, const char *pathname, size_t size);
+
+
+/*
  * Take a strong reference to the memory mapped file.
  * Increases the reference counter.
  */

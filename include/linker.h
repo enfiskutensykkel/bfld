@@ -14,9 +14,9 @@ extern "C" {
 /* Some forward declarations */
 struct globals;
 struct objfile;
-struct objfile_frontend;
+struct objfile_reader;
 struct archive;
-struct archive_frontend;
+struct archive_reader;
 struct backend;
 struct image;
 
@@ -64,7 +64,7 @@ void linker_destroy(struct linkerctx *ctx);
  */
 bool linker_add_archive(struct linkerctx *ctx,
                         struct archive *archive,
-                        const struct archive_frontend *frontend);
+                        const struct archive_reader *frontend);
 
 
 /*
@@ -72,7 +72,7 @@ bool linker_add_archive(struct linkerctx *ctx,
  */
 bool linker_add_input_file(struct linkerctx *ctx,
                            struct objfile *objfile,
-                           const struct objfile_frontend *frontend);
+                           const struct objfile_reader *frontend);
 
 
 /*

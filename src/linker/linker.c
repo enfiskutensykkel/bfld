@@ -1,6 +1,6 @@
 #include "target.h"
-#include "objfile_frontend.h"
-#include "archive_frontend.h"
+#include "objfile_reader.h"
+#include "archive_reader.h"
 #include "logging.h"
 #include "linker.h"
 #include "objfile.h"
@@ -81,12 +81,12 @@ void linker_destroy(struct linkerctx *ctx)
 
 
 bool linker_add_archive(struct linkerctx *ctx, struct archive *ar, 
-                        const struct archive_frontend *fe)
+                        const struct archive_reader *fe)
 {
     int current_log_ctx = log_ctx_new(ar->name);
 
     if (fe == NULL) {
-        fe = archive_frontend_probe(ar->file_data, ar->file_size);
+        fe = archive_reader_probe(ar->file_data, ar->file_size);
     }
 
     if (fe == NULL) {
@@ -126,18 +126,18 @@ bool linker_add_archive(struct linkerctx *ctx, struct archive *ar,
 
 
 bool linker_add_input_file(struct linkerctx *ctx, struct objfile *objfile,
-                           const struct objfile_frontend *fe)
+                           const struct objfile_reader *reader)
 {
     uint32_t march = 0;
     int current_log_ctx = log_ctx_new(objfile->name);
 
-    if (fe == NULL) {
-        fe = objfile_frontend_probe(objfile->file_data, objfile->file_size, &march);
+    if (reader == NULL) {
+        reader = objfile_reader_probe(objfile->file_data, objfile->file_size, &march);
     } else {
-        fe->probe_file(objfile->file_data, objfile->file_size, &march);
+        reader->probe_file(objfile->file_data, objfile->file_size, &march);
     }
 
-    if (fe == NULL) {
+    if (reader == NULL) {
         log_error("Unrecognized file format");
         log_ctx_pop();
         return false;
@@ -163,13 +163,13 @@ bool linker_add_input_file(struct linkerctx *ctx, struct objfile *objfile,
         return false;
     }
 
-    log_trace("Front-end '%s' is best match for object file", fe->name);
+    log_trace("Front-end '%s' is best match for object file", reader->name);
 
     struct section_table sections = {0};
     struct symbol_table symbols = {0};
 
-    int status = fe->parse_file(objfile->file_data, objfile->file_size, 
-                                objfile, &sections, &symbols);
+    int status = reader->parse_file(objfile->file_data, objfile->file_size, 
+                                    objfile, &sections, &symbols);
     assert(log_ctx == current_log_ctx);
     while (log_ctx > current_log_ctx) {
         log_warning("Unwinding log context stack");

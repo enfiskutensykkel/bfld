@@ -1,5 +1,5 @@
-#ifndef BFLD_ARCHIVE_FRONTEND_H
-#define BFLD_ARCHIVE_FRONTEND_H
+#ifndef BFLD_ARCHIVE_READER_FRONTEND_H
+#define BFLD_ARCHIVE_READER_FRONTEND_H
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -13,7 +13,7 @@ extern "C" {
 /*
  * Archive file front-end operations.
  */
-struct archive_frontend
+struct archive_reader
 {
     /*
      * Name of the archive front-end.
@@ -38,7 +38,7 @@ struct archive_frontend
 /*
  * Register an archive file front-end.
  */
-void archive_frontend_register(const struct archive_frontend *frontend);
+void archive_reader_register(const struct archive_reader *frontend);
 
 
 /* 
@@ -46,7 +46,7 @@ void archive_frontend_register(const struct archive_frontend *frontend);
  * to probe the memory area to find the front-end that supports
  * this format.
  */
-const struct archive_frontend * archive_frontend_probe(const uint8_t *file_data, size_t file_size);
+const struct archive_reader * archive_reader_probe(const uint8_t *file_data, size_t file_size);
 
 
 #ifdef __cplusplus

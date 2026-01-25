@@ -1,5 +1,5 @@
 #include "logging.h"
-#include "archive_frontend.h"
+#include "archive_reader.h"
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -170,7 +170,7 @@ static int parse_file(const uint8_t *ptr, size_t size, struct archive *archive)
 }
 
 
-const struct archive_frontend ar_fe = {
+const struct archive_reader linux_ar_fe = {
     .name = "ar",
     .probe_file = check_magic,
     .parse_file = parse_file,
@@ -178,7 +178,7 @@ const struct archive_frontend ar_fe = {
 
 
 __attribute__((constructor))
-static void ar_fe_init(void)
+static void linux_ar_reader_init(void)
 {
-    archive_frontend_register(&ar_fe);
+    archive_reader_register(&linux_ar_fe);
 }

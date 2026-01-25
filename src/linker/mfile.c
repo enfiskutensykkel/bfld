@@ -24,6 +24,7 @@ int mfile_open_read(struct mfile **file, const char *pathname)
             case EACCES:
             case EPERM:
             case ENOENT:
+            case EISDIR:
                 return errno;
 
             default:
@@ -42,6 +43,7 @@ int mfile_open_read(struct mfile **file, const char *pathname)
             case EACCES:
             case EPERM:
             case ENOENT:
+            case EISDIR:
                 return status;
 
             default:
@@ -54,12 +56,12 @@ int mfile_open_read(struct mfile **file, const char *pathname)
     if (p == MAP_FAILED) {
         int status = errno;
         close(fd);
-        log_error("Unable to memory-map file; %s", strerror(status));
+        log_error("Unable to memory-map file: %s", strerror(status));
         log_ctx_pop();
         return EBADF;
     }
 
-    log_debug("Opened file '%s'", pathname);
+    log_debug("Opened file '%s' for reading", pathname);
 
     // Create file handle
     struct mfile *f = malloc(sizeof(struct mfile));
@@ -83,7 +85,91 @@ int mfile_open_read(struct mfile **file, const char *pathname)
     f->fd = fd;
     f->size = s.st_size;
     f->data = p;
-    strcpy(f->name, pathname);
+
+    *file = f;
+
+    log_ctx_pop();
+    return 0;
+}
+
+
+int mfile_open_write(struct mfile **file, const char *pathname, size_t size)
+{
+    *file = NULL;
+
+    log_ctx_new(pathname);
+
+    int fd = open(pathname, O_RDWR);
+    if (fd == -1) {
+        log_error(strerror(errno));
+        log_ctx_pop();
+        switch (errno) {
+            case EACCES:
+            case EPERM:
+            case ENOENT:
+            case EROFS:
+            case EISDIR:
+                return errno;
+
+            default:
+                return EBADF;
+        }
+    }
+
+    // Reserve the specified size
+    if (ftruncate(fd, size) == -1) {
+        int status = errno;
+        close(fd);
+        log_error(strerror(status));
+        log_ctx_pop();
+        switch (errno) {
+            case EACCES:
+            case EPERM:
+            case ENOENT:
+            case EFBIG:
+            case EROFS:
+            case EISDIR:
+                return status;
+
+            default:
+                return EBADF;
+        }
+    }
+
+    // Memory map the file
+    void *p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (p == MAP_FAILED) {
+        int status = errno;
+        close(fd);
+        log_error("Unable to memory-map file: %s", strerror(status));
+        log_ctx_pop();
+        return EBADF;
+    }
+
+    log_debug("Opened file '%s' for writing", pathname);
+
+    // Create file handle
+    struct mfile *f = malloc(sizeof(struct mfile));
+    if (f == NULL) {
+        munmap(p, size);
+        close(fd);
+        log_ctx_pop();
+        return ENOMEM;
+    }
+
+    f->name = strdup(pathname);
+    if (f->name == NULL) {
+        free(f);
+        munmap(p, size);
+        close(fd);
+        log_ctx_pop();
+        return ENOMEM;
+    }
+
+    f->refcnt = 1;
+    f->fd = fd;
+    f->size = size;
+    f->data = p;
 
     *file = f;
 

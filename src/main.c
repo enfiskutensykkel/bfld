@@ -15,8 +15,8 @@
 
 #include <objfile.h>
 #include <archive.h>
-#include <objfile_frontend.h>
-#include <archive_frontend.h>
+#include <objfile_reader.h>
+#include <archive_reader.h>
 #include <image.h>
 
 
@@ -271,7 +271,7 @@ static bool linker_load_file(struct linkerctx *ctx, const char *pathname)
     }
 
     // Try to open as archive file
-    const struct archive_frontend *arfe = archive_frontend_probe(file->data, file->size);
+    const struct archive_reader *arfe = archive_reader_probe(file->data, file->size);
     if (arfe != NULL) {
         struct archive *ar = archive_alloc(file, file->name, file->data, file->size);
 
@@ -285,7 +285,7 @@ static bool linker_load_file(struct linkerctx *ctx, const char *pathname)
     }
 
     // Try to open as object file
-    const struct objfile_frontend *objfe = objfile_frontend_probe(file->data, file->size, NULL);
+    const struct objfile_reader *objfe = objfile_reader_probe(file->data, file->size, NULL);
     if (objfe != NULL) {
         struct objfile *obj = objfile_alloc(file, file->name, file->data, file->size);
 

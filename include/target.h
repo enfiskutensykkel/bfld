@@ -1,5 +1,5 @@
-#ifndef BFLD_TARGET_H
-#define BFLD_TARGET_H
+#ifndef BFLD_TARGET_BACKEND_H
+#define BFLD_TARGET_BACKEND_H
 #ifdef __cplusplus
 extern "C" {
 #endif
