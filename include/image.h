@@ -43,6 +43,12 @@ struct image
 
 
 /*
+ * Loadable program segment.
+ */
+
+
+
+/*
  * Output section.
  *
  * This refers to a group input sections that should be

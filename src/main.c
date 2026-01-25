@@ -78,7 +78,7 @@ static void print_symbols(FILE *fp, const struct image *img)
 
 static void print_layout(FILE *fp, const struct image *img)
 {
-    fprintf(fp, "Memory layout for image '%s'\n", img->name);
+    fprintf(fp, "Layout for image '%s'\n", img->name);
     fprintf(fp, "Base address: 0x%016lx\n", img->base_addr);
     fprintf(fp, "Entry point : 0x%016lx\n", img->entry_addr);
     fprintf(fp, "Memory size : %lu\n", img->size);
