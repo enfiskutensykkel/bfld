@@ -25,7 +25,7 @@ struct writer
      */
     const char *name;
 
-    int (*layout_image)(struct image *image);
+    int (*prepare_file_layout)(struct image *image);
 };
 
 

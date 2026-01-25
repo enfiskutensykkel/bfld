@@ -56,8 +56,8 @@ struct output_section
     enum section_type type;         // type of this section group
     struct list_head list_entry;    // linked list entry
     struct rb_node map_entry;       // name map entry
-    size_t file_offset;             // offset in the file
-    size_t file_size;               // file size (must be padded if >mem_size)
+    size_t file_offset;             // offset in the output file
+    size_t file_size;               // size in the output file
     uint64_t vaddr;                 // base virtual address for sections in the group
     uint64_t size;                  // total memory size of the section
     uint64_t align;                 // memory alignment requirements
@@ -78,7 +78,6 @@ struct section_link
     uint64_t vaddr;                 // finalized virtual memory address
     uint64_t size;                  // total memory size
     uint64_t offset;                // offset from the base of the output section
-    size_t file_offset;             // offset in the output file
 };
 
 

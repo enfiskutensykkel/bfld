@@ -366,6 +366,8 @@ void image_layout(struct image *img, uint64_t base_addr)
     img->base_addr = base_addr;
     uint64_t vaddr = base_addr;
 
+    size_t file_offset = 0;
+
     list_for_each_entry_safe(outsect, &img->sections, struct output_section, list_entry) {
         if (outsect->size == 0) {
             image_remove_output_section(outsect);
@@ -375,6 +377,9 @@ void image_layout(struct image *img, uint64_t base_addr)
         outsect->align = outsect->align < img->section_boundary ? img->section_boundary : outsect->align;
         vaddr = align_to(vaddr, outsect->align);
         outsect->vaddr = vaddr;
+
+        outsect->file_offset = align_to(file_offset, outsect->align);
+
         uint64_t offset = 0;
 
         list_for_each_entry(link, &outsect->links, struct section_link, list_entry) {
@@ -387,9 +392,15 @@ void image_layout(struct image *img, uint64_t base_addr)
 
         assert(outsect->size == offset);
         assert(outsect->vaddr + offset == vaddr);
+
+        if (outsect->type != SECTION_ZERO) {
+            file_offset = outsect->file_offset + outsect->size;
+            outsect->file_size += outsect->size;
+        }
     }
 
-    img->size = vaddr - base_addr;
+    img->size = align_to(vaddr - base_addr, img->min_page_size);
+    img->file_size = file_offset;
 }
 
 //void image_pack(struct image *img, uint64_t base_addr)

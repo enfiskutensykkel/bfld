@@ -37,29 +37,35 @@ static void print_symbols(FILE *fp, const struct image *img)
     };
 
     fprintf(fp, "Symbol table for image '%s'\n", img->name);
-    fprintf(fp, "%-16s %6s %6s %-6s %-6s %-20s %-32s\n",
-            "Address", "Size", "Align", "Type", "Bind", "Section", "Symbol");
+    fprintf(fp, "%-16s %8s %8s %8s %8s %-6s %-6s %-20s %-32s\n",
+            "VMA", "MemSize", "MemAlign", "FileOffs", "FileSize", "Type", "Bind", "Section", "Symbol");
 
     for (uint64_t idx = 0; idx < img->symbols.nsymbols; ++idx) {
         const struct symbol *sym = symbols_peek(&img->symbols, idx);
 
         uint64_t value = image_get_symbol_address(img, sym);
-        uint64_t align = sym->align;
 
         const char *defname = "UNKNOWN";
+        size_t file_offset = 0;
+        size_t file_size = 0;
 
         if (!symbol_is_defined(sym)) {
             defname = "UNDEFINED";
+            
         } else if (sym->is_absolute) {
             defname = "ABSOLUTE";
         } else {
             struct output_section *sect = image_get_output_section(img, sym->section);
             defname = sect->name;
+            file_offset = sect->file_offset + (value - sect->vaddr);
+            file_size = sect->type == SECTION_ZERO ? 0 : sym->size;
         }
 
         fprintf(fp, "%016lx ", value);
-        fprintf(fp, "%6lu ", sym->size);
-        fprintf(fp, "%6lu ", align);
+        fprintf(fp, "%8lu ", sym->size);
+        fprintf(fp, "%8lu ", sym->align);
+        fprintf(fp, "%8zu ", file_offset);
+        fprintf(fp, "%8zu ", file_size);
         fprintf(fp, "%-6s ", typemap[sym->type]);
         fprintf(fp, "%-6s ", bindmap[sym->binding]);
         fprintf(fp, "%-20.20s ", defname);
@@ -76,12 +82,15 @@ static void print_layout(FILE *fp, const struct image *img)
     fprintf(fp, "Base address: 0x%016lx\n", img->base_addr);
     fprintf(fp, "Entry point : 0x%016lx\n", img->entry_addr);
     fprintf(fp, "Memory size : %lu\n", img->size);
+    fprintf(fp, "File size   : %zu\n", img->file_size);
 
-    fprintf(fp, "\n%-16s %6s %6s %-20s\n", "Address", "Size", "Align", "Section");
+    fprintf(fp, "\n%-16s %8s %8s %8s %8s %-20s\n", "VMA", "MemSize", "MemAlign", "FileOffs", "FileSize", "Section");
     list_for_each_entry(sect, &img->sections, struct output_section, list_entry) {
         fprintf(fp, "%016lx ", sect->vaddr);
-        fprintf(fp, "%6lu ", sect->size);
-        fprintf(fp, "%6lu ", sect->align);
+        fprintf(fp, "%8lu ", sect->size);
+        fprintf(fp, "%8lu ", sect->align);
+        fprintf(fp, "%8zu ", sect->file_offset);
+        fprintf(fp, "%8zu ", sect->file_size);
         fprintf(fp, "%-20.20s", sect->name);
         fprintf(fp, "\n");
     }
@@ -481,14 +490,13 @@ int main(int argc, char **argv)
     img->entry_addr = image_get_symbol_address(img, ep);
     linker_destroy(ctx);
 
-   if (show_layout) {
-       print_layout(stdout, img);
-   }
- 
+    if (show_symbols) {
+        print_symbols(stdout, img);
+    }
 
-   if (show_symbols) {
-       print_symbols(stdout, img);
-   }
+    if (show_layout) {
+        print_layout(stdout, img);
+    }
 
     image_put(img);
     exit(0);
