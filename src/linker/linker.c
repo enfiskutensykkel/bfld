@@ -1,4 +1,4 @@
-#include "backend.h"
+#include "target.h"
 #include "objfile_frontend.h"
 #include "archive_frontend.h"
 #include "logging.h"
@@ -156,8 +156,8 @@ bool linker_add_input_file(struct linkerctx *ctx, struct objfile *objfile,
     }
     ctx->target = march;
 
-    const struct backend *be = backend_lookup(march);
-    if (be == NULL) {
+    const struct target *t = target_lookup(march);
+    if (t == NULL) {
         log_error("Unsupported machine code architecture");
         log_ctx_pop();
         return false;

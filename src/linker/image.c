@@ -3,7 +3,7 @@
 #include "section.h"
 #include "symbols.h"
 #include "symbol.h"
-#include "backend.h"
+#include "target.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
@@ -59,10 +59,10 @@ static void remove_group(struct section_group *grp)
 }
 
 
-struct image * image_alloc(const char *name, uint32_t target)
+struct image * image_alloc(const char *name, uint32_t march)
 {
-    const struct backend *be = backend_lookup(target);
-    if (be == NULL) {
+    const struct target *target = target_lookup(march);
+    if (target == NULL) {
         log_fatal("Unsupported machine code architecture");
         return NULL;
     }
@@ -82,11 +82,11 @@ struct image * image_alloc(const char *name, uint32_t target)
     img->size = 0;
     img->refcnt = 1;
     img->entry = 0;
-    img->target = be->target;
-    img->cpu_align = be->cpu_align;
-    img->min_page_size = be->min_page_size;
-    img->max_page_size = be->max_page_size;
-    img->is_be = be->is_be;
+    img->target = target->march;
+    img->cpu_align = target->cpu_align;
+    img->min_page_size = target->min_page_size;
+    img->max_page_size = target->max_page_size;
+    img->is_be = target->is_be;
 
     memset(&img->symbols, 0, sizeof(struct symbols));
     list_head_init(&img->groups);

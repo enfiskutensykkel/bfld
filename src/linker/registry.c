@@ -1,4 +1,4 @@
-#include "backend.h"
+#include "target.h"
 #include "objfile_frontend.h"
 #include "archive_frontend.h"
 #include "utils/list.h"
@@ -29,12 +29,12 @@ struct objfile_fe_entry
 
 
 /*
- * Linker machine code architecture back-end.
+ * Linker machine code architecture target
  */
-struct be_entry
+struct target_entry
 {
     struct list_head node;
-    const struct backend *backend;
+    const struct target *target;
     uint32_t march;
 };
 
@@ -52,9 +52,9 @@ static struct list_head archive_frontends = LIST_HEAD_INIT(archive_frontends);
 
 
 /*
- * List of back-ends.
+ * List of linker targets.
  */
-static struct list_head backends = LIST_HEAD_INIT(backends);
+static struct list_head targets = LIST_HEAD_INIT(targets);
 
 
 void archive_frontend_register(const struct archive_frontend *fe)
@@ -97,29 +97,29 @@ void objfile_frontend_register(const struct objfile_frontend *fe)
 }
 
 
-void backend_register(const struct backend *be, uint32_t march)
+void target_register(const struct target *target, uint32_t march)
 {
-    if (be == NULL || be->name == NULL || march == 0) {
+    if (target == NULL || target->name == NULL || march == 0) {
         return;
     }
 
-    if (be->apply_reloc == NULL) {
+    if (target->apply_reloc == NULL) {
         return;
     }
 
-    if (backend_lookup(march) != NULL) {
+    if (target_lookup(march) != NULL) {
         // already registered
         return;
     }
 
-    struct be_entry *entry = malloc(sizeof(struct be_entry));
+    struct target_entry *entry = malloc(sizeof(struct target_entry));
     if (entry == NULL) {
         return;
     }
 
-    entry->backend = be;
+    entry->target = target;
     entry->march = march;
-    list_insert_tail(&backends, &entry->node);
+    list_insert_tail(&targets, &entry->node);
 }
 
 
@@ -139,7 +139,7 @@ static void remove_registered(void)
         free(entry);
     }
 
-    list_for_each_entry_safe(entry, &backends, struct be_entry, node) {
+    list_for_each_entry_safe(entry, &targets, struct target_entry, node) {
         list_remove(&entry->node);
         free(entry);
     }
@@ -177,11 +177,11 @@ const struct archive_frontend * archive_frontend_probe(const uint8_t *data, size
 }
 
 
-const struct backend * backend_lookup(uint32_t march) 
+const struct target * target_lookup(uint32_t march) 
 {
-    list_for_each_entry(entry, &backends, struct be_entry, node) {
+    list_for_each_entry(entry, &targets, struct target_entry, node) {
         if (entry->march == march) {
-            return entry->backend;
+            return entry->target;
         }
     }
 

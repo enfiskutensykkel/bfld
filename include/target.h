@@ -1,5 +1,5 @@
-#ifndef BFLD_BACKEND_H
-#define BFLD_BACKEND_H
+#ifndef BFLD_TARGET_H
+#define BFLD_TARGET_H
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -13,23 +13,23 @@ extern "C" {
 /*
  * Maximum number of relocation types.
  */
-#define BACKEND_MAX_RELOC_TYPES   256
+#define TARGET_MAX_RELOC_TYPES   256
 
 
 /*
- * Architecture specific binary file back-end operations.
+ * Architecture specific binary operations.
  */
-struct backend
+struct target
 {
     /*
-     * Name of the back-end.
+     * Name of the target
      */
     const char *name;
 
     /*
      * Target machine code architecture.
      */
-    uint32_t target;
+    uint32_t march;
 
     /*
      * CPU code alignment requirements.
@@ -111,15 +111,15 @@ struct backend
 
 
 /*
- * Register a linker back-end.
+ * Register a linker target.
  */
-void backend_register(const struct backend *backend, uint32_t target);
+void target_register(const struct target *target, uint32_t march);
 
 
 /*
- * Look up a linker back-end based on the machine code architecture.
+ * Look up a linker target based on the machine code architecture.
  */
-const struct backend * backend_lookup(uint32_t target);
+const struct target * target_lookup(uint32_t march);
 
 
 #ifdef __cplusplus

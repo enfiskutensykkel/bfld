@@ -52,7 +52,7 @@ set_target_properties(linkerlib PROPERTIES OUTPUT_NAME bfld)
 
 add_executable(bfld src/main.c)
 add_subdirectory(src/frontends)
-add_subdirectory(src/backends)
+add_subdirectory(src/targets)
 
 #target_compile_definitions(bfld PUBLIC DEFAULT_BFVM="$<TARGET_FILE:bfvm>")
 target_compile_definitions(bfld PUBLIC DEFAULT_BFVM="NOFILE")
