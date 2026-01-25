@@ -188,11 +188,8 @@ bool linker_add_input_file(struct linkerctx *ctx, struct objfile *objfile,
     log_debug("File references %llu symbols", symbols.nsymbols);
     for (uint64_t i = 0; symbols.nsymbols > 0 && i < symbols.capacity; ++i) {
         struct symbol *sym = symbol_table_at(&symbols, i);
-        if (sym == NULL) {
-            continue;
-        }
 
-        if (sym->binding == SYMBOL_LOCAL) {
+        if (sym == NULL || sym->binding == SYMBOL_LOCAL) {
             symbol_table_remove(&symbols, i);
             continue;
         }
@@ -291,7 +288,7 @@ bool linker_resolve_globals(struct linkerctx *ctx)
                 break;
             }
 
-            if (!symbol_is_defined(sym)) {
+            if (!symbol_is_defined(sym) && !sym->is_common) {
                 log_error("Undefined reference to symbol '%s'", sym->name);
                 symbol_put(sym);
                 return false;
@@ -354,6 +351,7 @@ bool linker_create_common_section(struct linkerctx *ctx)
             symbol_bind_definition(sym, common, offset, sym->size);
             offset += sym->size;
             max_align = sym->align > max_align ? sym->align : max_align;
+            symbol_put(sym);
         }
     }
     common->size = offset;

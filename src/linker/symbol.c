@@ -166,7 +166,20 @@ int symbol_merge(struct symbol *existing, const struct symbol *incoming)
             existing->size = incoming->size;
         }
 
+        if (existing->binding == SYMBOL_WEAK && incoming->binding == SYMBOL_GLOBAL) {
+            existing->binding = SYMBOL_GLOBAL;
+        }
+
         log_trace("Updated alignment and size of common symbol '%s'", existing->name);
+        return 0;
+    }
+
+    // Existing is undefined, incoming is common, upgrade undefined to a common
+    if (!symbol_is_defined(existing) && incoming->is_common) {
+        existing->is_common = true;
+        existing->size = incoming->size;
+        existing->align = incoming->align;
+        existing->type = incoming->type;
         return 0;
     }
 

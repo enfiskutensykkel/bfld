@@ -73,8 +73,42 @@ struct section * section_alloc(struct objfile *objfile,
     sect->nrelocs = 0;
     list_head_init(&sect->relocs);
     sect->is_alive = false;
-    sect->output = NULL;
     
+    return sect;
+}
+
+
+struct section * section_clone(const struct section *original, const char *name)
+{
+    struct section *sect = malloc(sizeof(struct section));
+    if (sect == NULL) {
+        return NULL;
+    }
+
+    sect->name = NULL;
+    sect->objfile = NULL;
+    sect->refcnt = 1;
+    sect->align = original->align;
+    sect->type = original->type;
+    sect->content = original->content;
+    sect->size = original->size;
+    sect->nrelocs = 0;
+    list_head_init(&sect->relocs);
+    sect->is_alive = false;
+
+    if (name != NULL) {
+        sect->name = strdup(name);
+    }
+
+    if (original->objfile != NULL) {
+        sect->objfile = objfile_get(original->objfile);
+    }
+
+    list_for_each_entry(reloc, &original->relocs, struct reloc, list_entry) {
+        section_add_reloc(sect, reloc->offset, reloc->symbol, 
+                          reloc->type, reloc->addend);
+    }
+
     return sect;
 }
 

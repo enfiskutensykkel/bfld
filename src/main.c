@@ -43,24 +43,18 @@ static void print_symbols(FILE *fp, const struct image *img)
     for (uint64_t idx = 0; idx < img->symbols.nsymbols; ++idx) {
         const struct symbol *sym = symbols_peek(&img->symbols, idx);
 
-        uint64_t value = 0;
+        uint64_t value = image_get_symbol_address(img, sym);
         uint64_t align = sym->align;
 
         const char *defname = "UNKNOWN";
+
         if (!symbol_is_defined(sym)) {
             defname = "UNDEFINED";
         } else if (sym->is_absolute) {
             defname = "ABSOLUTE";
-            value = sym->offset;
-        } else if (sym->section != NULL) {
-            struct section *sect = sym->section;
-
-            if (sect->output != NULL) {
-                defname = sect->output->group->name;
-                value = (sect->output->group->vaddr
-                         + sect->output->offset
-                         + sym->offset);
-            }
+        } else {
+            struct output_section *sect = image_get_output_section(img, sym->section);
+            defname = sect->name;
         }
 
         fprintf(fp, "%016lx ", value);
@@ -80,15 +74,15 @@ static void print_layout(FILE *fp, const struct image *img)
 {
     fprintf(fp, "Memory layout for image '%s'\n", img->name);
     fprintf(fp, "Base address: 0x%016lx\n", img->base_addr);
-    fprintf(fp, "Entry point : 0x%016lx\n", img->entry);
+    fprintf(fp, "Entry point : 0x%016lx\n", img->entry_addr);
     fprintf(fp, "Memory size : %lu\n", img->size);
 
     fprintf(fp, "\n%-16s %6s %6s %-20s\n", "Address", "Size", "Align", "Section");
-    list_for_each_entry(grp, &img->groups, struct section_group, list_entry) {
-        fprintf(fp, "%016lx ", grp->vaddr);
-        fprintf(fp, "%6lu ", grp->size);
-        fprintf(fp, "%6lu ", grp->align);
-        fprintf(fp, "%-20.20s", grp->name);
+    list_for_each_entry(sect, &img->sections, struct output_section, list_entry) {
+        fprintf(fp, "%016lx ", sect->vaddr);
+        fprintf(fp, "%6lu ", sect->size);
+        fprintf(fp, "%6lu ", sect->align);
+        fprintf(fp, "%-20.20s", sect->name);
         fprintf(fp, "\n");
     }
     fprintf(fp, "\n");
@@ -108,13 +102,9 @@ static void keep_symbol(struct sections *keep, struct symbol *sym)
     if (symbol_is_defined(sym)) {
         if (sym->section != NULL) {
             keep_section(keep, sym->section);
-        } else {
-            // TODO: find section with address
-            log_warning("Absolute symbol is not supported");
         }
     }
 }
-
 
 
 static char * format_option(char *buf, 
@@ -315,14 +305,27 @@ static struct image * linker_create_image(const char *name,
         return NULL;
     }
 
+    for (uint32_t i = 0; i < SECTION_MAX_TYPES; ++i) {
+        uint32_t type = SECTION_MAX_TYPES - 1 - i;
+        const char *name = section_type_to_string(type);
+        if (image_create_output_section(img, type, name) == NULL) {
+            log_fatal("Unable to create output image");
+            image_put(img);
+            return NULL;
+        }
+    }
+
     for (uint64_t i = 0; i < ctx->sections.nsections; ++i) {
         struct section *sect = sections_peek(&ctx->sections, i);
+        const char *name = section_type_to_string(sect->type);
 
         if (ctx->gc_sections && !sect->is_alive) {
             continue;
         }
 
-        if (!image_add_section(img, sect)) {
+        struct output_section *outsect = image_find_output_section(img, name);
+
+        if (!image_add_section(outsect, sect)) {
             image_put(img);
             return NULL;
         }
@@ -341,7 +344,7 @@ static struct image * linker_create_image(const char *name,
         image_add_symbol(img, sym);
     }
 
-    image_pack(img, baseaddr);
+    image_layout(img, baseaddr);
     return img;
 }
 
@@ -474,20 +477,18 @@ int main(int argc, char **argv)
         linker_destroy(ctx);
         exit(2);
     }
-    img->entry = (ep->section->output->group->vaddr
-                  + ep->section->output->offset
-                  + ep->offset);
-                  
 
+    img->entry_addr = image_get_symbol_address(img, ep);
     linker_destroy(ctx);
 
-    if (show_layout) {
-        print_layout(stdout, img);
-    }
+   if (show_layout) {
+       print_layout(stdout, img);
+   }
+ 
 
-    if (show_symbols) {
-        print_symbols(stdout, img);
-    }
+   if (show_symbols) {
+       print_symbols(stdout, img);
+   }
 
     image_put(img);
     exit(0);

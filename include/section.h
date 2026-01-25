@@ -8,23 +8,7 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 #include "utils/list.h"
-
-
-/*
- * Section types.
- */
-enum section_type
-{
-    SECTION_ZERO,       // section without contents, i.e., uninitialized variables (.bss, .common)
-    SECTION_DATA,       // section with data contents, for example variables (.data)
-    SECTION_RODATA,     // section contains read-only data, for example strings (.rodata)
-    SECTION_TEXT,       // section contains machine code (.text)
-    SECTION_MAX_TYPES
-};
-
-
-/* Forward declaration of output_section */
-struct output_section;
+#include "sectiontype.h"
 
 
 /* Forward declaration of object file handle */
@@ -49,7 +33,6 @@ struct section
     size_t nrelocs;                 // number of entries in the relocation list.
     struct list_head relocs;        // list of relocations
     bool is_alive;                  // used for dead-code elimination/mark-and-sweep
-    struct output_section *output;  // weak pointer to output section
 };
 
 
@@ -123,6 +106,15 @@ void section_put(struct section *section);
  * Convenience function to get a string representation of a section type.
  */
 const char * section_type_to_string(enum section_type type);
+
+
+/*
+ * Duplicate a section and its relocations.
+ *
+ * Creates a new section that points to the same content
+ * as the original section.
+ */
+struct section * section_clone(const struct section *section, const char *name);
 
 
 #ifdef __cplusplus

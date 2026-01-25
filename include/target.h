@@ -17,24 +17,24 @@ extern "C" {
 
 
 /*
- * Architecture specific binary operations.
+ * Architecture specific binary operations (target back-end).
  */
 struct target
 {
     /*
-     * Name of the target
+     * Name of the target back-end
      */
     const char *name;
-
-    /*
-     * Target machine code architecture.
-     */
-    uint32_t march;
 
     /*
      * CPU code alignment requirements.
      */
     uint64_t cpu_align;
+
+    /*
+     * Minimum boundary between sections with different attributes.
+     */
+    uint64_t section_boundary;
 
     /*
      * Minimum page size.
@@ -111,13 +111,13 @@ struct target
 
 
 /*
- * Register a linker target.
+ * Register a linker target back-end.
  */
-void target_register(const struct target *target, uint32_t march);
+void target_register(const struct target *backend, uint32_t march);
 
 
 /*
- * Look up a linker target based on the machine code architecture.
+ * Look up a linker target back-end based on the machine code architecture.
  */
 const struct target * target_lookup(uint32_t march);
 

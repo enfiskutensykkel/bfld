@@ -8,6 +8,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 #include "objfile.h"
+#include "sectiontype.h"
 #include "section.h"
 #include "sections.h"
 #include "symbol.h"
