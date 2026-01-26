@@ -15,10 +15,10 @@ extern "C" {
 /* 
  * Sections worklist.
  * Used to process sections in order.
- * Must be initialized to zero before use.
  */
 struct sections
 {
+    int refcnt;         // 0 if embedded/stack allocated, >0 if shared
     struct deque q;     // internal queue structure
     uint64_t nsections; // number of sections in the queue
 };
@@ -35,6 +35,25 @@ struct section_table
     uint64_t capacity;  // the size of the table
     uint64_t nsections; // number of sections in the table
 };
+
+
+/*
+ * Allocate a reference counted sections queue and reserve
+ * space for at least n sections.
+ */
+struct sections * sections_alloc(uint64_t n);
+
+
+/*
+ * Take a sections queue reference.
+ */
+struct sections * sections_get(struct sections *sectq);
+
+
+/*
+ * Release a sections queue reference.
+ */
+void sections_put(struct sections *sectq);
 
 
 /*
@@ -82,7 +101,10 @@ struct section * sections_peek(const struct sections *sectq, uint64_t position)
 
 /*
  * Remove the first section in the section queue and return it.
- * Note that this does NOT release the section reference.
+ *
+ * Note that this does NOT release the section reference. Ownership is
+ * transferred to the caller.
+ *
  * The caller must call section_put() on the returned section reference.
  * Returns NULL if the queue is empty.
  */
@@ -92,6 +114,23 @@ struct section * sections_pop(struct sections *sectq)
     struct section *sect = (struct section*) deque_pop_front(&sectq->q);
     sectq->nsections = sectq->q.size;
     return sect;
+}
+
+
+/*
+ * Remove the first section in the queue.
+ * This releases the section reference.
+ * Returns true if an element was removed, or false if the queue is empty.
+ */
+static inline
+bool sections_discard(struct sections *sectq)
+{
+    struct section *sect = sections_pop(sectq);
+    if (sect != NULL) {
+        section_put(sect);
+        return true;
+    }
+    return false;
 }
 
 
@@ -117,7 +156,17 @@ void sections_clear(struct sections *sectq)
 static inline
 bool sections_empty(const struct sections *sectq)
 {
-    return sections_peek(sectq, 0) != NULL;
+    return sectq->nsections == 0;
+}
+
+
+/*
+ * Get the number of sections in the queue.
+ */
+static inline
+uint64_t sections_size(const struct sections *sectq)
+{
+    return sectq->nsections;
 }
 
 

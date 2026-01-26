@@ -15,10 +15,10 @@ extern "C" {
 /*
  * Symbols worklist.
  * Used to process symbols in order.
- * Must be initialized to zero before use.
  */
 struct symbols
 {
+    int refcnt;         // 0 if embedded/stack allocated, >0 if shared
     struct deque q;     // internal queue structure
     uint64_t nsymbols;  // number of symbols in the queue
 };
@@ -35,6 +35,25 @@ struct symbol_table
     uint64_t capacity;  // table capacity
     uint64_t nsymbols;  // number of symbols in the table
 };
+
+
+/*
+ * Allocate a reference counted symbol queue and reserve
+ * space for at least n symbols.
+ */
+struct symbols * symbols_alloc(uint64_t n);
+
+
+/*
+ * Take a symbol queue reference.
+ */
+struct symbols * symbols_get(struct symbols *symq);
+
+
+/*
+ * Release a symbols queue reference.
+ */
+void symbols_put(struct symbols *symq);
 
 
 /*
@@ -82,7 +101,10 @@ struct symbol * symbols_peek(const struct symbols *symq, uint64_t position)
 
 /*
  * Remove the first symbol in the queue and return it.
- * Note that this does NOT release the symbol reference.
+ *
+ * Note that this does NOT release the symbol reference. Ownership is
+ * transferred to the caller.
+ *
  * The caller must call symbol_put() on the returned reference.
  * Returns NULL if the queue is empty.
  */
@@ -117,7 +139,17 @@ void symbols_clear(struct symbols *symq)
 static inline
 bool symbols_empty(const struct symbols *symq)
 {
-    return symbols_peek(symq, 0) != NULL;
+    return symq->nsymbols == 0;
+}
+
+
+/*
+ * Get the number of symbols in the queue.
+ */
+static inline
+uint64_t symbols_size(const struct symbols *symq)
+{
+    return symq->nsymbols;
 }
 
 
