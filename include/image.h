@@ -39,7 +39,7 @@ struct image
     struct list_head segments;      // list of program segments
     struct rb_tree order_map;       // map of output sections by order
     struct rb_tree name_map;        // map of output sections by name
-    struct rb_tree link_map;        // map of section->output_section links by input section pointer address
+    struct rb_tree addr_map;        // map of section->output_section links by input section pointer address
 };
 
 
@@ -80,6 +80,7 @@ struct segment
 struct output_section
 {
     struct image *image;            // weak reference to the output image
+    uint32_t order;                 // order of the section
     char *name;                     // section name
     enum section_type type;         // type of this section group
     struct rb_node order_map_entry; // order map entry on image
@@ -90,7 +91,7 @@ struct output_section
     uint64_t vaddr;                 // base virtual address for sections in the group
     uint64_t size;                  // total memory size of the section
     uint64_t align;                 // memory alignment requirements
-    struct list_head links;         // list of input sections that go into this section
+    struct list_head links;         // list of input sections that go into this section ordered by alignment
     bool metadata;                  // section is metadata (debug symbols, symtab, etc)
 };
 
@@ -140,11 +141,11 @@ uint32_t section_type_to_order(enum section_type type)
 {
     switch (type) {
         case SECTION_TEXT:
-            return 0;
-        case SECTION_RODATA:
             return 1;
-        case SECTION_DATA:
+        case SECTION_RODATA:
             return 2;
+        case SECTION_DATA:
+            return 3;
         case SECTION_ZERO:
         default:
             return UINT32_MAX;
@@ -153,7 +154,7 @@ uint32_t section_type_to_order(enum section_type type)
 
 
 static inline
-uint32_t section_type_to_segment_attrs(enum section_type)
+uint32_t section_type_to_segment_attrs(enum section_type type)
 {
     switch (type) {
         case SECTION_TEXT:
@@ -161,8 +162,7 @@ uint32_t section_type_to_segment_attrs(enum section_type)
         case SECTION_RODATA:
             return SEGMENT_READABLE;
         case SECTION_DATA:
-            return SEGMENT_READABLE | SEGMENT_WRITABLE;
-        case SECTION_DATA:
+        case SECTION_ZERO:
             return SEGMENT_READABLE | SEGMENT_WRITABLE;
         default:
             return 0;
@@ -204,11 +204,45 @@ bool image_add_symbol(struct image *image, struct symbol *symbol);
 
 /*
  * Create an output section of the given type with a given name.
- * The name must be unique.
+ *
+ * The name of the output section must be unique.
+ *
+ * Output sections are sorted by order (ascending). A preferred order 
+ * can be specified for the output section, allowing the caller to
+ * control the order of sections. If the order argument is 0,
+ * this function will choose a default order based on the section type.
  */
 struct output_section * 
 image_create_output_section(struct image *image, enum section_type type,
-                            const char *name);
+                            uint32_t order, const char *name);
+
+
+/*
+ * Add an input section to an output section group.
+ *
+ * The section must not have been added to the image already.
+ *
+ * This takes a section reference on successful insertion.
+ *
+ * Note that input sections are ordered within an output section
+ * by alignment, from largest to lowest.
+ */
+bool image_add_section(struct output_section *output, struct section *section);
+
+
+/*
+ * Remove all input sections from the output section without
+ * removing the output section itself.
+ *
+ * Releases all section references.
+ */
+void image_clear_output_section(struct output_section *output);
+
+
+/*
+ * Remove an output section from the image it belongs to.
+ */
+void image_remove_output_section(struct output_section *output);
 
 
 /*
@@ -240,25 +274,12 @@ uint64_t image_get_symbol_address(const struct image *image,
 
 
 /*
- * Link an input section to an output section.
- * The section must not have been added to the image already.
- * This takes a section reference on successful insertion.
- */
-bool image_add_section(struct output_section *output, struct section *section);
-
-
-/*
- * Remove all linked sections from the output section.
- * Releases all section references.
- */
-void image_clear_output_section(struct output_section *output);
-
-
-/*
  * Finalize the memory layout of the image.
  *
  * Calculates output section's file offsets, virtual addresses 
  * and alignment based on the given base address.
+ *
+ * Note that this will prune output sections that are empty.
  */
 void image_layout(struct image *image, uint64_t base_address);
 
