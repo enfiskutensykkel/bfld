@@ -359,7 +359,7 @@ bool linker_create_common_section(struct linkerctx *ctx)
 
     if (offset > 0) {
         log_debug("Created artificial section %s", common->name);
-        common->is_alive = true;
+        common->is_alive = ctx->gc_sections;  // mark as alive if DCE was already performed
         sections_push(&ctx->sections, common);
     }
     section_put(common);
