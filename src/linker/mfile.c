@@ -1,3 +1,4 @@
+#include "utils/cdefs.h"
 #include "mfile.h"
 #include "logging.h"
 #include <stdlib.h>

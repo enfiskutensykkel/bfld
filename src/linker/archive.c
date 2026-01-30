@@ -38,7 +38,7 @@ static void archive_remove_member(struct archive_member *member)
 
 struct archive_member * archive_get_member(const struct archive *ar, size_t offset)
 {
-    const struct rb_node *node = ar->members.root;
+    struct rb_node *node = ar->members.root;
 
     while (node != NULL) {
         struct archive_member *m = rb_entry(node, struct archive_member, map_entry);

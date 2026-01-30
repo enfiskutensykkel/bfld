@@ -7,6 +7,7 @@ extern "C" {
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include "cdefs.h"
 
 
 struct rb_node;
@@ -50,8 +51,7 @@ struct rb_node
 /*
  * Get the containing struct (the entry) of a node of a given type.
  */
-#define rb_entry(node_ptr, type, member) \
-    ((type*) ((char*) ((void*) node_ptr) - offsetof(type, member)))
+#define rb_entry(node_ptr, type, member) containerof(node_ptr, type, member)
 
 
 /*

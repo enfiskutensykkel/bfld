@@ -4,50 +4,67 @@
 extern "C" {
 #endif
 
-#include "utils/rbtree.h"
-#include "utils/list.h"
 #include "sectiontype.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
 
 
+// Forward declarations
+struct section;
+struct sections;
+
+
 /*
- * 
+ * Merged section handle.
+ *
+ * Represents a group of sections that should be grouped together
+ * into a single section.
  */
 struct merge
 {
-    char *name;
-    int refcnt;                     // reference count
-    enum section_type type;         // type of the merged section
-    uint64_t size;                  // total size of the merged section
-    struct list_head sections;      // list of input sections that go into this section (ordered by alignment)
+    char *name;                 // name of the merged section (NOTE: may be NULL)
+    int refcnt;                 // reference count
+    enum section_type type;     // type of the merged section
+    uint64_t size;              // total memory size of the merged section
+    uint64_t maxalign;          // maximum memory alignment requirements
+    struct sections *sections;  // table of sections sorted on alignment
 };
 
 
-
-struct merged_section
-{
-    struct merge *merge;            // weak reference to the merge
-    struct list_head list_entry;    // linked list entry
-    struct section *section;        // strong reference to the input section
-    uint64_t size;                  // size of the section (same as section->size)
-    uint64_t padding;               // padding to the next section
-};
+/*
+ * Allocate a merged section handle.
+ */
+struct merge * merge_alloc(const char *name, 
+                           enum section_type type);
 
 
-struct merge_map
-{
-    struct rbtree map;              
-};
+/*
+ * Take a merged section reference.
+ */
+struct merge * merge_get(struct merge *merge);
 
 
-struct merge_map_entry
-{
-};
+/*
+ * Release a merged section reference.
+ */
+void merge_put(struct merge *merge);
 
 
-bool merge_map_add_mapping(struct merge_map *map, struct merged_section* merged);
+/*
+ * Add input section to the merged sections.
+ * Takes a section reference.
+ */
+bool merge_add_section(struct merge *merge, struct section *section);
+
+
+/*
+ * Release all added sections.
+ */
+void merge_clear(struct merge *merge);
+
+
+void merge_flatten(struct merge *merge, struct sections *worklist);
 
 
 #ifdef __cplusplus

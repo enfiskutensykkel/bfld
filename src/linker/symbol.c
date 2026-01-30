@@ -102,8 +102,11 @@ int symbol_bind_definition(struct symbol *sym,
             log_error("Redefinition for symbol '%s', was already defined at address 0x%llx", 
                     sym->name, sym->offset);
         } else {
-            log_error("Redefinition for symbol '%s', was already defined in %s", sym->name,
-                    sym->section->name);
+            log_error("Redefinition for symbol '%s'", sym->name);
+            log_ctx_push(LOG_CTX(.file = section_objfile_name(sym->section),
+                        .section = sym->section->name));
+            log_error("Symbol '%s' was previously defined here", sym->name);
+            log_ctx_pop();
         }
         return EALREADY;
     }
@@ -126,8 +129,10 @@ int symbol_bind_definition(struct symbol *sym,
         sym->is_absolute = false;
         sym->offset = offset;
         sym->section = section_get(section);
-        log_debug("Symbol '%s' is defined in %s", 
-                sym->name, sym->section->name);
+        log_ctx_push(LOG_CTX(.file = section_objfile_name(sym->section),
+                    .section = sym->section->name));
+        log_debug("Definition for symbol '%s'", sym->name);
+        log_ctx_pop();
     }
 
     // Release old section
@@ -199,13 +204,15 @@ int symbol_merge(struct symbol *existing, const struct symbol *incoming)
         // we have a multiple definition error
         if (symbol_is_defined(existing) && existing->binding != SYMBOL_WEAK) {
             if (existing->is_absolute) {
-                log_error("Multiple definitions for symbol '%s', previously defined at address 0x%lx",
+                log_error("Multiple definitions for absolute symbol '%s', previously defined at address 0x%lx",
                         existing->name, existing->offset);
 
             } else {
-                log_error("Multiple definitions for symbol '%s', previously defined in %s",
-                        existing->name, 
-                        existing->section->name);
+                log_error("Multiple definitions for symbol '%s'", existing->name);
+                log_ctx_push(LOG_CTX(.file = section_objfile_name(existing->section),
+                                     .section = existing->section->name));
+                log_error("Symbol '%s' was previously defined here", existing->name);
+                log_ctx_pop();
             }
             return EEXIST;
         }

@@ -6,6 +6,7 @@ extern "C" {
 
 #include <stddef.h>
 #include <stdbool.h>
+#include "cdefs.h"
 
 
 /*
@@ -213,8 +214,7 @@ void list_splice_tail(struct list_head *head, struct list_head *old_head)
 /*
  * Get the containing struct (the entry) of a list node of a given type.
  */
-#define list_entry(node_ptr, type, member) \
-    ((type*) ((char*) ((void*) node_ptr) - offsetof(type, member)))
+#define list_entry(node_ptr, type, member) containerof(node_ptr, type, member)
 
 
 /*

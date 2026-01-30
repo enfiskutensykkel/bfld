@@ -68,10 +68,10 @@ static size_t count_nodes(const struct rb_node *node)
 /*
  * Look for an item with binary search.
  */
-static struct word * search(const struct rb_node *node, const char *data)
+static const struct word * search(const struct rb_node *node, const char *data)
 {
     if (node != NULL) {
-        struct word * w = rb_entry(node, struct word, rb_node);
+        const struct word * w = rb_entry(node, struct word, rb_node);
         int c = strcmp(data, w->data);
         if (c == 0) {
             return w;
@@ -89,10 +89,10 @@ static struct word * search(const struct rb_node *node, const char *data)
 /*
  * Look for an item throughout the entire tree.
  */
-static struct word * traverse_find(const struct rb_node *node, const char *data)
+static const struct word * traverse_find(const struct rb_node *node, const char *data)
 {
     if (node != NULL) {
-        struct word *w = rb_entry(node, struct word, rb_node);
+        const struct word *w = rb_entry(node, struct word, rb_node);
         if (strcmp(data, w->data) == 0) {
             return w;
         }
@@ -123,8 +123,8 @@ static int wordcmp(const struct rb_node *a, const struct rb_node *b)
     assert(a != NULL);
     assert(b != NULL);
     assert(a != b);
-    struct word *A = rb_entry(a, struct word, rb_node);
-    struct word *B = rb_entry(b, struct word, rb_node);
+    const struct word *A = rb_entry(a, struct word, rb_node);
+    const struct word *B = rb_entry(b, struct word, rb_node);
 
     return strcmp(A->data, B->data);
 }
@@ -141,7 +141,7 @@ static size_t copy_sorted_recurse(const struct rb_node *node, const char **dst)
 {
     if (node != NULL) {
         size_t pos = copy_sorted_recurse(node->left, dst);
-        struct word *w = rb_entry(node, struct word, rb_node);
+        const struct word *w = rb_entry(node, struct word, rb_node);
         dst[pos++] = w->data;
         return pos + copy_sorted_recurse(node->right, &dst[pos]);
     }
@@ -167,7 +167,7 @@ static void print_sorted(const struct rb_node *node)
 {
     if (node != NULL) {
         print_sorted(node->left);
-        struct word *w = rb_entry(node, struct word, rb_node);
+        const struct word *w = rb_entry(node, struct word, rb_node);
         puts(w->data);
         print_sorted(node->right);
     }
@@ -213,7 +213,7 @@ int main()
     for (size_t i = 0; i < sizeof(fruits) / sizeof(*fruits); ++i) {
         printf("Searching manually for %s\n", fruits[i]);
         fflush(stdout);
-        struct word *w = search(tree.root, fruits[i]);
+        const struct word *w = search(tree.root, fruits[i]);
         assert(w != NULL);
     }
 
@@ -225,7 +225,7 @@ int main()
         struct rb_node *node = rb_find(&tree, to_find[i], searchcmp);
         assert(node != NULL);
         struct word *w = rb_entry(node, struct word, rb_node);
-        struct word *manual = search(tree.root, to_find[i]);
+        const struct word *manual = search(tree.root, to_find[i]);
         assert(w == manual);
     }
 
@@ -271,7 +271,7 @@ int main()
         node = rb_find(&tree, to_delete[i], searchcmp);
         assert(node == NULL);
 
-        struct word *w = traverse_find(tree.root, to_delete[i]);
+        const struct word *w = traverse_find(tree.root, to_delete[i]);
         assert(w == NULL);
     }
 

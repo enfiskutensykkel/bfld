@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.16...3.30)
 project(bfld)
 
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_EXTENSIONS ON)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+
 file(GLOB_RECURSE BFLD_HEADER_FILES "include/*.h")
 
 
@@ -36,9 +40,12 @@ add_library(linkerlib SHARED
     src/linker/objfile.c
     src/linker/archive.c
     src/linker/section.c
+    src/linker/sections.c
     src/linker/symbol.c
+    src/linker/symbols.c
     src/linker/globals.c
-    src/linker/image.c
+    src/linker/merge.c
+    #src/linker/image.c
 )
 target_include_directories(linkerlib PUBLIC include)  # also includes "include/utils"
 target_include_directories(linkerlib PRIVATE include/utils)

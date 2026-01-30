@@ -117,6 +117,11 @@ const char * section_type_to_string(enum section_type type);
 struct section * section_clone(const struct section *section, const char *name);
 
 
+/*
+ * Convenience function to get the filename the section came from.
+ */
+const char *section_objfile_name(const struct section *section);
+
 #ifdef __cplusplus
 }
 #endif

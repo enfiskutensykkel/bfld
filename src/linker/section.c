@@ -46,25 +46,16 @@ struct section * section_alloc(struct objfile *objfile,
         return NULL;
     }
 
-    if (objfile != NULL) {
-        const char *filename = objfile->name != NULL ? objfile->name : "<unknown>";
-        sect->name = malloc(strlen(filename) + 1 + strlen(name) + 1);
-        if (sect->name == NULL) {
-            free(sect);
-            return NULL;
-        }
-        sprintf(sect->name, "%s:%s", filename, name);
-
-        sect->objfile = objfile_get(objfile);
-    } else {
+    if (name != NULL) {
         sect->name = malloc(strlen(name) + 1);
         if (sect->name == NULL) {
             free(sect);
             return NULL;
         }
         strcpy(sect->name, name);
-        sect->objfile = NULL;
     }
+
+    sect->objfile = objfile != NULL ? objfile_get(objfile) : NULL;
     sect->refcnt = 1;
     sect->align = 0;
     sect->type = type;
@@ -181,4 +172,13 @@ void section_clear_relocs(struct section *sect)
     while (!list_empty(&sect->relocs)) {
         section_remove_reloc(list_first_entry(&sect->relocs, struct reloc, list_entry));
     }
+}
+
+
+const char * section_objfile_name(const struct section *section)
+{
+    if (section->objfile != NULL) {
+        return section->objfile->name;
+    }
+    return NULL;
 }
