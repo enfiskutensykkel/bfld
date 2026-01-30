@@ -8,7 +8,15 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <assert.h>
+
+
+extern char * strdup(const char *s);
+
+
+extern int ftruncate(int fd, off_t length);
+
 
 
 int mfile_open_read(struct mfile **file, const char *pathname)
@@ -119,6 +127,7 @@ int mfile_open_write(struct mfile **file, const char *pathname, size_t size)
 
     // Reserve the specified size
     if (ftruncate(fd, size) == -1) {
+        // FIXME: on windows chsize, also see gold linker
         int status = errno;
         close(fd);
         log_error(strerror(status));

@@ -318,7 +318,7 @@ bool linker_create_common_section(struct linkerctx *ctx)
             continue;
         }
 
-        uint64_t power = align_pow2exp(symbol->align);
+        uint64_t power = align_log2(symbol->align);
         if (power < 16) {
             symbols_push(&buckets[power], symbol);
         } else {

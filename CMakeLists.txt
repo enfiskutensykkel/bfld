@@ -5,6 +5,7 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_EXTENSIONS ON)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+
 file(GLOB_RECURSE BFLD_HEADER_FILES "include/*.h")
 
 
@@ -44,7 +45,8 @@ add_library(linkerlib SHARED
     src/linker/symbol.c
     src/linker/symbols.c
     src/linker/globals.c
-    src/linker/merge.c
+    src/linker/string.c
+    #src/linker/merge.c
     #src/linker/image.c
 )
 target_include_directories(linkerlib PUBLIC include)  # also includes "include/utils"

@@ -5,6 +5,7 @@
 #include <getopt.h>
 #include <mfile.h>
 #include <linker.h>
+#include <string.h>
 #include <assert.h>
 
 #include <utils/list.h>
@@ -18,7 +19,10 @@
 #include <objfile_reader.h>
 #include <archive_reader.h>
 //#include <image.h>
-#include <merge.h>
+
+
+extern size_t strnlen(const char *s, size_t maxlen);
+
 
 
 //static void print_symbols(FILE *fp, const struct image *img)
@@ -305,36 +309,36 @@ static bool linker_load_file(struct linkerctx *ctx, const char *pathname)
 }
 
 
-static void linker_merge_sections(struct linkerctx *ctx)
-{
-    struct merge *merged[SECTION_MAX_TYPES] = {0};
-
-    for (uint32_t i = 0; i < SECTION_MAX_TYPES; ++i) {
-        uint32_t type = SECTION_MAX_TYPES - 1 - i;
-        const char *name = section_type_to_string(type);
-        merged[i] = merge_alloc(name, type);
-    }
-
-    for (uint64_t i = 0; i < ctx->sections.nsections; ++i) {
-        struct section *sect = sections_peek(&ctx->sections, i);
-
-        if (ctx->gc_sections && !sect->is_alive) {
-            continue;
-        }
-
-        struct merge *m = merged[sect->type];
-        printf("Adding %s to %s\n", sect->name, m->name);
-        merge_add_section(m, sect);
-    }
-
-leave:
-    for (uint32_t i = 0; i < SECTION_MAX_TYPES; ++i) {
-        if (merged[i] != NULL) {
-            merge_put(merged[i]);
-            merged[i] = NULL;
-        }
-    }
-}
+//static void linker_merge_sections(struct linkerctx *ctx)
+//{
+//    struct merge *merged[SECTION_MAX_TYPES] = {0};
+//
+//    for (uint32_t i = 0; i < SECTION_MAX_TYPES; ++i) {
+//        uint32_t type = SECTION_MAX_TYPES - 1 - i;
+//        const char *name = section_type_to_string(type);
+//        merged[i] = merge_alloc(name, type);
+//    }
+//
+//    for (uint64_t i = 0; i < ctx->sections.nsections; ++i) {
+//        struct section *sect = sections_peek(&ctx->sections, i);
+//
+//        if (ctx->gc_sections && !sect->is_alive) {
+//            continue;
+//        }
+//
+//        struct merge *m = merged[sect->type];
+//        printf("Adding %s to %s\n", sect->name, m->name);
+//        merge_add_section(m, sect);
+//    }
+//
+//leave:
+//    for (uint32_t i = 0; i < SECTION_MAX_TYPES; ++i) {
+//        if (merged[i] != NULL) {
+//            merge_put(merged[i]);
+//            merged[i] = NULL;
+//        }
+//    }
+//}
 
 
 //static struct image * linker_create_image(const char *name,
@@ -515,8 +519,6 @@ int main(int argc, char **argv)
         linker_destroy(ctx);
         exit(2);
     }
-
-    linker_merge_sections(ctx);
 
 //    struct image *img = linker_create_image(output_file, ctx, 0x400000);
 //    if (img == NULL) {

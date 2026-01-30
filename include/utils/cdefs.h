@@ -7,7 +7,7 @@
 #undef offsetof
 #define offsetof(type, member) __builtin_offsetof(type, member)
 
-#define __same_type(a, b) __builtin_types_compatible_p(typeof(a), typeof(b))
+#define __same_type(a, b) __builtin_types_compatible_p(__typeof__(a), __typeof__(b))
 
 
 /*
@@ -27,13 +27,16 @@
  */
 #define containerof(ptr, type, member) \
     _Generic(ptr, \
-            const typeof(*(ptr)) *: ((const type *) __containerof(ptr, type, member)), \
+            const __typeof__(*(ptr)) *: ((const type *) __containerof(ptr, type, member)), \
             default: ((type *) __containerof(ptr, type, member)) \
             )
 
 #else
 
-#include <stddef.h>  /* for offsetof */
+#undef offsetof
+#define offsetof(type, member) \
+    ((size_t) &(((type*) 0)->member))
+
 
 /*
  * Cast member of a structure out to the containing structure.

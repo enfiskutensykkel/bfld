@@ -18,7 +18,7 @@ bool deque_reserve(struct deque *d, uint64_t capacity)
     }
 
     // Make sure capacity is aligned to a power of two
-    capacity = align_pow2(capacity);
+    capacity = align_roundup(capacity);
 
     // Naive check for overflow
     if (capacity * sizeof(void*) < d->capacity * sizeof(void*)) {

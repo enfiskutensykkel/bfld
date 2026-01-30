@@ -11,6 +11,9 @@
 #include <stdint.h>
 
 
+extern char * strdup(const char *s);
+
+
 static void archive_remove_symbol(struct archive_symbol *symbol)
 {
     struct archive *ar = symbol->archive;

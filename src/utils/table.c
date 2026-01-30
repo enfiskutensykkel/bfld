@@ -13,7 +13,7 @@ bool table_reserve(struct table *tbl, uint64_t capacity)
     }
 
     // Make sure capacity is aligned to a power of two
-    capacity = align_pow2(capacity);
+    capacity = align_roundup(capacity);
     if (capacity < 8) {
         capacity = 8;
     }

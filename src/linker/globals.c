@@ -8,7 +8,7 @@
 #include <errno.h>
 
 
-struct globals * globals_alloc()
+struct globals * globals_alloc(void)
 {
     struct globals *globals = malloc(sizeof(struct globals));
     if (globals == NULL) {

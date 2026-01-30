@@ -42,7 +42,7 @@ struct globals_entry
 /*
  * Create a reference counted global symbol table.
  */
-struct globals * globals_alloc();
+struct globals * globals_alloc(void);
 
 
 /*

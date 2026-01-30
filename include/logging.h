@@ -8,7 +8,8 @@ extern "C" {
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
-#include <string.h>
+
+extern char * strdup(const char *s);
 
 
 #define LOG_CTX_MAX 32
@@ -105,6 +106,7 @@ int log_ctx_push(log_ctx_t ctx)
 static inline
 int log_ctx_new(const char *file)
 {
+    // FIXME: A variant of this using vaargs and second argument is section?
     log_ctx_t new_ctx = {
         .file = file,
     };
@@ -117,7 +119,7 @@ int log_ctx_new(const char *file)
 #define LOG_CTX(...) ((log_ctx_t) { \
     __VA_ARGS__ \
 })
-#define LOG_CTX_SECTION(_section, ...) LOG_CTX(.section = (_section), __VA_ARGS__)
+#define LOG_CTX_SECTION(_section) LOG_CTX(.section = (_section))
 #define LOG_CTX_NAME(_name) LOG_CTX(.name = (_name))
 
 
@@ -131,7 +133,7 @@ int log_ctx_new(const char *file)
 
 
 static inline
-void log_message(int level, const char *fmt, ...)
+void log_message_va(int level, const char *fmt, va_list ap)
 {
     if (level <= log_level) {
         const log_ctx_t *ctx = &log_ctx_stack[log_ctx_safe];
@@ -156,12 +158,14 @@ void log_message(int level, const char *fmt, ...)
             }
 
             fprintf(stderr, "] ");
+
         } else if (ctx->section != NULL && ctx->section[0] != '\0') {
             fprintf(stderr, "[%s", ctx->section);
             if (ctx->name != NULL && ctx->name[0] != '\0') {
                 fprintf(stderr, ".%s", ctx->name);
             }
             fprintf(stderr, "] ");
+
         } else {
             if (ctx->name != NULL) {
                 fprintf(stderr, "(%s)", ctx->name);
@@ -184,42 +188,90 @@ void log_message(int level, const char *fmt, ...)
             fprintf(stderr, "trace: ");
         }
 
-        va_list ap;
-        va_start(ap, fmt);
         vfprintf(stderr, fmt, ap);
-        va_end(ap);
-
         fprintf(stderr, "\n");
     }
 }
 
 
-#define log_trace(fmt, ...) \
-    log_message(LOG_TRACE, fmt, ##__VA_ARGS__)
+static inline
+void log_message(int level, const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    log_message_va(level, fmt, ap);
+    va_end(ap);
+}
 
 
-#define log_debug(fmt, ...) \
-    log_message(LOG_DEBUG, fmt, ##__VA_ARGS__)
+static inline
+void log_trace(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    log_message_va(LOG_TRACE, fmt, ap);
+    va_end(ap);
+}
 
 
-#define log_info(fmt, ...) \
-    log_message(LOG_INFO, fmt, ##__VA_ARGS__)
+static inline
+void log_debug(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    log_message_va(LOG_DEBUG, fmt, ap);
+    va_end(ap);
+}
 
 
-#define log_notice(fmt, ...) \
-    log_message(LOG_NOTICE, fmt, ##__VA_ARGS__)
+static inline
+void log_info(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    log_message_va(LOG_INFO, fmt, ap);
+    va_end(ap);
+}
 
 
-#define log_warning(fmt, ...) \
-    log_message(LOG_WARNING, fmt, ##__VA_ARGS__)
+static inline
+void log_notice(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    log_message_va(LOG_NOTICE, fmt, ap);
+    va_end(ap);
+}
 
 
-#define log_error(fmt, ...) \
-    log_message(LOG_ERROR, fmt, ##__VA_ARGS__)
+static inline
+void log_warning(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    log_message_va(LOG_WARNING, fmt, ap);
+    va_end(ap);
+}
 
 
-#define log_fatal(fmt, ...) \
-    log_message(LOG_FATAL, fmt, ##__VA_ARGS__)
+static inline
+void log_error(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    log_message_va(LOG_ERROR, fmt, ap);
+    va_end(ap);
+}
+
+
+static inline
+void log_fatal(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    log_message_va(LOG_FATAL, fmt, ap);
+    va_end(ap);
+}
 
 
 #ifdef __cplusplus

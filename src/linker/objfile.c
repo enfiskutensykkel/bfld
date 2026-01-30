@@ -7,6 +7,9 @@
 #include <assert.h>
 
 
+extern char * strdup(const char *s);
+
+
 struct objfile * objfile_get(struct objfile *objfile)
 {
     assert(objfile != NULL);
