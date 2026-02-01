@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
-#include <arpa/inet.h>
+#include <byteswap.h>
 
 #define AR_MAGIC        "!<arch>\n"
 #define AR_MAGIC_SIZE   8
@@ -96,7 +96,8 @@ static bool check_magic(const uint8_t *ptr, size_t size)
 }
 
 
-static int parse_file(const uint8_t *ptr, size_t size, struct archive *archive)
+static int parse_file(const uint8_t *ptr, size_t size, 
+                      struct archive *archive, struct archive_index *index)
 {
     size_t offset = AR_MAGIC_SIZE;
 
@@ -106,8 +107,6 @@ static int parse_file(const uint8_t *ptr, size_t size, struct archive *archive)
     while (offset < size) {
         const struct ar_header *hdr = (const void*) (ptr + offset);
         size_t membsz = get_member_size(hdr);
-
-        log_trace("Found member '%.16s' at offset %zu", hdr->name, offset);
 
         if (size - offset < sizeof(*hdr)) {
             log_fatal("Unexpected end of archive");
@@ -120,10 +119,10 @@ static int parse_file(const uint8_t *ptr, size_t size, struct archive *archive)
         }
 
         if (hdr->name[0] == '/' && (hdr->name[1] == ' ' || hdr->name[1] == '\0')) {
-            log_debug("Found ranlib index at offset %zu", offset);
+            log_trace("Found GNU/SysV ranlib index at offset %zu", offset);
             ranlib = hdr;
         } else if (strncmp(hdr->name, "__.SYMDEF", 9) == 0) {
-            log_debug("Found ranlib index at offset %zu", offset);
+            log_notice("Found BSD-style ranlib index at offset %zu", offset);
             ranlib = hdr;
         } else if (strncmp(hdr->name, "/SYM64/", 7) == 0) {
             log_fatal("SYM64 archive format not supported");
@@ -137,8 +136,10 @@ static int parse_file(const uint8_t *ptr, size_t size, struct archive *archive)
             }
             char *name = NULL;
             get_member_name(hdr, strtab, &name);
-            
-            log_debug("Found archive member file '%s' with size %zu at offset %zu", name, membsz, offset);
+
+            if (name == NULL) {
+                log_notice("Unable extract name for member '%s' with size %zu at offset %zu", name, membsz, offset);
+            }
 
             archive_add_member(archive, name, offset + sizeof(*hdr), membsz);
 
@@ -153,16 +154,25 @@ static int parse_file(const uint8_t *ptr, size_t size, struct archive *archive)
 
     // Parse ranlib index
     if (ranlib == NULL) {
-        log_fatal("Archive has no symbol index");
-        return EBADF;
+        log_warning("Archive has no ranlib index and will be ignored");
+        return 0;
     }
 
     const uint32_t *offsets = (const uint32_t*) (ranlib + 1);
-    uint32_t num_entries = ntohl(offsets[0]);
+    uint32_t num_entries = bswap_32(offsets[0]);
     const char *symtab = (const char*) (offsets + num_entries + 1);
 
+    log_trace("Parsing ranlib index (%u symbols)", num_entries);
     for (uint32_t i = 0; i < num_entries; ++i) {
-        archive_add_symbol(archive, symtab, ntohl(offsets[i + 1]) + sizeof(struct ar_header));
+        uint32_t offset = bswap_32(offsets[i + 1]) + sizeof(struct ar_header);
+        struct archive_member *member = archive_get_member(archive, offset);
+
+        if (member != NULL) {
+            archive_index_insert(index, member, symtab);
+        } else {
+            log_error("Symbol '%s' (index %u) refers to non-existing archive member (offset %lu)",
+                    symtab, i, offset);
+        }
         symtab += strlen(symtab) + 1;
     }
 

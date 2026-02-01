@@ -1,4 +1,4 @@
-#include <objfile_reader.h>
+#include <objectfile_reader.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -108,11 +108,26 @@ static inline int add_section(struct list_head *list, const Elf64_Shdr *sh)
  * Parse ELF file and create sections
  */
 static int parse_sections(const Elf64_Ehdr *eh, 
-                          struct objfile *objfile, 
+                          struct objectfile *objfile, 
                           struct section_table *sections,
                           struct list_head *reltabs,
                           struct list_head *symtabs)
 {
+    // TODO: add support for
+    // .text, .data, .bss, .rodata, .init_array, .fini_array, .interp, .tdata, .tbss
+    // .tdata, .tbss are TLS that needs to go into PT_TLS segment
+    // .interp for .so files, pathname to linker
+    // .eh_frame, ranks nead .rodata (PT_GNU_STACK and PT_EH_FRAME)
+    // .interp: (The loader path)
+
+    //.note.gnu.build-id: (Optional, but nice for debuggers)
+    //.init_array / .fini_array: (Function pointers)
+    //.text: (Code)
+    //.eh_frame: (Unwind info)
+    //.rodata: (Constants)
+    //.tdata / .tbss: (Thread local storage)
+    //.data: (Global variables)
+    //.bss: (Zeroed variables)
     section_table_reserve(sections, eh->e_shnum);
 
     log_trace("Scanning sections");
@@ -216,11 +231,11 @@ static int parse_sections(const Elf64_Ehdr *eh,
         enum section_type type = SECTION_ZERO;
         if (sh->sh_type == SHT_PROGBITS) {
             if (!!(sh->sh_flags & SHF_EXECINSTR)) {
-                type = SECTION_TEXT;
+                type = SECTION_CODE;
             } else if (!!(sh->sh_flags & SHF_WRITE)) {
                 type = SECTION_DATA;
             } else {
-                type = SECTION_RODATA;
+                type = SECTION_READONLY;
             }
         }
 
@@ -485,7 +500,7 @@ out:
 
 static int parse_elf_file(const uint8_t *file_data, 
                           size_t file_size,
-                          struct objfile *objfile, 
+                          struct objectfile *objfile, 
                           struct section_table *sections, 
                           struct symbol_table *symbols)
 {
@@ -543,7 +558,7 @@ cleanup:
 }
 
 
-const struct objfile_reader elf64_fe = {
+const struct objectfile_reader elf64_frontend = {
     .name = "Elf64",
     .probe_file = check_elf_header,
     .parse_file = parse_elf_file,
@@ -551,7 +566,7 @@ const struct objfile_reader elf64_fe = {
 
 
 __attribute__((constructor))
-static void elf64_reader_init(void)
+static void elf64_frontend_init(void)
 {
-    objfile_reader_register(&elf64_fe);
+    objectfile_reader_register(&elf64_frontend);
 }

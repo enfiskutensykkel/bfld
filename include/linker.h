@@ -10,15 +10,14 @@ extern "C" {
 #include "utils/list.h"
 #include "sections.h"
 #include "symbols.h"
+#include "globals.h"
+#include "archive_index.h"
 
 /* Some forward declarations */
-struct globals;
-struct objfile;
-struct objfile_reader;
+struct objectfile;
+struct objectfile_reader;
 struct archive;
 struct archive_reader;
-struct backend;
-struct image;
 
 
 /* 
@@ -26,66 +25,66 @@ struct image;
  */
 struct linkerctx
 {
-    char *name;                     // linker name (used for debugging, NOTE: can be NULL)
+    char *name;                     // output file name
+    int refcnt;                     // reference counter
     bool gc_sections;               // should we keep all sections and symbols?
-    uint32_t target;                // machine code architecture target
-    struct list_head archives;      // list of archive files
-    struct globals *globals;        // global symbols
+    struct archive_index archives;  // archive index
+    struct globals globals;         // global symbols
     struct sections sections;       // worklist of input sections
-    struct symbols unresolved;      // worklist of unresolved symbols
-};
+    struct symbols unresolved;      // queue of unresolved symbols
 
-
-/*
- * Archive file that may provide symbols the linker need.
- */
-struct archive_file
-{
-    struct linkerctx *ctx;          // weak reference to the linker context
-    struct list_head list_entry;    // linker list entry
-    struct archive *archive;        // archive file handle
+    uint32_t target_march;          // target machine code architecture
+    uint64_t target_cpu_align;      // minimum CPU code alignment requirement
+    uint64_t target_pgsz_min;       // target minimum page size
+    uint64_t target_pgsz_max;       // target maximum page size
+    uint64_t target_sect_align;     // minimum boundary/alignment between sections with different attributes
+    bool target_is_be;              // is target big endian?
+    
+    uint64_t base_addr;             // base virtual address of the image
+    uint64_t entry_addr;            // address of the image's entrypoint
 };
 
 
 /*
  * Create linker context.
  */
-struct linkerctx * linker_create(const char *name);
+struct linkerctx * linker_alloc(const char *name, uint32_t target);
 
 
 /*
- * Tear down linker context.
+ * Take a linker context reference.
  */
-void linker_destroy(struct linkerctx *ctx);
+struct linkerctx * linker_get(struct linkerctx *ctx);
 
 
 /*
- * Add an archive file to the list of archives.
+ * Release a linker context reference.
  */
-bool linker_add_archive(struct linkerctx *ctx,
-                        struct archive *archive,
-                        const struct archive_reader *frontend);
+void linker_put(struct linkerctx *ctx);
+
+
+bool linker_load_objectfile(struct linkerctx *ctx,
+                            struct objectfile *objectfile,
+                            const struct objectfile_reader *frontend);
+
+
+
+bool linker_read_archive(struct linkerctx *ctx,
+                         struct archive *archive,
+                         const struct archive_reader *reader);
 
 
 /*
- * Add an object file to the input file list.
+ * Resolve all undefined global symbols and add them
+ * to the linker's globals.
  */
-bool linker_add_input_file(struct linkerctx *ctx,
-                           struct objfile *objfile,
-                           const struct objfile_reader *frontend);
-
-
-/*
- * Resolve all undefined global symbols.
- */
-bool linker_resolve_globals(struct linkerctx *ctx);
+bool linker_resolve_symbols(struct linkerctx *ctx);
 
 
 /*
  * Mark sections and symbols as alive.
  */
-void linker_gc_sections(struct linkerctx *ctx, 
-                        const struct sections *keep);
+void linker_gc_sections(struct linkerctx *ctx);
 
 
 /*

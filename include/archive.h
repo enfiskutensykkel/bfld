@@ -9,6 +9,11 @@ extern "C" {
 #include <stdbool.h>
 #include "utils/rbtree.h"
 
+/* Forward declarations */
+struct mfile;
+struct objectfile;
+struct archive_reader;
+
 
 /*
  * Archive file handle.
@@ -25,8 +30,8 @@ struct archive
     char *name;                 // name of the archive
     struct mfile *file;         // strong reference to the underlying memory mapped file
     int refcnt;                 // reference counter
-    struct rb_tree symbols;     // the archive's symbol index (map ordered by symbol name)
     struct rb_tree members;     // the archive's member files (map ordered by offsets)
+    size_t nmembers;            // number of archive members
     const uint8_t *file_data;   // pointer to file data
     size_t file_size;           // total size of the file
 };
@@ -45,20 +50,7 @@ struct archive_member
     size_t offset;              // offset to the member file
     size_t size;                // size of the member file
     const uint8_t *content;     // pointer to member content
-    struct objfile *objfile;    // lazily loaded object file reference
-};
-
-
-/*
- * Symbol index entry.
- * This tracks symbols and which archive member provides it.
- */
-struct archive_symbol
-{
-    struct archive *archive;        // weak reference to archive
-    struct rb_node map_entry;       // entry in the archive symbol index
-    char *name;                     // name of the symbol
-    struct archive_member *member;  // pointer to the archive member where the symbol comes from
+    struct objectfile *objfile; // lazily loaded object file reference
 };
 
 
@@ -78,49 +70,44 @@ struct archive_member * archive_add_member(struct archive *archive,
 
 
 /*
- * Look up an archive member file from its offset.
+ * Look up an archive member by offset.
  */
 struct archive_member * archive_get_member(const struct archive *archive,
                                            size_t offset);
 
 
 /*
- * Add a symbol to the archive's symbol index.
- */
-bool archive_add_symbol(struct archive *archive,
-                        const char *symbol,
-                        size_t offset);
-
-
-/*
  * Take an archive file handle reference.
  */
-struct archive * archive_get(struct archive *ar);
+struct archive * archive_get(struct archive *archive);
 
 
 /*
  * Release archive file handle reference.
  */
-void archive_put(struct archive *ar);
+void archive_put(struct archive *archive);
 
 
 /*
- * Look up a symbol in the archive symbol index and 
- * return the member it refers to.
- */
-struct archive_member * archive_find_symbol(const struct archive *ar, const char *symbol);
-
-
-/*
- * Get the specified archive member as an object file.
+ * Extract the specified archive member as an object file.
  *
  * If the object file is already loaded, the reference counter is 
  * increased and the same reference is returned.
  *
  * Note that this takes an object file handle reference,
- * so the caller must call objfile_put() to relase it.
+ * so the caller must call objectfile_put() to relase it.
  */
-struct objfile * archive_get_objfile(struct archive_member *member);
+struct objectfile * archive_extract_member(struct archive_member *member);
+
+
+/*
+ * Helper function to determine if an archive member was already extracted.
+ */
+static inline
+bool archive_is_member_extracted(struct archive_member *member)
+{
+    return member->objfile != NULL;
+}
 
 
 #ifdef __cplusplus

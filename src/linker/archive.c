@@ -1,26 +1,17 @@
 #include "archive.h"
 #include "logging.h"
-#include "objfile.h"
+#include "objectfile.h"
 #include "mfile.h"
-#include <utils/rbtree.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <utils/rbtree.h>
 
 
 extern char * strdup(const char *s);
-
-
-static void archive_remove_symbol(struct archive_symbol *symbol)
-{
-    struct archive *ar = symbol->archive;
-    rb_remove(&ar->symbols, &symbol->map_entry);
-    free(symbol->name);
-    free(symbol);
-}
 
 
 static void archive_remove_member(struct archive_member *member)
@@ -29,13 +20,14 @@ static void archive_remove_member(struct archive_member *member)
 
     rb_remove(&ar->members, &member->map_entry);
     if (member->objfile != NULL) {
-        objfile_put(member->objfile);
+        objectfile_put(member->objfile);
     }
 
     if (member->name != NULL) {
         free(member->name);
     }
     free(member);
+    ar->nmembers--;
 }
 
 
@@ -59,17 +51,36 @@ struct archive_member * archive_get_member(const struct archive *ar, size_t offs
 }
 
 
-struct objfile * archive_get_objfile(struct archive_member *member)
+struct objectfile * archive_extract_member(struct archive_member *member)
 {
     if (member->objfile == NULL) {
         struct archive *ar = member->archive;
-        member->objfile = objfile_alloc(ar->file, member->name, member->content, member->size);
+        char *name = NULL;
+
+        if (member->name != NULL) {
+            name = malloc(strlen(ar->name) + 2 + strlen(member->name) + 1);
+            if (name != NULL) {
+                sprintf(name, "%s(%s)", ar->name, member->name);
+            }
+        } else {
+            name = malloc(strlen(ar->name) + 24);
+            if (name != NULL) {
+                sprintf(name, "%s:%lu", ar->name, member->offset);
+            }
+        }
+
+
+        if (name == NULL) {
+            return NULL;
+        }
+
+        member->objfile = objectfile_alloc(ar->file, name, member->content, member->size);
         if (member->objfile == NULL) {
             return NULL;
         }
     }
 
-    return objfile_get(member->objfile);
+    return objectfile_get(member->objfile);
 }
 
 
@@ -104,6 +115,7 @@ struct archive_member * archive_add_member(struct archive *ar,
         return NULL;
     }
 
+    member->name = NULL;
     if (name != NULL) {
         member->name = strdup(name);
     }
@@ -116,52 +128,48 @@ struct archive_member * archive_add_member(struct archive *ar,
 
     rb_insert_node(&member->map_entry, parent, pos);
     rb_insert_fixup(&ar->members, &member->map_entry);
+
+    ar->nmembers++;
     return member;
 }
 
 
-bool archive_add_symbol(struct archive *ar, const char *symbol, size_t offset)
-{
-    struct rb_node **pos = &(ar->symbols.root), *parent = NULL;
-
-    struct archive_member *member = archive_get_member(ar, offset);
-    if (member == NULL) {
-        log_error("Symbol '%s' refers to non-existing archive member %lu in archive %s",
-                symbol, offset, ar->name);
-        return false;
-    }
-
-    while (*pos != NULL) {
-        struct archive_symbol *this = rb_entry(*pos, struct archive_symbol, map_entry);
-        parent = *pos;
-
-        int result = strcmp(symbol, this->name);
-        if (result < 0) {
-            pos = &((*pos)->left);
-        } else {
-            // We don't care about duplicates, it's only an index anyway
-            pos = &((*pos)->right);
-        }
-    }
-
-    struct archive_symbol *sym = malloc(sizeof(struct archive_symbol));
-    if (sym == NULL) {
-        return false;
-    }
-
-    sym->name = strdup(symbol);
-    if (sym->name == NULL) {
-        free(sym);
-        return false;
-    }
-
-    sym->archive = ar;
-    sym->member = member;
-    rb_insert_node(&sym->map_entry, parent, pos);
-    log_trace("Archive %s provides symbol '%s'", ar->name, symbol);
-    rb_insert_fixup(&ar->symbols, &sym->map_entry);
-    return true;
-}
+//bool archive_add_symbol(struct archive_member *member, const char *symbol)
+//{
+//    assert(member != NULL);
+//    struct archive *ar = member->archive;
+//    struct rb_node **pos = &(ar->symbols.root), *parent = NULL;
+//
+//    while (*pos != NULL) {
+//        struct archive_symbol *this = rb_entry(*pos, struct archive_symbol, map_entry);
+//        parent = *pos;
+//
+//        int result = strcmp(symbol, this->name);
+//        if (result < 0) {
+//            pos = &((*pos)->left);
+//        } else {
+//            // We don't care about duplicates, it's only an index anyway
+//            pos = &((*pos)->right);
+//        }
+//    }
+//
+//    struct archive_symbol *sym = malloc(sizeof(struct archive_symbol));
+//    if (sym == NULL) {
+//        return false;
+//    }
+//
+//    sym->name = strdup(symbol);
+//    if (sym->name == NULL) {
+//        free(sym);
+//        return false;
+//    }
+//
+//    sym->archive = ar;
+//    sym->member = member;
+//    rb_insert_node(&sym->map_entry, parent, pos);
+//    rb_insert_fixup(&ar->symbols, &sym->map_entry);
+//    return true;
+//}
 
 
 void archive_put(struct archive *ar)
@@ -170,12 +178,6 @@ void archive_put(struct archive *ar)
     assert(ar->refcnt > 0);
 
     if (--(ar->refcnt) == 0) {
-        
-        while (ar->symbols.root != NULL) {
-            struct rb_node *node = ar->symbols.root;
-            struct archive_symbol *sym = rb_entry(node, struct archive_symbol, map_entry);
-            archive_remove_symbol(sym);
-        }
 
         while (ar->members.root != NULL) {
             struct rb_node *node = ar->members.root;
@@ -184,9 +186,7 @@ void archive_put(struct archive *ar)
         }
 
         mfile_put(ar->file);
-        if (ar->name != NULL) {
-            free(ar->name);
-        }
+        free(ar->name);
         free(ar);
     }
 }
@@ -201,27 +201,27 @@ struct archive * archive_get(struct archive *ar)
 }
 
 
-struct archive_member * archive_find_symbol(const struct archive *ar, const char *symbol)
-{
-    struct rb_node *node = ar->symbols.root;
-
-    while (node != NULL) {
-        struct archive_symbol *this = rb_entry(node, struct archive_symbol, map_entry);
-        int result = strcmp(symbol, this->name);
-
-        if (result < 0) {
-            node = node->left;
-        } else if (result > 0) {
-            node = node->right;
-        } else {
-            log_trace("Archive %s member at offset %zu provides symbol '%s'",
-                    ar->name, this->member->offset, this->name);
-            return this->member;
-        }
-    }
-
-    return NULL;
-}
+//struct archive_member * archive_find_symbol(const struct archive *ar, const char *symbol)
+//{
+//    struct rb_node *node = ar->symbols.root;
+//
+//    while (node != NULL) {
+//        struct archive_symbol *this = rb_entry(node, struct archive_symbol, map_entry);
+//        int result = strcmp(symbol, this->name);
+//
+//        if (result < 0) {
+//            node = node->left;
+//        } else if (result > 0) {
+//            node = node->right;
+//        } else {
+//            log_trace("Archive %s member at offset %zu provides symbol '%s'",
+//                    ar->name, this->member->offset, this->name);
+//            return this->member;
+//        }
+//    }
+//
+//    return NULL;
+//}
 
 
 struct archive * archive_alloc(struct mfile *file,
@@ -236,8 +236,13 @@ struct archive * archive_alloc(struct mfile *file,
 
     if (file_data < ((const uint8_t*) file->data) || 
             (file_data + file_size) > (((const uint8_t*) file->data) + file->size)) {
-        log_fatal("File data content is outside valid range");
+        log_fatal("Archive file data content is outside valid range");
         return NULL;
+    }
+
+    if (name == NULL) {
+        log_warning("Archive file has unknown name");
+        name = "UNKNOWN";
     }
 
     struct archive *ar = malloc(sizeof(struct archive));
@@ -245,15 +250,17 @@ struct archive * archive_alloc(struct mfile *file,
         return NULL;
     }
 
-    if (name != NULL) {
-        ar->name = strdup(name);
+    ar->name = strdup(name);
+    if (ar->name == NULL) {
+        free(ar);
+        return NULL;
     }
 
     ar->file = mfile_get(file);
     ar->refcnt = 1;
     ar->file_data = file_data;
     ar->file_size = file_size;
-    rb_tree_init(&ar->symbols);
     rb_tree_init(&ar->members);
+    ar->nmembers = 0;
     return ar;
 }

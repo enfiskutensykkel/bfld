@@ -7,7 +7,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include "utils/bswap.h"
+#include "utils/endianness.h"
 
 
 /*
@@ -29,7 +29,7 @@ struct target
     /*
      * CPU code alignment requirements.
      */
-    uint64_t cpu_align;
+    uint64_t cpu_code_alignment;
 
     /*
      * Minimum boundary between sections with different attributes.
@@ -49,7 +49,7 @@ struct target
     /*
      * Is the target architecture big endian?
      */
-    bool is_be;
+    bool big_endian;
 
     /*
      * Size of an entry in the Global Offset Table (GOT).

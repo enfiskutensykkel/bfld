@@ -157,7 +157,8 @@ uint8_t align_floorlog2(uint64_t value)
 /*
  * Calculate if value is a power of two.
  */
-#define align_is_pow2(value) ((((uint64_t) (value)) != 0) && (((uint64_t) (value)) & (((uint64_t) (value)) - 1)) == 0)
+#define align_is_pow2(value) \
+    ((((uint64_t) (value)) != 0) && (((uint64_t) (value)) & (((uint64_t) (value)) - 1)) == 0)
 
 
 #ifdef __cplusplus

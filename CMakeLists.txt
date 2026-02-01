@@ -38,16 +38,15 @@ add_library(linkerlib SHARED
     src/linker/mfile.c 
     src/linker/registry.c
     src/linker/linker.c
-    src/linker/objfile.c
+    src/linker/objectfile.c
     src/linker/archive.c
+    src/linker/archive_index.c
     src/linker/section.c
     src/linker/sections.c
     src/linker/symbol.c
     src/linker/symbols.c
     src/linker/globals.c
-    src/linker/string.c
-    #src/linker/merge.c
-    #src/linker/image.c
+    src/linker/posixcompat.c
 )
 target_include_directories(linkerlib PUBLIC include)  # also includes "include/utils"
 target_include_directories(linkerlib PRIVATE include/utils)
@@ -59,7 +58,7 @@ set_target_properties(linkerlib PROPERTIES OUTPUT_NAME bfld)
 
 # TODO: at some point we want to register loaders/frontends with dlsym/dlopen and determine loaders/frontends with command line arguments (then point default loader based on architecture using if (macos/unix)
 
-add_executable(bfld src/main.c)
+add_executable(bfld src/main.c src/commandline.c)
 add_subdirectory(src/frontends)
 add_subdirectory(src/targets)
 

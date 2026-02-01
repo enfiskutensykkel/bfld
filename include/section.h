@@ -12,7 +12,7 @@ extern "C" {
 
 
 /* Forward declaration of object file handle */
-struct objfile;
+struct objectfile;
 
 
 /* 
@@ -23,16 +23,18 @@ struct objfile;
  */
 struct section
 {
-    struct objfile *objfile;        // strong reference to the object file the section is defined in
+    struct objectfile *objfile;     // strong reference to the object file the section is defined in
     char *name;                     // name of the section (NOTE: can be NULL)
     int refcnt;                     // reference counter
     enum section_type type;         // section type 
-    uint64_t align;                 // section alignment requirements (addr must be a multiple of align)
-    uint64_t size;                  // size of the section
+    uint64_t align;                 // section alignment requirements
+    uint64_t size;                  // memory size of the section
     const uint8_t *content;         // pointer to section content
     size_t nrelocs;                 // number of entries in the relocation list.
     struct list_head relocs;        // list of relocations
-    bool is_alive;                  // used for dead-code elimination/mark-and-sweep
+    bool is_alive;                  // used for dead-code elimination / mark-and-sweep
+    struct layout *layout;          // weak pointer to the layout (output section) this section belongs to
+    uint64_t offset;                // finalized section offset from the base output section address
 };
 
 
@@ -57,7 +59,7 @@ struct reloc
  * Allocate a section descriptor.
  * This will take a strong reference to the object file descriptor.
  */
-struct section * section_alloc(struct objfile *objfile,
+struct section * section_alloc(struct objectfile *objectfile,
                                const char *name,
                                enum section_type type,
                                const uint8_t *content,
@@ -103,12 +105,6 @@ void section_put(struct section *section);
 
 
 /*
- * Convenience function to get a string representation of a section type.
- */
-const char * section_type_to_string(enum section_type type);
-
-
-/*
  * Duplicate a section and its relocations.
  *
  * Creates a new section that points to the same content
@@ -116,11 +112,6 @@ const char * section_type_to_string(enum section_type type);
  */
 struct section * section_clone(const struct section *section, const char *name);
 
-
-/*
- * Convenience function to get the filename the section came from.
- */
-const char *section_objfile_name(const struct section *section);
 
 #ifdef __cplusplus
 }

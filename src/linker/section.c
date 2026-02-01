@@ -1,30 +1,13 @@
 #include "logging.h"
 #include "section.h"
-#include "objfile.h"
+#include "objectfile.h"
 #include "symbol.h"
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
 
 
-const char * section_type_to_string(enum section_type type)
-{
-    switch (type) {
-        case SECTION_ZERO:
-            return ".bss";
-        case SECTION_DATA:
-            return ".data";
-        case SECTION_RODATA:
-            return ".rodata";
-        case SECTION_TEXT:
-            return ".text";
-        default:
-            return ".unknown";
-    }
-}
-
-
-struct section * section_alloc(struct objfile *objfile,
+struct section * section_alloc(struct objectfile *objfile,
                                const char *name,
                                enum section_type type,
                                const uint8_t *content,
@@ -41,21 +24,54 @@ struct section * section_alloc(struct objfile *objfile,
         }
     }
 
+    switch (type) {
+        case SECTION_CODE:
+        case SECTION_READONLY:
+        case SECTION_DATA:
+        case SECTION_ZERO:
+        case SECTION_METADATA:
+        case SECTION_DEBUG:
+            break;
+        default:
+            log_error("Section has unknown type 0x%x", type);
+            return NULL;
+    }
+
+    if (name == NULL) {
+        // Section has no name, let's invent one
+        switch (type) {
+            case SECTION_CODE:
+                name = ".text";
+                break;
+            case SECTION_READONLY:
+                name = ".rodata";
+                break;
+            case SECTION_DATA:
+                name = ".data";
+                break;
+            case SECTION_ZERO:
+                name = ".bss";
+                break;
+            default:
+                name = ".unknown";
+                break;
+        }
+        log_warning("Section has unknown name. defaulting to '%s'", name);
+    }
+
     struct section *sect = malloc(sizeof(struct section));
     if (sect == NULL) {
         return NULL;
     }
 
-    if (name != NULL) {
-        sect->name = malloc(strlen(name) + 1);
-        if (sect->name == NULL) {
-            free(sect);
-            return NULL;
-        }
-        strcpy(sect->name, name);
+    sect->name = malloc(strlen(name) + 1);
+    if (sect->name == NULL) {
+        free(sect);
+        return NULL;
     }
+    strcpy(sect->name, name);
 
-    sect->objfile = objfile != NULL ? objfile_get(objfile) : NULL;
+    sect->objfile = objfile != NULL ? objectfile_get(objfile) : NULL;
     sect->refcnt = 1;
     sect->align = 0;
     sect->type = type;
@@ -76,25 +92,31 @@ struct section * section_clone(const struct section *original, const char *name)
         return NULL;
     }
 
-    sect->name = NULL;
-    sect->objfile = NULL;
+    if (name == NULL) {
+        log_debug("Cloning section with original name");
+        name = original->name;
+    }
+
+    sect->name = malloc(strlen(name) + 1);
+    if (sect->name == NULL) {
+        free(sect);
+        return NULL;
+    }
+    strcpy(sect->name, name);
+
+    sect->objfile = (original->objfile != NULL ? 
+                     objectfile_get(original->objfile) : 
+                     NULL);
     sect->refcnt = 1;
     sect->align = original->align;
     sect->type = original->type;
     sect->content = original->content;
     sect->size = original->size;
     sect->nrelocs = 0;
-    list_head_init(&sect->relocs);
     sect->is_alive = false;
 
-    if (name != NULL) {
-        sect->name = strdup(name);
-    }
-
-    if (original->objfile != NULL) {
-        sect->objfile = objfile_get(original->objfile);
-    }
-
+    // Copy relocations from the original
+    list_head_init(&sect->relocs);
     list_for_each_entry(reloc, &original->relocs, struct reloc, list_entry) {
         section_add_reloc(sect, reloc->offset, reloc->symbol, 
                           reloc->type, reloc->addend);
@@ -120,7 +142,7 @@ void section_put(struct section *sect)
 
     if (--(sect->refcnt) == 0) {
         if (sect->objfile != NULL) {
-            objfile_put(sect->objfile);
+            objectfile_put(sect->objfile);
         }
         section_clear_relocs(sect);
 
@@ -161,8 +183,7 @@ struct reloc * section_add_reloc(struct section *section,
     list_insert_tail(&section->relocs, &reloc->list_entry);
     ++(section->nrelocs);
 
-    log_debug("Added relocation to target symbol '%s'", symbol->name);
-
+    log_trace("Relocation refers to symbol '%s'", symbol->name);
     return reloc;
 }
 
@@ -172,13 +193,4 @@ void section_clear_relocs(struct section *sect)
     while (!list_empty(&sect->relocs)) {
         section_remove_reloc(list_first_entry(&sect->relocs, struct reloc, list_entry));
     }
-}
-
-
-const char * section_objfile_name(const struct section *section)
-{
-    if (section->objfile != NULL) {
-        return section->objfile->name;
-    }
-    return NULL;
 }

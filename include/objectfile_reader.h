@@ -1,5 +1,5 @@
-#ifndef BFLD_OBJECT_FILE_FRONTEND_H
-#define BFLD_OBJECT_FILE_FRONTEND_H
+#ifndef BFLD_OBJECT_FILE_READER_FRONTEND_H
+#define BFLD_OBJECT_FILE_READER_FRONTEND_H
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -7,7 +7,7 @@ extern "C" {
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include "objfile.h"
+#include "objectfile.h"
 #include "sectiontype.h"
 #include "section.h"
 #include "sections.h"
@@ -17,15 +17,15 @@ extern "C" {
 
 
 /*
- * Object file front-end operations.
+ * Object file reader operations (object file front-end).
  *
- * Object files are input files to the linker,
- * and contain sections with content (data and code).
+ * Object files are input files to the linker, which contain
+ * sections with content (data and code).
  *
  * bfld can support different front-ends for loading object files
  * in different formats, i.e., ELF, Mach-O, PE/COFF, etc.
  */
-struct objfile_reader
+struct objectfile_reader
 {
     /*
      * The name of the object file reader.
@@ -46,7 +46,7 @@ struct objfile_reader
      */
     int (*parse_file)(const uint8_t *file_data, 
                       size_t file_size,
-                      struct objfile *objfile,
+                      struct objectfile *object_file,
                       struct section_table *sections,
                       struct symbol_table *symbols);
 };
@@ -71,7 +71,7 @@ struct objfile_reader
  *     ...
  * }
  *
- * const struct objfile_reader elf_frontend = {
+ * const struct objectfile_reader elf_frontend = {
  *   .name = "elf_frontend",
  *   .probe_file = elf_probe,
  *   .parse_file = elf_parser
@@ -79,11 +79,11 @@ struct objfile_reader
  *
  * __attribute__((constructor)) static void elf_frontend_init(void) {
  *     ...
- *     objfile_reader_register(&elf_frontend);
+ *     objectfile_reader_register(&elf_frontend);
  * }
  *
  */
-void objfile_reader_register(const struct objfile_reader *frontend);
+void objectfile_reader_register(const struct objectfile_reader *frontend);
 
 
 /*
@@ -91,7 +91,8 @@ void objfile_reader_register(const struct objfile_reader *frontend);
  * to probe the memory area to find the front-end that supports
  * this format.
  */
-const struct objfile_reader * objfile_reader_probe(const uint8_t *file_data, size_t file_size, uint32_t *march);
+const struct objectfile_reader * 
+objectfile_reader_probe(const uint8_t *file_data, size_t file_size, uint32_t *march);
 
 
 #ifdef __cplusplus

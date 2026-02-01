@@ -1,5 +1,5 @@
-#ifndef BFLD_UTILS_BSWAP_H
-#define BFLD_UTILS_BSWAP_H
+#ifndef BFLD_UTILS_ENDIANNESS_H
+#define BFLD_UTILS_ENDIANNESS_H
 #ifdef __cplusplus
 extern "C" {
 #endif

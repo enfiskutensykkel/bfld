@@ -53,7 +53,6 @@ struct symbol
 };
 
 
-
 /*
  * Helper function to determine if the symbol is defined.
  */

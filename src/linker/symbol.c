@@ -1,7 +1,7 @@
 #include "symbol.h"
 #include "section.h"
 #include "logging.h"
-#include "objfile.h"
+#include "objectfile.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -99,12 +99,12 @@ int symbol_bind_definition(struct symbol *sym,
     // Check that we are not overwriting a previous strong definition
     if (symbol_is_defined(sym) && sym->binding != SYMBOL_WEAK && !sym->is_common) {
         if (sym->is_absolute) {
-            log_error("Redefinition for symbol '%s', was already defined at address 0x%llx", 
-                    sym->name, sym->offset);
+            log_error("Redefinition for absolute symbol '%s' at address 0x%llx, was already defined at address 0x%llx", 
+                    sym->name, offset, sym->offset);
         } else {
             log_error("Redefinition for symbol '%s'", sym->name);
-            log_ctx_push(LOG_CTX(.file = section_objfile_name(sym->section),
-                        .section = sym->section->name));
+            const char *filename = sym->section->objfile != NULL ? sym->section->objfile->name : NULL;
+            log_ctx_push(LOG_CTX(.file = filename, .section = sym->section->name));
             log_error("Symbol '%s' was previously defined here", sym->name);
             log_ctx_pop();
         }
@@ -129,10 +129,6 @@ int symbol_bind_definition(struct symbol *sym,
         sym->is_absolute = false;
         sym->offset = offset;
         sym->section = section_get(section);
-        log_ctx_push(LOG_CTX(.file = section_objfile_name(sym->section),
-                    .section = sym->section->name));
-        log_debug("Definition for symbol '%s'", sym->name);
-        log_ctx_pop();
     }
 
     // Release old section
@@ -175,7 +171,7 @@ int symbol_merge(struct symbol *existing, const struct symbol *incoming)
             existing->binding = SYMBOL_GLOBAL;
         }
 
-        log_trace("Updated alignment and size of common symbol '%s'", existing->name);
+        log_debug("Updated alignment and size of common symbol '%s'", existing->name);
         return 0;
     }
 
@@ -209,8 +205,8 @@ int symbol_merge(struct symbol *existing, const struct symbol *incoming)
 
             } else {
                 log_error("Multiple definitions for symbol '%s'", existing->name);
-                log_ctx_push(LOG_CTX(.file = section_objfile_name(existing->section),
-                                     .section = existing->section->name));
+                const char *filename = existing->section->objfile != NULL ? existing->section->objfile->name : NULL;
+                log_ctx_push(LOG_CTX(.file = filename, .section = existing->section->name));
                 log_error("Symbol '%s' was previously defined here", existing->name);
                 log_ctx_pop();
             }

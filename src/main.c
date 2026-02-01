@@ -2,26 +2,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <logging.h>
-#include <getopt.h>
 #include <mfile.h>
 #include <linker.h>
 #include <string.h>
 #include <assert.h>
-
-#include <utils/list.h>
-#include <utils/rbtree.h>
 #include <symbols.h>
 #include <globals.h>
+#include <section.h>
 #include <symbol.h>
-
-#include <objfile.h>
+#include <objectfile.h>
 #include <archive.h>
-#include <objfile_reader.h>
+#include <archive_index.h>
+#include <objectfile_reader.h>
 #include <archive_reader.h>
-//#include <image.h>
-
-
-extern size_t strnlen(const char *s, size_t maxlen);
+#include "commandline.h"
+#include <utils/list.h>
 
 
 
@@ -103,166 +98,7 @@ extern size_t strnlen(const char *s, size_t maxlen);
 //}
 
 
-static void keep_section(struct sections *keep, struct section *sect)
-{
-    sections_push(keep, sect);
-    sect->is_alive = true;
-}
-
-
-static void keep_symbol(struct sections *keep, struct symbol *sym)
-{
-    sym->is_used = true;
-    if (symbol_is_defined(sym)) {
-        if (sym->section != NULL) {
-            keep_section(keep, sym->section);
-        }
-    }
-}
-
-
-static char * format_option(char *buf, 
-                            size_t bufsz, 
-                            int has_arg, 
-                            const char *optname, 
-                            const char *argname)
-{
-    size_t i = 0;
-
-    if (bufsz == 0) {
-        return buf + i;
-    }
-
-    for (size_t j = 0; i < bufsz && optname[j] != '\0'; ++i, ++j) {
-        buf[i] = optname[j];
-    }
-
-    if (i == bufsz) {
-        return buf + i;
-    }
-
-    if (has_arg == no_argument) {
-        return buf + i;
-    }
-    assert(argname != NULL);
-
-    if (has_arg == optional_argument) {
-        buf[i++] = '[';
-        if (i == bufsz) {
-            return buf + i;
-        }
-    }
-
-    buf[i++] = has_arg == optional_argument ? '=' : ' ';
-    if (i == bufsz) {
-        return buf + i;
-    }
-
-    for (size_t j = 0; i < bufsz && argname[j] != '\0'; ++i, ++j) {
-        buf[i] = argname[j];
-    }
-    if (i == bufsz) {
-        return buf + i;
-    }
-
-    if (has_arg == optional_argument) {
-        buf[i++] = ']';
-        if (i == bufsz) {
-            return buf + i;
-        }
-    }
-
-    return buf + i;
-}
-
-
-static const char * next_word(const char *s)
-{
-    while (*s != '\0' && *s < '!') {
-        ++s;
-    }
-
-    return *s != '\0' ? s : NULL;
-}
-
-
-static int wordlen(const char *s)
-{
-    int n = 0;
-
-    while (s[n] != '\0' && s[n] >= '!') {
-        ++n;
-    }
-
-    return n;
-}
-
-
-static void print_option(FILE *fp,
-                         const char *shortname,
-                         const char *longname,
-                         int has_arg,
-                         const char *argname,
-                         const char *help)
-{
-    int col = 32;
-    char buffer[128];
-    memset(buffer, ' ', 2);
-    char *s = &buffer[0] + 2;
-
-    if (argname == NULL) {
-        has_arg = no_argument;
-    }
-
-    if (shortname) {
-        s = format_option(s, sizeof(buffer) - (s - &buffer[0]),
-                          has_arg, shortname, argname);
-
-        if (longname) {
-            s += snprintf(s, sizeof(buffer) - (s - buffer), ", ");
-        }
-    }
-
-    if (longname) {
-        s = format_option(s, sizeof(buffer) - (s - buffer),
-                has_arg, longname, argname);
-    }
-
-    if (sizeof(buffer) - (s - buffer) > 0) {
-        *s = '\0';
-    }
-
-    int n = strnlen(buffer, sizeof(buffer));
-    fprintf(fp, "%.*s", n, buffer);
-
-    memset(buffer, ' ', col);
-    buffer[col] = '\0';
-
-    if (n < col) {
-        fprintf(fp, "%.*s", col - n, buffer);
-    } else {
-        fprintf(fp, "\n%s", buffer);
-    }
-    int curr = col;
-
-    const char *word = next_word(help);
-
-    while (word != NULL) {
-        n = wordlen(word);
-        
-        if (curr + n > 79) {
-            fprintf(fp, "\n%s", buffer);
-            curr = col;
-        }
-        curr += n + 1;
-        fprintf(fp, " %.*s", n, word);
-        word = next_word(word + n);
-    }
-    fprintf(fp, "\n");
-}
-
-
-static bool linker_load_file(struct linkerctx *ctx, const char *pathname)
+static bool load_file(struct linkerctx *ctx, const char *pathname)
 {
     struct mfile *file = NULL;
 
@@ -275,12 +111,12 @@ static bool linker_load_file(struct linkerctx *ctx, const char *pathname)
     }
 
     // Try to open as archive file
-    const struct archive_reader *arfe = archive_reader_probe(file->data, file->size);
-    if (arfe != NULL) {
+    const struct archive_reader *reader = archive_reader_probe(file->data, file->size);
+    if (reader != NULL) {
         struct archive *ar = archive_alloc(file, file->name, file->data, file->size);
 
         if (ar != NULL) {
-            bool success = linker_add_archive(ctx, ar, arfe);
+            bool success = linker_read_archive(ctx, ar, reader);
             archive_put(ar);
             mfile_put(file);
             log_ctx_pop();
@@ -289,13 +125,25 @@ static bool linker_load_file(struct linkerctx *ctx, const char *pathname)
     }
 
     // Try to open as object file
-    const struct objfile_reader *objfe = objfile_reader_probe(file->data, file->size, NULL);
-    if (objfe != NULL) {
-        struct objfile *obj = objfile_alloc(file, file->name, file->data, file->size);
+    uint32_t march = 0;
+    const struct objectfile_reader *frontend = objectfile_reader_probe(file->data, file->size, &march);
+
+    if (frontend != NULL) {
+        if (ctx->target_march != 0 && march != ctx->target_march) {
+            log_fatal("File's machine code architecture differs from target");
+            mfile_put(file);
+            log_ctx_pop();
+            return false;
+
+        } else if (march == 0) {
+            log_warning("File has unknown machine code architecture");
+        }
+
+        struct objectfile *obj = objectfile_alloc(file, file->name, file->data, file->size);
 
         if (obj != NULL) {
-            bool success = linker_add_input_file(ctx, obj, objfe);
-            objfile_put(obj);
+            bool success = linker_load_objectfile(ctx, obj, frontend);
+            objectfile_put(obj);
             mfile_put(file);
             log_ctx_pop();
             return success;
@@ -399,144 +247,86 @@ static bool linker_load_file(struct linkerctx *ctx, const char *pathname)
 
 int main(int argc, char **argv)
 {
-    int c;
-    int idx = -1;
-    static int show_symbols = 0;
-    static int show_layout = 0;
-    static int gc_sections = 1;
+    struct bfld_options opts = {0};
+    opts.output = "a.out";
+    opts.entry = "_start";
+    opts.gc_sections = true;
 
-    const char *output_file = "a.out";
-    const char *entry = "_start";
+    int start = parse_args(argc, argv, &opts);
+    if (start <= 0) {
+        exit(-start);
+    }
 
-    static struct option options[] = {
-        {"verbose", optional_argument, 0, 'v'},
-        {"help", no_argument, 0, 'h'},
-        {"output", required_argument, 0, 'o'},
-        {"entry", required_argument, 0, 'e'},
-        {"show-symbols", no_argument, &show_symbols, 10},
-        {"show-layout", no_argument, &show_layout, 1},
-        {"gc-sections", no_argument, &gc_sections, 1},
-        {"no-gc-sections", no_argument, &gc_sections, 0},
-        {0, 0, 0, 0}
-    };
-
-    struct linkerctx *ctx = linker_create(argv[0]);
+    struct linkerctx *ctx = linker_alloc(opts.output, 0);
     if (ctx == NULL) {
         exit(2);
     }
 
-    while ((c = getopt_long_only(argc, argv, ":hvo:e:", options, &idx)) != -1) {
-        switch (c) {
-
-            case 0:
-                break;
-
-            case 'o':
-                output_file = optarg;
-                break;
-
-            case 'e':
-                entry = optarg;
-                break;
-
-            case 'v':
-                if (optarg == NULL) {
-                    ++log_level;
-                } else {
-                    char *endptr = NULL;
-                    int verbosity = strtol(optarg, &endptr, 10);
-                    if (*endptr != '\0') {
-                        log_error("Invalid log level: '%s'", optarg);
-                        linker_destroy(ctx);
-                        exit(1);
-                    }
-                    log_level = verbosity;
-                }
-                break;
-
-            case 'h':
-                fprintf(stdout, "Usage: %s [OPTIONS] FILE...\n", argv[0]);
-                fprintf(stdout, "Options:\n");
-                print_option(stdout, "-h", "--help", no_argument, NULL, "Show this help and quit.");
-                print_option(stdout, "-v", "--verbose", optional_argument, "level", "Increase log level.");
-                print_option(stdout, "-o", "--output", required_argument, "FILE", "Set output file name.");
-                print_option(stdout, "-e", "--entry", required_argument, "ADDRESS", "Set start address.");
-                print_option(stdout, "--[no-]gc-sections", NULL, no_argument, NULL, "Enable or disable garbage collection of dead code (default is to garbage collect).");
-                print_option(stdout, "--show-symbols", NULL, no_argument, NULL, "Print global symbol table.");
-                print_option(stdout, "--show-layout", NULL, no_argument, NULL, "Print image layout information.");
-                linker_destroy(ctx);
-                exit(0);
-
-            case ':':
-                log_error("Missing value for option '%s'", argv[optind-1]);
-                linker_destroy(ctx);
-                exit(1);
-
-            default:
-                log_error("Unrecognized option '%s'", argv[optind-1]);
-                linker_destroy(ctx);
-                exit(1);
-        }
-    }
-
-    if (optind >= argc) {
+    if (start >= argc) {
         log_error("No input files");
-        linker_destroy(ctx);
+        linker_put(ctx);
         exit(1);
     }
 
-    for (int i = optind; i < argc; ++i) {
-        bool success = linker_load_file(ctx, argv[i]);
+    for (int i = start; i < argc; ++i) {
+        bool success = load_file(ctx, argv[i]);
         if (!success) {
-            linker_destroy(ctx);
+            linker_put(ctx);
             exit(2);
         }
     }
 
-    // Resolve all unresolved symbols
-    if (!linker_resolve_globals(ctx)) {
-        linker_destroy(ctx);
-        exit(3);
-    }
-
-    // Identify sections that we need to keep
-    struct symbol *ep = globals_find_symbol(ctx->globals, entry);
-    if (ep == NULL) {
-        log_fatal("Undefined reference to '%s'", entry);
-        linker_destroy(ctx);
-        exit(3);
-    }
-    log_debug("Entry point: '%s'", ep->name);
-
-    if (gc_sections) {
-        struct sections keep = {0};
-        keep_symbol(&keep, ep);
-        linker_gc_sections(ctx, &keep);
-        sections_clear(&keep);
-    }
-
-    if (!linker_create_common_section(ctx)) {
-        linker_destroy(ctx);
-        exit(2);
-    }
-
-//    struct image *img = linker_create_image(output_file, ctx, 0x400000);
-//    if (img == NULL) {
-//        linker_destroy(ctx);
-//        exit(2);
-//    }
-
-//    img->entry_addr = image_get_symbol_address(img, ep);
-    linker_destroy(ctx);
-
-//    if (show_symbols) {
-//        print_symbols(stdout, img);
-//    }
-//
-//    if (show_layout) {
-//        print_layout(stdout, img);
-//    }
-
-    //image_put(img);
+    linker_put(ctx);
     exit(0);
 }
+
+//    // Resolve all unresolved symbols
+//    if (!linker_resolve_globals(ctx)) {
+//        linker_put(ctx);
+//        close_archives();
+//        exit(3);
+//    }
+//
+//    // Identify sections that we need to keep
+//    struct symbol *ep = globals_find_symbol(ctx->globals, entry);
+//    if (ep == NULL) {
+//        log_fatal("Undefined reference to '%s'", entry);
+//        linker_put(ctx);
+//        exit(3);
+//    }
+//    log_debug("Entry point: '%s'", ep->name);
+//
+//    if (gc_sections) {
+//        struct sections keep = {0};
+//        keep_symbol(&keep, ep);
+//        linker_gc_sections(ctx, &keep);
+//        sections_clear(&keep);
+//    }
+//
+//    if (!linker_create_common_section(ctx)) {
+//        linker_put(ctx);
+//        exit(2);
+//    }
+//
+////    struct image *img = linker_create_image(output_file, ctx, 0x400000);
+////    if (img == NULL) {
+////        linker_put(ctx);
+////        exit(2);
+////    }
+//
+////    img->entry_addr = image_get_symbol_address(img, ep);
+//    linker_put(ctx);
+//
+////    if (show_symbols) {
+////        print_symbols(stdout, img);
+////    }
+////
+////    if (show_layout) {
+////        print_layout(stdout, img);
+////    }
+//
+//    //image_put(img);
+//    
+//    close_archives();
+//    exit(0);
+//}

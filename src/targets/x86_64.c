@@ -1,4 +1,4 @@
-#include "utils/bswap.h"
+#include "utils/endianness.h"
 #include "target.h"
 #include <elf.h>
 #include "logging.h"
@@ -81,7 +81,7 @@ static int x86_64_apply_reloc(uint8_t *sect, uint64_t offset,
 const struct target x86_64_target = {
     .name = "x86-64",
     .section_boundary = 4096,
-    .cpu_align = 16,
+    .cpu_code_alignment = 16,
     .min_page_size = 4096,
     .max_page_size = 4096,
     .apply_reloc = x86_64_apply_reloc

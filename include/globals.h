@@ -16,6 +16,7 @@ struct symbol;
  * Global symbol table.
  * Manages symbols by tracking them by their name.
  */
+// FIXME: convert to hash table at a later point, need to rehash at load factor
 struct globals
 {
     int refcnt;                 // 0 if embedded/stack allocated, >0 if shared

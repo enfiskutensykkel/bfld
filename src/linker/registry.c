@@ -1,5 +1,5 @@
 #include "target.h"
-#include "objfile_reader.h"
+#include "objectfile_reader.h"
 #include "archive_reader.h"
 #include "utils/list.h"
 #include <stdlib.h>
@@ -10,7 +10,7 @@
  * Archive file front-end entry.
  * Used to track registered front-ends.
  */
-struct archive_entry
+struct archive_reader_entry
 {
     struct list_head node;
     const struct archive_reader *frontend;
@@ -21,10 +21,10 @@ struct archive_entry
  * Object file front-end entry
  * Used to track registered front-ends.
  */
-struct objfile_entry
+struct objectfile_reader_entry
 {
     struct list_head node;
-    const struct objfile_reader *frontend;
+    const struct objectfile_reader *frontend;
 };
 
 
@@ -42,7 +42,7 @@ struct target_entry
 /*
  * List of object file front-ends.
  */ 
-static struct list_head objfile_readers = LIST_HEAD_INIT(objfile_readers);
+static struct list_head objectfile_readers = LIST_HEAD_INIT(objectfile_readers);
 
 
 /*
@@ -67,7 +67,7 @@ void archive_reader_register(const struct archive_reader *fe)
         return;
     }
 
-    struct archive_entry *entry = malloc(sizeof(struct archive_entry));
+    struct archive_reader_entry *entry = malloc(sizeof(struct archive_reader_entry));
     if (entry == NULL) {
         return;
     }
@@ -77,7 +77,7 @@ void archive_reader_register(const struct archive_reader *fe)
 }
 
 
-void objfile_reader_register(const struct objfile_reader *fe)
+void objectfile_reader_register(const struct objectfile_reader *fe)
 {
     if (fe == NULL || fe->name == NULL) {
         return;
@@ -87,13 +87,13 @@ void objfile_reader_register(const struct objfile_reader *fe)
         return;
     }
 
-    struct objfile_entry *entry = malloc(sizeof(struct objfile_entry));
+    struct objectfile_reader_entry *entry = malloc(sizeof(struct objectfile_reader_entry));
     if (entry == NULL) {
         return;
     }
 
     entry->frontend = fe;
-    list_insert_tail(&objfile_readers, &entry->node);
+    list_insert_tail(&objectfile_readers, &entry->node);
 }
 
 
@@ -129,12 +129,12 @@ void target_register(const struct target *target, uint32_t march)
 __attribute__((destructor(65535)))
 static void remove_registered(void)
 {
-    list_for_each_entry_safe(entry, &objfile_readers, struct objfile_entry, node) {
+    list_for_each_entry_safe(entry, &objectfile_readers, struct objectfile_reader_entry, node) {
         list_remove(&entry->node);
         free(entry);
     }
 
-    list_for_each_entry_safe(entry, &archive_readers, struct archive_entry, node) {
+    list_for_each_entry_safe(entry, &archive_readers, struct archive_reader_entry, node) {
         list_remove(&entry->node);
         free(entry);
     }
@@ -146,12 +146,12 @@ static void remove_registered(void)
 }
 
 
-const struct objfile_reader * objfile_reader_probe(const uint8_t *data, size_t size, uint32_t *march)
+const struct objectfile_reader * objectfile_reader_probe(const uint8_t *data, size_t size, uint32_t *march)
 {
     uint32_t m = 0;
 
-    list_for_each_entry(entry, &objfile_readers, struct objfile_entry, node) {
-        const struct objfile_reader *fe = entry->frontend;
+    list_for_each_entry(entry, &objectfile_readers, struct objectfile_reader_entry, node) {
+        const struct objectfile_reader *fe = entry->frontend;
 
         if (fe->probe_file(data, size, &m)) {
             if (march != NULL) {
@@ -166,7 +166,7 @@ const struct objfile_reader * objfile_reader_probe(const uint8_t *data, size_t s
 
 const struct archive_reader * archive_reader_probe(const uint8_t *data, size_t size)
 {
-    list_for_each_entry(entry, &archive_readers, struct archive_entry, node) {
+    list_for_each_entry(entry, &archive_readers, struct archive_reader_entry, node) {
         const struct archive_reader *fe = entry->frontend;
 
         if (fe->probe_file(data, size)) {
@@ -179,6 +179,14 @@ const struct archive_reader * archive_reader_probe(const uint8_t *data, size_t s
 
 const struct target * target_lookup(uint32_t march) 
 {
+    if (march == 0) {
+        // TODO: look up the current platform
+        list_for_each_entry(entry, &targets, struct target_entry, node) {
+            march = entry->march;
+            break;
+        }
+    }
+
     list_for_each_entry(entry, &targets, struct target_entry, node) {
         if (entry->march == march) {
             return entry->backend;
