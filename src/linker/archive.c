@@ -69,15 +69,16 @@ struct objectfile * archive_extract_member(struct archive_member *member)
             }
         }
 
-
         if (name == NULL) {
             return NULL;
         }
 
         member->objfile = objectfile_alloc(ar->file, name, member->content, member->size);
         if (member->objfile == NULL) {
+            free(name);
             return NULL;
         }
+        free(name);
     }
 
     return objectfile_get(member->objfile);

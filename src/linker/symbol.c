@@ -11,6 +11,9 @@
 #include <errno.h>
 
 
+extern char * strdup(const char *s);
+
+
 struct symbol * symbol_get(struct symbol *sym)
 {
     assert(sym != NULL);

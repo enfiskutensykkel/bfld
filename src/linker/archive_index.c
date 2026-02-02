@@ -74,7 +74,7 @@ bool archive_index_insert(struct archive_index *index,
             if (strcmp(name, index->table[slot].name) == 0) {
                 // entry was already added
                 // fake that we added the symbol and keep old definition
-                log_trace("Ignoring already added symbol '%s'", name);
+                //log_trace("Ignoring already added symbol '%s'", name);
                 return true;
             }
         }
@@ -136,6 +136,32 @@ bool archive_index_rehash(struct archive_index *index, uint64_t capacity)
     index->capacity = capacity;
     index->threshold = (index->capacity / 4) * 3;
     return true;
+}
+
+
+struct archive_member * archive_index_find(const struct archive_index *index,
+                                           const char *name)
+{
+    if (index->capacity == 0) {
+        return NULL;
+    }
+
+    uint32_t hash = hash_fnv1a(name);
+    if (hash == 0) {
+        hash = 1;
+    }
+
+    uint64_t slot = hash & (index->capacity - 1);
+
+    while (index->table[slot].hash != 0) {
+        if (strcmp(name, index->table[slot].name) == 0) {
+            return index->table[slot].member;
+        }
+
+        slot = (slot + 1) & (index->capacity - 1);
+    }
+
+    return NULL;
 }
 
 

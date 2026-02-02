@@ -125,20 +125,9 @@ static bool load_file(struct linkerctx *ctx, const char *pathname)
     }
 
     // Try to open as object file
-    uint32_t march = 0;
-    const struct objectfile_reader *frontend = objectfile_reader_probe(file->data, file->size, &march);
+    const struct objectfile_reader *frontend = objectfile_reader_probe(file->data, file->size, NULL);
 
     if (frontend != NULL) {
-        if (ctx->target_march != 0 && march != ctx->target_march) {
-            log_fatal("File's machine code architecture differs from target");
-            mfile_put(file);
-            log_ctx_pop();
-            return false;
-
-        } else if (march == 0) {
-            log_warning("File has unknown machine code architecture");
-        }
-
         struct objectfile *obj = objectfile_alloc(file, file->name, file->data, file->size);
 
         if (obj != NULL) {
@@ -274,6 +263,17 @@ int main(int argc, char **argv)
             linker_put(ctx);
             exit(2);
         }
+    }
+
+    if (sections_empty(&ctx->sections)) {
+        log_error("No input files");
+        linker_put(ctx);
+        exit(1);
+    }
+
+    if (!linker_resolve_globals(ctx)) {
+        linker_put(ctx);
+        exit(3);
     }
 
     linker_put(ctx);

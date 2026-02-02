@@ -78,7 +78,7 @@ bool linker_read_archive(struct linkerctx *ctx,
  * Resolve all undefined global symbols and add them
  * to the linker's globals.
  */
-bool linker_resolve_symbols(struct linkerctx *ctx);
+bool linker_resolve_globals(struct linkerctx *ctx);
 
 
 /*

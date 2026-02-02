@@ -79,7 +79,14 @@ static const char * lookup_strtab_str(const Elf64_Ehdr *ehdr, uint32_t offset)
         return NULL;
     }
 
-    const Elf64_Shdr *sh = elf_section(ehdr, ehdr->e_shstrndx);
+    // Check if we're using an extended string table
+    uint32_t shstrndx = ehdr->e_shstrndx;
+    if (shstrndx == SHN_XINDEX) {
+        const Elf64_Shdr *nullsh = elf_section(ehdr, 0);
+        shstrndx = nullsh->sh_link;
+    }
+
+    const Elf64_Shdr *sh = elf_section(ehdr, shstrndx);
     if (sh->sh_type != SHT_STRTAB) {
         log_warning("ELF section %u has incorrect type", ehdr->e_shstrndx);
     }
@@ -128,11 +135,19 @@ static int parse_sections(const Elf64_Ehdr *eh,
     //.tdata / .tbss: (Thread local storage)
     //.data: (Global variables)
     //.bss: (Zeroed variables)
-    section_table_reserve(sections, eh->e_shnum);
+
+    uint64_t shnum = eh->e_shnum;
+
+    if (shnum == 0) {
+        const Elf64_Shdr *nullsect = elf_section(eh, 0);
+        shnum = nullsect->sh_size;
+    }
+
+    section_table_reserve(sections, shnum);
 
     log_trace("Scanning sections");
 
-    for (uint64_t shndx = 0; shndx < eh->e_shnum; ++shndx) {
+    for (uint64_t shndx = 0; shndx < shnum; ++shndx) {
         const Elf64_Shdr *sh = elf_section(eh, shndx);
         const char *shname = lookup_strtab_str(eh, sh->sh_name);
 
@@ -199,10 +214,11 @@ static int parse_sections(const Elf64_Ehdr *eh,
         }
 
         // Only extract sections that have SHF_ALLOC set
-        if (!(sh->sh_flags & SHF_ALLOC)) {
-            log_ctx_pop();
-            continue;
-        }
+        //if (!(sh->sh_flags & SHF_ALLOC)) {
+        //    log_ctx_pop();
+        //    continue;
+        //}
+        // we're only interested in (sh->sh_type == SHT_PROGBITS || sh->sh_type == SHT_NOBITS) && (sh->sh_flags & SHF_ALLOC);
 
         // Only extract sections that are relevant for the code
         if (sh->sh_type != SHT_PROGBITS && sh->sh_type != SHT_NOBITS) {
@@ -220,7 +236,7 @@ static int parse_sections(const Elf64_Ehdr *eh,
                     break;
                 
                 default:
-                    log_notice("Skipping section with type %u",
+                    log_trace("Skipping section with type %u",
                             sh->sh_type);
                     break;
             }
@@ -398,7 +414,7 @@ static int parse_symtab(const Elf64_Ehdr *eh,
             default:
                 section = section_table_at(sections, sym->st_shndx);
                 if (section == NULL) {
-                    log_error("Symbol '%s' (index %u) refers to invalid segment %u",
+                    log_debug("Symbol '%s' (index %u) refers to unmapped section %u",
                             name, idx, sym->st_shndx);
                     status = EINVAL;
                     goto out;

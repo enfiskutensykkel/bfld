@@ -73,10 +73,10 @@ void linker_put(struct linkerctx *ctx)
 
     if (--(ctx->refcnt) == 0) {
         log_debug("Destroyed linker context");
-        
-        sections_clear(&ctx->sections);
+
         symbols_clear(&ctx->unresolved);
         globals_clear(&ctx->globals);
+        sections_clear(&ctx->sections);
         archive_index_clear(&ctx->archives);
 
         if (ctx->name != NULL) {
@@ -102,7 +102,15 @@ bool linker_read_archive(struct linkerctx *ctx,
 {
     int current_log_ctx = log_ctx_new(archive->name);
 
-    // FIXME: handle reader==NULL
+    if (reader == NULL) {
+        reader = archive_reader_probe(archive->file_data, archive->file_size);
+    }
+
+    if (reader == NULL) {
+        log_error("Unrecognized file format");
+        log_ctx_pop();
+        return false;
+    }
 
     log_debug("Reading archive using reader '%s'", reader->name);
 
@@ -141,6 +149,29 @@ bool linker_load_objectfile(struct linkerctx *ctx,
     struct section_table secttab = {0};
     struct symbol_table symtab = {0};
 
+    uint32_t march = 0;
+
+    if (reader == NULL) {
+        reader = objectfile_reader_probe(objfile->file_data, objfile->file_size, &march);
+    } else {
+        reader->probe_file(objfile->file_data, objfile->file_size, &march);
+    }
+    if (reader == NULL) {
+        log_error("Unrecognized file format");
+        log_ctx_pop();
+        return false;
+    }
+
+    if (march == 0) {
+        log_warning("File has unknown machine code architecture");
+    }
+
+    if (ctx->target_march != 0 && march != ctx->target_march) {
+        log_fatal("File's machine code architecture differs from target");
+        log_ctx_pop();
+        return false;
+    }
+
     log_debug("Loading object file using front-end '%s'", reader->name);
 
     status = reader->parse_file(objfile->file_data, objfile->file_size,
@@ -160,13 +191,29 @@ bool linker_load_objectfile(struct linkerctx *ctx,
     for (uint64_t i = 0; symtab.nsymbols > 0 && i < symtab.capacity; ++i) {
         struct symbol *sym = symbol_table_at(&symtab, i);
 
-        if (sym != NULL && sym->binding != SYMBOL_LOCAL) {
-            if (!symbols_push(&ctx->unresolved, sym)) {
+        if (sym == NULL || sym->binding == SYMBOL_LOCAL) {
+            symbol_table_remove(&symtab, i);
+            continue;
+        }
+
+        struct symbol *existing = sym;
+        
+        status = globals_insert_symbol(&ctx->globals, sym, &existing);
+        if (status == EEXIST) {
+            // Symbol already exists in the global symbol table, merge them and keep the existing
+            status = symbol_merge(existing, sym);
+        }
+        if (status != 0) {
+            goto leave;
+        }
+
+        if (!symbol_is_defined(existing)) {
+            log_trace("Adding undefined symbol '%s' to symbol queue", existing->name);
+
+            if (!symbols_push(&ctx->unresolved, existing)) {
                 goto leave;
             }
         }
-
-        // FIXME: look up in globals and resolve here
 
         symbol_table_remove(&symtab, i);
     }
@@ -175,19 +222,29 @@ bool linker_load_objectfile(struct linkerctx *ctx,
     log_debug("File defines %llu sections", secttab.nsections);
     for (uint64_t i = 0; secttab.nsections > 0 && i < secttab.capacity; ++i) {
         struct section *sect = section_table_at(&secttab, i);
-
-        if (sect != NULL) {
-            if (!sections_push(&ctx->sections, sect)) {
-                goto leave;
-            }
+        
+        if (sect == NULL) {
+            continue;
         }
 
-        // FIXME: fixup relocations here
+        // Add section to the section worklist
+        if (!sections_push(&ctx->sections, sect)) {
+            goto leave;
+        }
+
+        // Fixup relocations that point to local symbols
+        list_for_each_entry(reloc, &sect->relocs, struct reloc, list_entry) {
+            struct symbol *global = globals_find_symbol(&ctx->globals, reloc->symbol->name);
+
+            if (global != NULL && global != reloc->symbol) {
+                symbol_put(reloc->symbol);
+                reloc->symbol = symbol_get(global);
+            }
+        }
 
         section_table_remove(&secttab, i);
     }
 
-    log_trace("Successfully loaded object file");
     success = true;
 
 leave:
@@ -198,230 +255,57 @@ leave:
 }
 
 
+bool linker_resolve_globals(struct linkerctx *ctx)
+{
+    struct symbol *sym;
 
+    while ((sym = symbols_pop(&ctx->unresolved)) != NULL) {
 
-//bool linker_add_archive(struct linkerctx *ctx, struct archive *ar, 
-//                        const struct archive_reader *fe)
-//{
-//    int current_log_ctx = log_ctx_new(ar->name);
-//
-//    log_debug("Reading archive");
-//
-//    if (fe == NULL) {
-//        fe = archive_reader_probe(ar->file_data, ar->file_size);
-//    }
-//
-//    if (fe == NULL) {
-//        log_error("Unrecognized file format");
-//        log_ctx_pop();
-//        return false;
-//    }
-//    log_trace("Front-end '%s' is best match for archive", fe->name);
-//
-//    int status = fe->parse_file(ar->file_data, ar->file_size, ar);
-//    assert(log_ctx == current_log_ctx);
-//    while (log_ctx > current_log_ctx) {
-//        log_warning("Unwinding log context stack");
-//        log_ctx_pop();
-//    }
-//
-//    if (status != 0) {
-//        log_ctx_pop();
-//        return false;
-//    }
-//
-//    struct archive_file *arfile = malloc(sizeof(struct archive_file));
-//    if (arfile == NULL) {
-//        log_ctx_pop();
-//        return false;
-//    }
-//
-//    arfile->ctx = ctx;
-//    list_insert_tail(&ctx->archives, &arfile->list_entry);
-//    arfile->archive = archive_get(ar);
-//    
-//    log_trace("Archive file added");
-//
-//    log_ctx_pop();
-//    return true;
-//}
+        if (!symbol_is_defined(sym) && !sym->is_common) {
 
+            // Try to find an archive that provides the undefined symbol
+            struct archive_member *m = archive_index_find(&ctx->archives, sym->name);
+            if (m == NULL) {
+                symbol_put(sym);
+                log_error("Undefined reference to symbol '%s'", sym->name);
+                return false;
+            }
 
-//bool linker_add_input_file(struct linkerctx *ctx, struct objfile *objfile,
-//                           const struct objfile_reader *reader)
-//{
-//    uint32_t march = 0;
-//    int current_log_ctx = log_ctx_new(objfile->name);
-//
-//    log_debug("Reading object file");
-//
-//    if (reader == NULL) {
-//        reader = objfile_reader_probe(objfile->file_data, objfile->file_size, &march);
-//    } else {
-//        reader->probe_file(objfile->file_data, objfile->file_size, &march);
-//    }
-//
-//    if (reader == NULL) {
-//        log_error("Unrecognized file format");
-//        log_ctx_pop();
-//        return false;
-//    }
-//
-//    if (march == 0) {
-//        log_error("Unknown machine code architecture");
-//        log_ctx_pop();
-//        return false;
-//    }
-//
-//    if (ctx->target != 0 && ctx->target != march) {
-//        log_fatal("Differing machine code targets is not supported");
-//        log_ctx_pop();
-//        return false;
-//    }
-//    ctx->target = march;
-//
-//    const struct target *t = target_lookup(march);
-//    if (t == NULL) {
-//        log_error("Unsupported machine code architecture");
-//        log_ctx_pop();
-//        return false;
-//    }
-//
-//    log_trace("Front-end '%s' is best match for object file", reader->name);
-//
-//    struct section_table sections = {0};
-//    struct symbol_table symbols = {0};
-//
-//    int status = reader->parse_file(objfile->file_data, objfile->file_size, 
-//                                    objfile, &sections, &symbols);
-//    assert(log_ctx == current_log_ctx);
-//    while (log_ctx > current_log_ctx) {
-//        log_warning("Unwinding log context stack");
-//        log_ctx_pop();
-//    }
-//
-//    if (status != 0) {
-//        log_error("Parsing file failed: %d", status);
-//        log_ctx_pop();
-//        symbol_table_clear(&symbols);
-//        section_table_clear(&sections);
-//        return false;
-//    }
-//
-//    // Add file's symbols to the global symbol table
-//    log_debug("File references %llu symbols", symbols.nsymbols);
-//    for (uint64_t i = 0; symbols.nsymbols > 0 && i < symbols.capacity; ++i) {
-//        struct symbol *sym = symbol_table_at(&symbols, i);
-//
-//        if (sym == NULL || sym->binding == SYMBOL_LOCAL) {
-//            symbol_table_remove(&symbols, i);
-//            continue;
-//        }
-//
-//        struct symbol *existing = sym;
-//
-//        status = globals_insert_symbol(ctx->globals, sym, &existing);
-//        if (status == EEXIST) {
-//            // Symbol already exists in the global symbol table, merge them and keep the existing
-//            status = symbol_merge(existing, sym);
-//        }
-//
-//        if (status != 0) {
-//            log_ctx_pop();
-//            symbol_table_clear(&symbols);
-//            section_table_clear(&sections);
-//            return false;
-//        }
-//
-//        if (!symbol_is_defined(existing)) {
-//            symbols_push(&ctx->unresolved, existing);
-//        } 
-//
-//        symbol_table_remove(&symbols, i);
-//    }
-//
-//    // Add sections to the list of input sections
-//    log_debug("File has %llu sections", sections.nsections);
-//    for (uint64_t i = 0; sections.nsections > 0 && i < sections.capacity; ++i) {
-//        struct section *sect = section_table_at(&sections, i);
-//        if (sect == NULL) {
-//            continue;
-//        }
-//
-//        // Add file's sections to the global section list
-//        sections_push(&ctx->sections, sect);
-//
-//        // Fix relocations
-//        list_for_each_entry_safe(reloc, &sect->relocs, struct reloc, list_entry) {
-//            struct symbol *global = globals_find_symbol(ctx->globals, reloc->symbol->name);
-//
-//            if (global != NULL && global != reloc->symbol) {
-//                symbol_put(reloc->symbol);
-//                reloc->symbol = symbol_get(global);
-//            }
-//        }
-//
-//        section_table_remove(&sections, i);
-//    }
-//
-//    section_table_clear(&sections);
-//    symbol_table_clear(&symbols);
-//    log_ctx_pop();
-//    return true;
-//}
+            // Member provides the symbol, but it is already loaded 
+            // We don't try to load it again
+            if (archive_is_member_extracted(m)) {
+                log_ctx_new(m->objfile->name);
+                log_error("Object file is already loaded but symbol '%s' is still undefined", sym->name);
+                log_ctx_pop();
+                symbol_put(sym);
+                return false;
+            }
 
+            log_trace("Found symbol '%s' in archive %s", sym->name, m->archive->name);
 
-//bool linker_resolve_globals(struct linkerctx *ctx)
-//{
-//    struct symbol *sym;
-//
-//    while ((sym = symbols_pop(&ctx->unresolved)) != NULL) {
-//
-//        if (!symbol_is_defined(sym) && !sym->is_common) {
-//            log_trace("Attempting to resolve symbol '%s'", sym->name);
-//
-//            // Try to find an archive that provides the undefined symbol
-//            list_for_each_entry(ar, &ctx->archives, struct archive_file, list_entry) {
-//                struct archive_member *m = archive_find_symbol(ar->archive, sym->name);
-//
-//                // No member provides the symbol
-//                if (m == NULL) {
-//                    continue;
-//                }
-//
-//                // Member provides the symbol, but it is already loaded 
-//                // We don't try to load it again
-//                if (m->objfile != NULL) {
-//                    log_warning("Symbol '%s' was provided by archive %s, but is still undefined",
-//                            sym->name, m->archive->name);
-//                    continue;
-//                }
-//
-//                log_debug("Found symbol '%s' in archive %s", sym->name, m->archive->name);
-//                struct objfile *obj = archive_get_objfile(m);
-//                if (obj != NULL) {
-//                    if (!linker_add_input_file(ctx, obj, NULL)) {
-//                        objfile_put(obj);
-//                        symbol_put(sym);
-//                        return false;
-//                    }
-//                    objfile_put(obj);
-//                }
-//                break;
-//            }
-//
-//            if (!symbol_is_defined(sym) && !sym->is_common) {
-//                log_error("Symbol '%s' is undefined", sym->name);
-//                symbol_put(sym);
-//                return false;
-//            }
-//        }
-//
-//        symbol_put(sym);
-//    }
-//
-//    return true;
-//}
+            struct objectfile *objfile = archive_extract_member(m);
+            if (objfile != NULL) {
+                if (!linker_load_objectfile(ctx, objfile, NULL)) {
+                    objectfile_put(objfile);
+                    symbol_put(sym);
+                    return false;
+                }
+                objectfile_put(objfile);
+            }
+
+            if (!symbol_is_defined(sym) && !sym->is_common) {
+                log_error("Symbol '%s' was already provided by archive, but is still undefined",
+                        sym->name);
+                symbol_put(sym);
+                return false;
+            }
+        }
+
+        symbol_put(sym);
+    }
+
+    return true;
+}
 //
 //
 //bool linker_create_common_section(struct linkerctx *ctx)
