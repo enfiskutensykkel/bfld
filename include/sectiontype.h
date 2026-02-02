@@ -12,12 +12,14 @@ extern "C" {
  */
 enum section_type
 {
-    SECTION_CODE,       // section contains machine code (.text, .eh_frame)
-    SECTION_READONLY,   // section contains read-only data, for example strings (.rodata)
-    SECTION_DATA,       // section with data contents, for example variables (.data)
-    SECTION_ZERO,       // section without contents, i.e., uninitialized variables (.bss, .common)
-    SECTION_METADATA,   // synthetic metadata such as symbol tables (.symtab, strtab)
-    SECTION_DEBUG,      // debug information (.debug_info)
+    SECTION_CODE,       // loadable section containing machine code (.text, .init)
+    SECTION_THUNK,      // loadable section containing generated trampolines (.plt), same attributes as SECTION_CODE
+    SECTION_READONLY,   // loadable section containing read-only data, for example constants, string literals etc. (.rodata, .eh_frame)
+    SECTION_DATA,       // loadable section with data contents, for example variables (.data) or the global offset table (.got)
+    SECTION_ZERO,       // loadable section without contents, i.e., uninitialized variables (.bss, .common)
+    SECTION_LOADER,     // loadable read-only section with path to loader/interpreter (.interp)
+    SECTION_METADATA,   // non-loadable section with metadata (.symtab, .strtab, .shstrtab)
+    SECTION_DEBUG,      // non-loadable debug information (.debug_info, .debug_line)
     SECTION_MAX_TYPES
 };
 
@@ -30,16 +32,20 @@ static inline
 uint32_t section_type_to_rank(enum section_type type)
 {
     switch (type) {
+        case SECTION_LOADER:
+            return 5;
         case SECTION_CODE:
             return 10;
+        case SECTION_THUNK:
+            return 11;
         case SECTION_READONLY:
             return 20;
         case SECTION_DATA:
             return 30;
         case SECTION_ZERO:
             return 9000;
-        case SECTION_DEBUG:
         case SECTION_METADATA:
+        case SECTION_DEBUG:
         default:
             return UINT32_MAX;
     }

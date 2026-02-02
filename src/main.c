@@ -12,7 +12,6 @@
 #include <symbol.h>
 #include <objectfile.h>
 #include <archive.h>
-#include <archive_index.h>
 #include <objectfile_reader.h>
 #include <archive_reader.h>
 #include "commandline.h"

@@ -97,7 +97,7 @@ static bool check_magic(const uint8_t *ptr, size_t size)
 
 
 static int parse_file(const uint8_t *ptr, size_t size, 
-                      struct archive *archive, struct archive_index *index)
+                      struct archive *archive, struct archives *index)
 {
     size_t offset = AR_MAGIC_SIZE;
 
@@ -168,7 +168,7 @@ static int parse_file(const uint8_t *ptr, size_t size,
         struct archive_member *member = archive_get_member(archive, offset);
 
         if (member != NULL) {
-            archive_index_insert(index, member, symtab);
+            archives_insert_symbol(index, member, symtab);
         } else {
             log_error("Symbol '%s' (index %u) refers to non-existing archive member (offset %lu)",
                     symtab, i, offset);

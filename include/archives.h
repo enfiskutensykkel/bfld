@@ -1,5 +1,5 @@
-#ifndef BFLD_ARCHIVE_INDEX_H
-#define BFLD_ARCHIVE_INDEX_H
+#ifndef BFLD_ARCHIVES_H
+#define BFLD_ARCHIVES_H
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -31,7 +31,7 @@ struct archive_entry
  * When reading archive files (.a files), we track the ranlib index 
  * and map symbols to archive members.
  */
-struct archive_index
+struct archives
 {
     int refcnt;
     uint64_t capacity;
@@ -44,46 +44,41 @@ struct archive_index
 /*
  * Create an archive index.
  */
-struct archive_index * archive_index_alloc(void);
+struct archives * archives_alloc(void);
 
 
 /*
  * Take an archive index reference.
  */
-struct archive_index * archive_index_get(struct archive_index *index);
+struct archives * archives_get(struct archives *index);
 
 
 /*
  * Release the archive index reference.
  */
-void archive_index_put(struct archive_index *index);
-
-
-
-bool archive_index_rehash(struct archive_index *index, uint64_t capacity);
-
+void archives_put(struct archives *index);
 
 
 /*
  * Add a symbol to the archive index.
  * This creates an entry in the archive index hash table.
  */
-bool archive_index_insert(struct archive_index *index,
-                          struct archive_member *member,
-                          const char *symbol_name);
+bool archives_insert_symbol(struct archives *index,
+                            struct archive_member *member,
+                            const char *symbol_name);
 
 
 /*
  * Try to look up the archive member where a symbol is defined.
  */
-struct archive_member * archive_index_find(const struct archive_index *index,
-                                           const char *symbol_name);
+struct archive_member * archives_find_symbol(const struct archives *index,
+                                             const char *symbol_name);
 
 
 /*
- * Clear an archive index and remove all entries.
+ * Clear an archive index and remove all symbol entries.
  */
-void archive_index_clear(struct archive_index *index);
+void archives_clear_symbols(struct archives *index);
 
 
 #ifdef __cplusplus

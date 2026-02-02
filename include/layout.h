@@ -10,8 +10,9 @@ extern "C" {
 #include <stdbool.h>
 
 
-/* Forward declaration of sections */
+/* Forward declarations */
 struct sections;
+struct section;
 
 
 /*
@@ -32,7 +33,7 @@ struct layout
     enum section_type type;     // output section type
     uint64_t size;              // total size of the output section
     uint64_t align;             // the highest alignment requirement of all input sections
-    uint64_t base_vaddr;        // base virtual address of the output section
+    uint64_t base_addr;         // base virtual address of the output section
     uint64_t nsections;         // total number of sections, used primarily for debugging
     struct sections *sections;  // dynamic array of sections ordered by alignment
 };
@@ -79,7 +80,6 @@ void layout_create_worklist(const struct layout *layout, struct sections *workli
  * the the worklist.
  */
 void layout_clear_sections(struct layout *layout, struct sections *worklist);
-
 
 
 #ifdef __cplusplus

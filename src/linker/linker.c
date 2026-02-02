@@ -13,6 +13,7 @@
 #include "globals.h"
 #include "mfile.h"
 #include "archive.h"
+#include "archives.h"
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
@@ -49,7 +50,7 @@ struct linkerctx * linker_alloc(const char *name, uint32_t target)
     memset(&ctx->globals, 0, sizeof(struct globals));
     memset(&ctx->sections, 0, sizeof(struct sections));
     memset(&ctx->unresolved, 0, sizeof(struct symbols));
-    memset(&ctx->archives, 0, sizeof(struct archive_index));
+    memset(&ctx->archives, 0, sizeof(struct archives));
 
     ctx->target_march = target;
     ctx->target_cpu_align = backend->cpu_code_alignment;
@@ -78,7 +79,7 @@ void linker_put(struct linkerctx *ctx)
         globals_clear(&ctx->globals);
 
         sections_clear(&ctx->sections);
-        archive_index_clear(&ctx->archives);
+        archives_clear_symbols(&ctx->archives);
 
         if (ctx->name != NULL) {
             free(ctx->name);
@@ -130,8 +131,13 @@ bool linker_read_archive(struct linkerctx *ctx,
     }
     
     uint64_t after = ctx->archives.entries;
-    log_debug("Archive has %zu members and provides %llu new symbols", 
-            archive->nmembers, after - before);
+    
+    if (after - before == 0) {
+        log_notice("Archive does not provide any additional symbols");
+    } else {
+        log_debug("Archive has %zu members and provides %llu new symbols", 
+                archive->nmembers, after - before);
+    }
 
     log_debug("Parsed archive file");
     log_ctx_pop();
@@ -273,7 +279,7 @@ bool linker_resolve_globals(struct linkerctx *ctx)
         }
 
         // Try to find an archive that provides the undefined symbol
-        struct archive_member *m = archive_index_find(&ctx->archives, sym->name);
+        struct archive_member *m = archives_find_symbol(&ctx->archives, sym->name);
         if (m == NULL) {
             symbol_put(sym);
             log_error("Undefined reference to symbol '%s'", sym->name);

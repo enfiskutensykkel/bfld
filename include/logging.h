@@ -7,10 +7,6 @@ extern "C" {
 #include <stddef.h>
 #include <stdio.h>
 #include <stdarg.h>
-#include <stdlib.h>
-
-extern char * strdup(const char *s);
-
 
 #define LOG_CTX_MAX 32
 
@@ -38,18 +34,6 @@ static inline
 void log_ctx_pop(void)
 {
     if (log_ctx > 0) {
-       if (log_ctx < LOG_CTX_MAX - 1) {
-            log_ctx_t *ctx = &log_ctx_stack[log_ctx];
-            if (ctx->file != NULL) {
-                free((void*) ctx->file);
-            }
-            if (ctx->section != NULL) {
-                free((void*) ctx->section);
-            }
-            if (ctx->name != NULL) {
-                free((void*) ctx->name);
-            }
-       }
         --log_ctx;
     }
 }
@@ -66,6 +50,7 @@ void log_ctx_unwind(int n)
 
 /*
  * Add information to the current log context.
+ * Note: Log contexts should be pushed and popped within the same function.
  */
 static inline
 int log_ctx_push(log_ctx_t ctx)
@@ -87,11 +72,11 @@ int log_ctx_push(log_ctx_t ctx)
 
         // Create new context
         log_ctx_t new_ctx = {
-            .file = ctx.file != NULL ? strdup(ctx.file) : NULL,
-            .section = ctx.section != NULL ? strdup(ctx.section) : NULL,
+            .file = ctx.file != NULL ? ctx.file : NULL,
+            .section = ctx.section != NULL ? ctx.section : NULL,
             .offset = ctx.offset,
             .lineno = ctx.lineno,
-            .name = ctx.name != NULL ? strdup(ctx.name) : NULL
+            .name = ctx.name != NULL ? ctx.name : NULL
         };
 
         log_ctx_stack[log_ctx + 1] = new_ctx;
@@ -102,6 +87,7 @@ int log_ctx_push(log_ctx_t ctx)
 
 /*
  * Create a new log context.
+ * Note: Log contexts should be pushed and popped within the same function.
  */
 static inline
 int log_ctx_new(const char *file)

@@ -8,7 +8,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stddef.h>
 #include "archive.h"
-#include "archive_index.h"
+#include "archives.h"
 
 
 /*
@@ -33,7 +33,7 @@ struct archive_reader
     int (*parse_file)(const uint8_t *file_data, 
                       size_t file_size,
                       struct archive *archive,
-                      struct archive_index *index);
+                      struct archives *index);
 };
 
 

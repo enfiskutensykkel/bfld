@@ -11,7 +11,7 @@ extern "C" {
 #include "sections.h"
 #include "symbols.h"
 #include "globals.h"
-#include "archive_index.h"
+#include "archives.h"
 
 /* Some forward declarations */
 struct objectfile;
@@ -28,7 +28,7 @@ struct linkerctx
     char *name;                     // output file name
     int refcnt;                     // reference counter
     bool gc_sections;               // should we keep all sections and symbols?
-    struct archive_index archives;  // archive index
+    struct archives archives;       // archive symbol index
     struct globals globals;         // global symbols
     struct sections sections;       // worklist of input sections
     struct symbols unresolved;      // queue of unresolved symbols
@@ -42,6 +42,7 @@ struct linkerctx
     
     uint64_t base_addr;             // base virtual address of the image
     uint64_t entry_addr;            // address of the image's entrypoint
+
 };
 
 
@@ -61,6 +62,7 @@ struct linkerctx * linker_get(struct linkerctx *ctx);
  * Release a linker context reference.
  */
 void linker_put(struct linkerctx *ctx);
+
 
 
 bool linker_load_objectfile(struct linkerctx *ctx,
