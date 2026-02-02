@@ -351,7 +351,7 @@ static int parse_reltab(const Elf64_Ehdr *eh,
             return EINVAL;
         }
 
-        log_trace("Relocation %lu at offset %zu is relative to symbol '%s'", idx, offset, sym->name);
+        //log_trace("Relocation %lu at offset %zu is relative to symbol '%s'", idx, offset, sym->name);
 
         struct reloc * reloc = section_add_reloc(sect, offset, sym, type, addend);
         if (reloc == NULL) {
@@ -373,7 +373,7 @@ static int parse_symtab(const Elf64_Ehdr *eh,
                         const struct section_table *sections, 
                         struct symbol_table *symbols)
 {
-    int status = 0;
+    int status = -1;
     assert(sh->sh_type == SHT_SYMTAB);
 
     log_ctx_push(LOG_CTX_SECTION(lookup_strtab_str(eh, sh->sh_name)));
@@ -393,8 +393,6 @@ static int parse_symtab(const Elf64_Ehdr *eh,
         uint64_t align = 0;
         uint64_t offset = 0;
         uint64_t size = sym->st_size;
-
-        status = 0;
 
         enum symbol_type type = SYMBOL_NOTYPE;
         enum symbol_binding binding = SYMBOL_LOCAL;
@@ -490,13 +488,15 @@ static int parse_symtab(const Elf64_Ehdr *eh,
             goto out;
         }
 
+        bool defined = true;
         if (align > 0) {
-            status = symbol_bind_common(symbol, size, align);
+            defined = symbol_define_common(symbol, size, align);
         } else if (offset > 0 || section != NULL) {
-            status = symbol_bind_definition(symbol, section, offset, size);
+            defined = symbol_define(symbol, section, offset, size);
         } 
-        if (status != 0) {
+        if (!defined) {
             symbol_put(symbol);
+            status = EEXIST;
             goto out;
         }
 
@@ -508,6 +508,9 @@ static int parse_symtab(const Elf64_Ehdr *eh,
             goto out;
         }
     }
+
+    log_trace("Parsed symbol table");
+    status = 0;
 
 out:
     log_ctx_pop();

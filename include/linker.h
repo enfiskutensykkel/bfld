@@ -82,7 +82,8 @@ bool linker_resolve_globals(struct linkerctx *ctx);
 
 
 /*
- * Mark sections and symbols as alive.
+ * Mark reachable sections and symbols as alive, and
+ * sweep those that aren't.
  */
 void linker_gc_sections(struct linkerctx *ctx);
 

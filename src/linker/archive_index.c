@@ -83,7 +83,7 @@ bool archive_index_insert(struct archive_index *index,
     }
 
     struct archive_entry *entry = &index->table[slot];
-    entry->name = strdup(name);
+    entry->name = strdup(name);  // FIXME: use string pool in future
     if (entry->name == NULL) {
         return false;
     }
@@ -168,6 +168,7 @@ struct archive_member * archive_index_find(const struct archive_index *index,
 void archive_index_clear(struct archive_index *index)
 {
     for (uint64_t i = 0; index->entries > 0 && i < index->capacity; ++i) {
+        // FIXME: if we use a string pool (and each entries just point to the offset), cleanup becomes O(1)
         struct archive_entry *entry = &index->table[i];
 
         if (entry->hash != 0) {

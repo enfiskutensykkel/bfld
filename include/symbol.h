@@ -36,6 +36,12 @@ enum symbol_binding
 
 /* 
  * Symbol descriptor.
+ *
+ * Note that symbols only hold weak references to the section where
+ * it is defined in order to avoid circular ownership.
+ * 
+ * As such, the user must take care to release symbol references 
+ * before releasing section references.
  */
 struct symbol
 {
@@ -48,7 +54,7 @@ struct symbol
     bool is_absolute;               // is the definition offset relative to a section base address or an absolute address
     bool is_common;                 // does the symbol refer to a common section?
     bool is_used;                   // is the symbol used? set if forced kept, exported or used in a reloc
-    struct section *section;        // strong reference to the section where the symbol is defined
+    struct section *section;        // weak reference to the section where the symbol is defined
     uint64_t offset;                // offset into the section to the definition or absolute address
 };
 
@@ -93,60 +99,73 @@ void symbol_put(struct symbol *symbol);
 
 
 /*
- * Mark symbol as belonging to the common section.
+ * Undefine a symbol.
  */
-int symbol_bind_common(struct symbol *symbol, uint64_t size, uint64_t align);
+void symbol_undefine(struct symbol *symbol);
+
+
+
+/*
+ * Define symbol as belonging to the common section.
+ */
+bool symbol_define_common(struct symbol *symbol, uint64_t size, uint64_t align);
                         
 
 /*
- * Assign a definition to a symbol.
+ * Define a symbol.
  *
  * If section is NULL, offset is assumed to be an absolute address.
  * Otherwise, the definition is relative to the base address of the section.
  *
- * If section is set, this function takes a strong reference.
+ * If section is set, this function takes a weak reference to section.
  *
  * Note that if the symbol is already bound to a definition,
  * the behavior depends on the following:
  *
  * If the symbol is strong, the function does nothing and
- * returns EALREADY.
+ * returns false.
  *
- * If the symbol is weak, the previous definition is released 
- * and replaced with the new reference.
+ * If the symbol is weak, the previous definition is replaced 
+ * with the new reference.
  *
  * If the symbol is common and common is set, size and align
  * is set to the largest of the current and the new definition.
+ *
+ * Returns true on success and false otherwise.
+ *
+ * Note: Since symbols only hold weak references to sections,
+ *       the user must take care to release symbol references
+ *       before releasing sections.
  */
-int symbol_bind_definition(struct symbol *symbol,
-                           struct section *section,
-                           uint64_t offset,
-                           uint64_t size);
+bool symbol_define(struct symbol *symbol,
+                  struct section *section,
+                  uint64_t offset,
+                  uint64_t size);
                            
 
 /*
  * Update an existing symbol definition.
  *
  * If the incoming symbol is undefined, and the existing symbol is
- * undefined, this function does nothing and returns 0.
+ * undefined, this function does nothing and returns true.
  *
  * If the incoming symbol is defined and existing is undefined,
- * the existing symbol is updated and 0 is returned.
+ * the existing symbol is updated and true is returned.
  *
  * If the incoming symbol is undefined and existing is defined,
- * this function does nothing and returns 0.
+ * this function does nothing and returns true.
  *
  * In the case where both symbols are defined, the following rules apply:
  *
  * If the incoming symbol is weak, this function does nothing
- * and returns 0 (keeps existing definition).
+ * and returns true (keeps existing definition).
  * 
  * If the existing symbol is weak, the existing symbol is updated
-   and this function returns 0.
+   and this function returns true.
  *
- * If both are strong, this function returns EEXIST.
+ * If both are strong, this function returns false.
  */
-int symbol_merge(struct symbol *existing, const struct symbol *incoming);
+bool symbol_merge(struct symbol *existing, const struct symbol *incoming);
 
 
 #ifdef __cplusplus

@@ -30,7 +30,8 @@ void symbol_put(struct symbol *sym)
 
     if (--(sym->refcnt) == 0) {
         if (sym->section != NULL) {
-            section_put(sym->section);
+            //section_put(sym->section);
+            sym->section = NULL;
         }
         free(sym->name);
         free(sym);
@@ -67,18 +68,18 @@ struct symbol * symbol_alloc(const char *name, enum symbol_type type,
 }
 
 
-int symbol_bind_common(struct symbol *sym, uint64_t size, uint64_t align)
+bool symbol_define_common(struct symbol *sym, uint64_t size, uint64_t align)
 {
     assert(sym != NULL);
 
     if (symbol_is_defined(sym)) {
         log_error("Redefinition of symbol '%s' as common symbol", sym->name);
-        return EALREADY;
+        return false;
     }
 
     if (sym->is_common) {
         log_error("Redefinition of common symbol '%s', symbol was already defined", sym->name);
-        return EALREADY;
+        return false;
     }
     
     assert(sym->section == NULL);
@@ -88,14 +89,12 @@ int symbol_bind_common(struct symbol *sym, uint64_t size, uint64_t align)
     sym->align = align;
     sym->is_common = true;
 
-    return 0;
+    return true;
 }
 
 
-int symbol_bind_definition(struct symbol *sym,
-                           struct section *section,
-                           uint64_t offset,
-                           uint64_t size)
+bool symbol_define(struct symbol *sym, struct section *section,
+                   uint64_t offset, uint64_t size)
 {
     assert(sym != NULL);    
 
@@ -111,7 +110,7 @@ int symbol_bind_definition(struct symbol *sym,
             log_error("Symbol '%s' was previously defined here", sym->name);
             log_ctx_pop();
         }
-        return EALREADY;
+        return false;
     }
 
     struct section *old_section = sym->section;
@@ -124,41 +123,58 @@ int symbol_bind_definition(struct symbol *sym,
         sym->is_absolute = true;
         sym->offset = offset;
         sym->align = 0;  
-        log_debug("Symbol '%s' is defined at address 0x%lx", 
+        log_debug("Absolute symbol '%s' is defined at address 0x%lx", 
                 sym->name, sym->offset);
 
     } else {
         // This is a relative definition
         sym->is_absolute = false;
         sym->offset = offset;
-        sym->section = section_get(section);
+        //sym->section = section_get(section);
+        sym->section = section;
+
+        if (sym->is_used) {
+            // This should not really happen, but if it does notify the user about it
+            log_notice("Symbol '%s' is marked as in use, marking definition as alive", sym->name);
+            sym->section->is_alive = true;
+        }
     }
 
     // Release old section
     if (old_section != NULL) {
-        section_put(old_section);
+        //section_put(old_section);
     }
 
-    return 0;
+    return true;
 }
 
 
-int symbol_merge(struct symbol *existing, const struct symbol *incoming)
+void symbol_undefine(struct symbol *sym)
 {
-    assert(existing != NULL);
-
-    if (existing->binding == SYMBOL_LOCAL) {
-        log_error("Cannot resolve local symbol '%s'", existing->name);
-        return EINVAL;
+    if (sym->section != NULL) {
+        //section_put(sym->section);
+        sym->section = NULL;
     }
-    
-    if (incoming == NULL) {
-        return 0;
-    }
+    sym->is_common = false;
+    sym->size = 0;
+    sym->align = 0;
+    sym->offset = 0;
+    sym->is_absolute = false;
+    sym->is_used = false;
+}
 
-    if (incoming->binding == SYMBOL_LOCAL || strcmp(existing->name, incoming->name) != 0) {
-        log_error("Invalid symbol definition for '%s'", existing->name);
-        return EINVAL;
+
+bool symbol_merge(struct symbol *existing, const struct symbol *incoming)
+{
+    assert(existing != NULL && "Invalid argument for existing symbol");
+    assert(incoming != NULL && "Invalid argument for incoming symbol");
+    assert(existing->binding != SYMBOL_LOCAL && "Existing symbol can not be SYMBOL_LOCAL");
+    assert(incoming->binding != SYMBOL_LOCAL && "Incoming symbol can not be SYMBOL_LOCAL");
+    assert(strcmp(existing->name, incoming->name) == 0 && "Existing and incoming symbols are not the same symbol");
+
+    if (incoming->is_used) {
+        log_debug("Marking symbol '%s' as used", existing->name);
+        existing->is_used = true;
     }
 
     if (existing->is_common && incoming->is_common) {
@@ -175,7 +191,7 @@ int symbol_merge(struct symbol *existing, const struct symbol *incoming)
         }
 
         log_debug("Updated alignment and size of common symbol '%s'", existing->name);
-        return 0;
+        return true;
     }
 
     // Existing is undefined, incoming is common, upgrade undefined to a common
@@ -184,19 +200,20 @@ int symbol_merge(struct symbol *existing, const struct symbol *incoming)
         existing->size = incoming->size;
         existing->align = incoming->align;
         existing->type = incoming->type;
-        return 0;
+        log_debug("Upgraded undefined symbol '%s' to common symbol", existing->name);
+        return true;
     }
 
     // If incoming is an undefined symbol reference, keep existing definition
     if (!symbol_is_defined(incoming)) {
-        return 0;
+        return true;
     }
 
     if (!existing->is_common) {
 
         // If incoming definition is weak, keep existing definition
         if (symbol_is_defined(existing) && incoming->binding == SYMBOL_WEAK) {
-            return 0;
+            return true;
         }
 
         // If existing definition is strong and incoming definition is strong,
@@ -213,24 +230,20 @@ int symbol_merge(struct symbol *existing, const struct symbol *incoming)
                 log_error("Symbol '%s' was previously defined here", existing->name);
                 log_ctx_pop();
             }
-            return EEXIST;
+            return false;
         }
     }
 
-    int status = symbol_bind_definition(existing, incoming->section, 
-                                        incoming->offset, incoming->size);
-    switch (status) {
-        case 0: break;
-        case EALREADY:
-            return EEXIST;
-        default:
-            return EINVAL;
+    bool success = symbol_define(existing, incoming->section, 
+                                 incoming->offset, incoming->size);
+    if (!success) {
+        return false;
     }
 
     existing->binding = incoming->binding;
     existing->type = incoming->type;
 
-    return 0;
+    return true;
 }
 
 
