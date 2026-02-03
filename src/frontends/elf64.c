@@ -251,6 +251,17 @@ static int parse_sections(const Elf64_Ehdr *eh,
             continue;
         }
 
+        if (!!(sh->sh_flags & SHF_MERGE)) {
+            if (sh->sh_flags & SHF_STRINGS) {
+                log_trace("Section is a string merge section");
+            } else {
+                log_trace("Merge section contains %lu entries of size %u",
+                        sh->sh_size / sh->sh_entsize, sh->sh_entsize);
+            }
+
+            log_warning("Merge sections are not supported yet");
+        }
+
         struct section *section = section_alloc(objfile, shname, type,
                                                 ((const uint8_t*) eh) + sh->sh_offset,
                                                 sh->sh_size);

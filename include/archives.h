@@ -7,10 +7,15 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "utils/stringintern.h"
 
 /* Some forward declarations */
 struct archive;
 struct archive_member;
+
+
+// struct member_reference
+// struct symbol_reference
 
 
 /*
@@ -18,8 +23,10 @@ struct archive_member;
  */
 struct archive_entry
 {
-    uint32_t hash;                  // calculated hash of the symbol
-    char *name;                     // symbol name
+    // FIXME: 32-bit is sufficient?
+    uint64_t hash;                  // calculated hash of the symbol
+    uint64_t name;                  // symbol name
+    // TODO: separate hash table for archive members, use index to refer it (fewer gets/puts)
     struct archive *archive;        // strong reference to the archive that defines the symbol
     struct archive_member *member;  // weak pointer to the archive member where the symbol is defined
 };
@@ -38,6 +45,7 @@ struct archives
     uint64_t entries;
     uint64_t threshold;
     struct archive_entry *table;
+    struct strings stringpool;
 };
 
 

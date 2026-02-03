@@ -45,7 +45,6 @@ void globals_put(struct globals *globals)
 
 void globals_clear(struct globals *globals)
 {
-    log_trace("Clearing symbols");
     while (globals->map.root != NULL) {
         struct rb_node *node = globals->map.root;
         struct globals_entry *entry = rb_entry(node, struct globals_entry, map_entry);

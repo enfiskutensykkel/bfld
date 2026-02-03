@@ -8,13 +8,14 @@ extern "C" {
 
 
 static inline
-uint32_t checksum_crc32(const uint8_t *data, size_t size)
+uint32_t checksum_crc32(const void *data, size_t size)
 {
     uint32_t table[256];
+    const uint8_t *bytes = (const uint8_t*) data;
     table[0] = 0;
 
     uint32_t crc32 = 1;
-    for (uint8_t i = 128; i > 0; i >>= 1) {
+    for (uint16_t i = 128; i > 0; i >>= 1) {
         crc32 = (crc32 >> 1) ^ (crc32 & 1 ? 0xedb88320 : 0);
         for (uint16_t j = 0; j < 256; j += 2*i) {
             table[i + j] = crc32 ^ table[j];
@@ -23,7 +24,7 @@ uint32_t checksum_crc32(const uint8_t *data, size_t size)
 
     crc32 = 0xffffffffu;
     for (size_t i = 0; i < size; ++i) {
-        crc32 ^= data[i];
+        crc32 ^= bytes[i];
         crc32 = (crc32 >> 8) ^ table[crc32 & 0xff];
     }
 
@@ -33,16 +34,33 @@ uint32_t checksum_crc32(const uint8_t *data, size_t size)
 
 
 /*
- * Bernstein's DJB2 hash
+ * Daniel J. Bernstein's DJB2 hash
  */
 static inline
-uint32_t hash_djb2(const char *str)
+uint32_t hash_djb2_32(const void *data, size_t size)
 {
     uint32_t hash = 5381;
-    uint8_t c;
+    const uint8_t *bytes = (const uint8_t*) data;
 
-    while ((c = (uint8_t) *str++) != '\0') {
-        hash = ((hash << 5) + hash) + c;
+    for (size_t i = 0; i < size; ++i) {
+        hash = ((hash << 5) + hash) + bytes[i];
+    }
+
+    return hash;
+}
+
+
+/*
+ * Daniel J. Bernstein's DJB2 hash
+ */
+static inline
+uint64_t hash_djb2_64(const void *data, size_t size)
+{
+    uint64_t hash = 5381;
+    const uint8_t *bytes = (const uint8_t*) data;
+
+    for (size_t i = 0; i < size; ++i) {
+        hash = ((hash << 5) + hash) + bytes[i];
     }
 
     return hash;
@@ -53,14 +71,32 @@ uint32_t hash_djb2(const char *str)
  * Fowler-Noll-Vo hash (FNV-1a).
  */
 static inline
-uint32_t hash_fnv1a(const char *str)
+uint32_t hash_fnv1a_32(const void *data, size_t size)
 {
-    uint32_t hash = 2166136261u;
-    uint8_t c;
+    uint32_t hash = 0x811c9dc5UL;
+    const uint8_t *bytes = (const uint8_t*) data;
 
-    while ((c = (uint8_t) *str++) != '\0') {
-        hash ^= c;
-        hash *= 16777619u;
+    for (size_t i = 0; i < size; ++i) {
+        hash ^= bytes[i];
+        hash *= 0x01000193UL;
+    }
+    
+    return hash;
+}
+
+
+/*
+ * Fowler-Noll-Vo hash (FNV-1a).
+ */
+static inline
+uint64_t hash_fnv1a_64(const void *data, size_t size)
+{
+    uint64_t hash = 0xcbf29ce484222325ULL;
+    const uint8_t *bytes = (const uint8_t*) data;
+
+    for (size_t i = 0; i < size; ++i) {
+        hash ^= bytes[i];
+        hash *= 0x100000001b3;
     }
     
     return hash;
