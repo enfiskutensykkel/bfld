@@ -194,7 +194,8 @@ bool linker_load_objectfile(struct linkerctx *ctx,
     }
 
     // Add file's global symbols to the symbol queue
-    log_debug("File references %llu symbols", symtab.nsymbols);
+    uint64_t defined = 0;
+    uint64_t undefined = 0;
     for (uint64_t i = 0; symtab.nsymbols > 0 && i < symtab.capacity; ++i) {
         struct symbol *sym = symbol_table_at(&symtab, i);
 
@@ -204,6 +205,16 @@ bool linker_load_objectfile(struct linkerctx *ctx,
         }
 
         struct symbol *existing = sym;
+
+        if (symbol_is_defined(sym) || sym->is_common) {
+            ++defined;
+        }
+
+        if (symbol_is_defined(sym)) {
+            if (strncmp(".text._", sym->section->name, 7) == 0) {
+                log_notice("Symbol '%s' is defined in section %s", sym->name, sym->section->name);
+            }
+        }
         
         status = globals_insert_symbol(&ctx->globals, sym, &existing);
         if (status != EEXIST && status != 0) {
@@ -220,15 +231,18 @@ bool linker_load_objectfile(struct linkerctx *ctx,
         }
 
         if (!symbol_is_defined(existing)) {
-            log_trace("Adding undefined symbol '%s' to symbol queue", existing->name);
+            log_trace("Adding undefined symbol '%s' to unresolved queue", existing->name);
 
             if (!symbols_push(&ctx->unresolved, existing)) {
                 goto leave;
             }
+
+            ++undefined;
         }
 
         symbol_table_remove(&symtab, i);
     }
+    log_debug("File defines %llu symbols and references %llu symbols", defined, undefined);
 
     // Add file's sections to the sections queue
     log_debug("File defines %llu sections", secttab.nsections);
@@ -296,7 +310,7 @@ bool linker_resolve_globals(struct linkerctx *ctx)
             return false;
         }
 
-        log_trace("Found symbol '%s' in archive %s", sym->name, m->archive->name);
+        log_trace("Symbol '%s' is provided by archive %s", sym->name, m->archive->name);
 
         struct objectfile *objfile = archive_extract_member(m);
         if (objfile != NULL) {

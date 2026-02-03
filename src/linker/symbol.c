@@ -42,6 +42,19 @@ void symbol_put(struct symbol *sym)
 struct symbol * symbol_alloc(const char *name, enum symbol_type type, 
                              enum symbol_binding binding)
 {
+    switch (type) {
+        case SYMBOL_NOTYPE:
+        case SYMBOL_OBJECT:
+        case SYMBOL_TLS:
+        case SYMBOL_SECTION:
+        case SYMBOL_FUNCTION:
+        case SYMBOL_DEBUG:
+            break;
+        default:
+            log_error("Invalid symbol type");
+            return NULL;
+    }
+
     struct symbol *sym = malloc(sizeof(struct symbol));
     if (sym == NULL) {
         return NULL;

@@ -18,6 +18,7 @@ struct objectfile;
 struct objectfile_reader;
 struct archive;
 struct archive_reader;
+struct layout;
 
 
 /* 
@@ -43,7 +44,9 @@ struct linkerctx
     uint64_t base_addr;             // base virtual address of the image
     uint64_t entry_addr;            // address of the image's entrypoint
 
+    
 };
+
 
 
 /*
@@ -64,16 +67,24 @@ struct linkerctx * linker_get(struct linkerctx *ctx);
 void linker_put(struct linkerctx *ctx);
 
 
-
+/*
+ * Add an input object file to be linked.
+ */
 bool linker_load_objectfile(struct linkerctx *ctx,
                             struct objectfile *objectfile,
                             const struct objectfile_reader *frontend);
 
-
-
+/*
+ * Read archive and add symbols it provide to the archive symbol index.
+ * This allows the linker to lazily load object files from the archive
+ * in order to resolve symbols.
+ */
 bool linker_read_archive(struct linkerctx *ctx,
                          struct archive *archive,
                          const struct archive_reader *reader);
+
+
+bool linker_create_synthetic_sections(struct linkerctx *ctx);
 
 
 /*
@@ -86,12 +97,17 @@ bool linker_resolve_globals(struct linkerctx *ctx);
 /*
  * Mark reachable sections and symbols as alive, and
  * sweep those that aren't.
+ *
+ * This is effectively a dead-code elimination (DCE).
  */
 void linker_gc_sections(struct linkerctx *ctx);
 
 
 /*
  * Create a common section.
+ *
+ * This should ideally be done after DCE, since it allows us to prune
+ * symbols that aren't referenced by relocations.
  */
 bool linker_create_common_section(struct linkerctx *ctx);
 

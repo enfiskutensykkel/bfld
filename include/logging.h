@@ -140,7 +140,7 @@ void log_message_va(int level, const char *fmt, va_list ap)
             } 
 
             if (ctx->name != NULL) {
-                fprintf(stderr, ".%s", ctx->name);
+                fprintf(stderr, "(%s)", ctx->name);
             }
 
             fprintf(stderr, "] ");
@@ -148,13 +148,13 @@ void log_message_va(int level, const char *fmt, va_list ap)
         } else if (ctx->section != NULL && ctx->section[0] != '\0') {
             fprintf(stderr, "[%s", ctx->section);
             if (ctx->name != NULL && ctx->name[0] != '\0') {
-                fprintf(stderr, ".%s", ctx->name);
+                fprintf(stderr, "(%s)", ctx->name);
             }
             fprintf(stderr, "] ");
 
         } else {
             if (ctx->name != NULL) {
-                fprintf(stderr, "(%s)", ctx->name);
+                fprintf(stderr, "(%s) ", ctx->name);
             }
         }
 

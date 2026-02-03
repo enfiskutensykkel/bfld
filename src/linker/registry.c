@@ -179,14 +179,6 @@ const struct archive_reader * archive_reader_probe(const uint8_t *data, size_t s
 
 const struct target * target_lookup(uint32_t march) 
 {
-    if (march == 0) {
-        // TODO: look up the current platform
-        list_for_each_entry(entry, &targets, struct target_entry, node) {
-            march = entry->march;
-            break;
-        }
-    }
-
     list_for_each_entry(entry, &targets, struct target_entry, node) {
         if (entry->march == march) {
             return entry->backend;

@@ -17,6 +17,8 @@
 #include "commandline.h"
 #include <utils/list.h>
 
+#define TARGET_X86_64 62
+
 
 
 //static void print_symbols(FILE *fp, const struct image *img)
@@ -245,7 +247,7 @@ int main(int argc, char **argv)
         exit(-start);
     }
 
-    struct linkerctx *ctx = linker_alloc(opts.output, 0);
+    struct linkerctx *ctx = linker_alloc(opts.output, TARGET_X86_64);
     if (ctx == NULL) {
         exit(2);
     }
@@ -260,7 +262,7 @@ int main(int argc, char **argv)
         bool success = load_file(ctx, argv[i]);
         if (!success) {
             linker_put(ctx);
-            exit(2);
+            exit(1);
         }
     }
 
@@ -272,7 +274,7 @@ int main(int argc, char **argv)
 
     if (!linker_resolve_globals(ctx)) {
         linker_put(ctx);
-        exit(3);
+        exit(2);
     }
 
     linker_put(ctx);

@@ -19,7 +19,9 @@ enum symbol_type
     SYMBOL_OBJECT,  // symbol is a data object, for example a global variable
     SYMBOL_TLS,     // symbol contains a thread-local data object (thread-local storage)
     SYMBOL_SECTION, // symbol is a reference to a section
-    SYMBOL_FUNCTION // symbol is a function
+    SYMBOL_FUNCTION,// symbol is a function
+    SYMBOL_DEBUG,   // symbol is a debug symbol
+    SYMBOL_MAX_TYPES
 };
 
 

@@ -25,7 +25,10 @@ struct section * section_alloc(struct objectfile *objfile,
     }
 
     switch (type) {
+        case SECTION_LOADER:
+        case SECTION_UNWIND:
         case SECTION_CODE:
+        case SECTION_THUNK:
         case SECTION_READONLY:
         case SECTION_DATA:
         case SECTION_ZERO:
@@ -39,23 +42,7 @@ struct section * section_alloc(struct objectfile *objfile,
 
     if (name == NULL) {
         // Section has no name, let's invent one
-        switch (type) {
-            case SECTION_CODE:
-                name = ".text";
-                break;
-            case SECTION_READONLY:
-                name = ".rodata";
-                break;
-            case SECTION_DATA:
-                name = ".data";
-                break;
-            case SECTION_ZERO:
-                name = ".bss";
-                break;
-            default:
-                name = ".unknown";
-                break;
-        }
+        name = section_type_to_string(type);
         log_warning("Section has unknown name. defaulting to '%s'", name);
     }
 
@@ -183,7 +170,6 @@ struct reloc * section_add_reloc(struct section *section,
     list_insert_tail(&section->relocs, &reloc->list_entry);
     ++(section->nrelocs);
 
-    log_trace("Relocation refers to symbol '%s'", symbol->name);
     return reloc;
 }
 

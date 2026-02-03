@@ -97,7 +97,7 @@ static const char * lookup_strtab_str(const Elf64_Ehdr *ehdr, uint32_t offset)
 
 
 /*
- * Helper function to add a section header to a list of sections.
+ * Helper function to add a section header to a list of sections we need to look at.
  */
 static inline int add_section(struct list_head *list, const Elf64_Shdr *sh)
 {
@@ -120,22 +120,6 @@ static int parse_sections(const Elf64_Ehdr *eh,
                           struct list_head *reltabs,
                           struct list_head *symtabs)
 {
-    // TODO: add support for
-    // .text, .data, .bss, .rodata, .init_array, .fini_array, .interp, .tdata, .tbss
-    // .tdata, .tbss are TLS that needs to go into PT_TLS segment
-    // .interp for .so files, pathname to linker
-    // .eh_frame, ranks nead .rodata (PT_GNU_STACK and PT_EH_FRAME)
-    // .interp: (The loader path)
-
-    //.note.gnu.build-id: (Optional, but nice for debuggers)
-    //.init_array / .fini_array: (Function pointers)
-    //.text: (Code)
-    //.eh_frame: (Unwind info)
-    //.rodata: (Constants)
-    //.tdata / .tbss: (Thread local storage)
-    //.data: (Global variables)
-    //.bss: (Zeroed variables)
-
     uint64_t shnum = eh->e_shnum;
 
     if (shnum == 0) {
@@ -153,9 +137,19 @@ static int parse_sections(const Elf64_Ehdr *eh,
 
         log_ctx_push(LOG_CTX_SECTION(shname));
 
+        enum section_type type = SECTION_MAX_TYPES;
+
         switch (sh->sh_type) {
             case SHT_GROUP:
-                log_warning("Section groups are not supported");
+                log_warning("Section groups are not handled yet");
+                // sh_link points to symbol table
+                // sh_info points to signature symbol
+                // TODO: strategy for same signature, "first one wins", "largest one wins", "make sure all duplicates are same size", "make sure all duplicates have same content"
+                // contents: first entry is usually GRP_COMDAT, subsequent entries are indices of sections that belong in list
+                // need a seen group set
+                // if signature is new, keep all sections listed, add signature to seen set
+                // if signature is alreadyy seen, discard (do not extract) every section listed in that group
+                // discard the section itself
                 break;
 
             case SHT_SYMTAB:
@@ -179,7 +173,7 @@ static int parse_sections(const Elf64_Ehdr *eh,
 
             case SHT_REL:
                 if (sh->sh_type == SHT_REL) {
-                    log_error("Relocation type REL is unsupported and will be ignored");
+                    log_warning("Relocation type REL is unsupported and will be ignored");
                 }
                 break;
 
@@ -193,66 +187,68 @@ static int parse_sections(const Elf64_Ehdr *eh,
                 break;
 
             case SHT_PROGBITS:
+                if (strcmp(shname, ".eh_frame") == 0) {
+                    // FIXME: Implement CIE/DWARF parser in the future
+                    log_trace("Section is .eh_frame");
+                    type = SECTION_UNWIND;
+                } else if (!!(sh->sh_flags & SHF_ALLOC)) {
+                    if (!!(sh->sh_flags & SHF_WRITE)) {
+                        type = SECTION_DATA;
+                    } else if (!!(sh->sh_flags & SHF_EXECINSTR)) {
+                        type = SECTION_CODE;
+                    } else {
+                        type = SECTION_READONLY;
+                    }
+                } else {
+                    type = SECTION_METADATA;
+                }
+                break;
+
             case SHT_NOBITS:
+                if (!!(sh->sh_flags & SHF_ALLOC)) {
+                    type = SECTION_ZERO;
+                } else {
+                    log_debug("Section %s (index %u) is SHT_NOBITS but sh_flag SHF_ALLOC is not set", 
+                            shname, shndx, sh->sh_type);
+                }
+                break;
+
             case SHT_INIT_ARRAY:
             case SHT_FINI_ARRAY:
             case SHT_PREINIT_ARRAY:
-                if (!(sh->sh_flags & SHF_ALLOC)) {
-                    log_trace("Section contains data (sh_type %x), but sh_flag SHF_ALLOC is not set", sh->sh_type);
+                if (!!(sh->sh_flags & SHF_ALLOC)) {
+                    type = SECTION_READONLY;
+                } else {
+                    log_debug("Section %s (index %u) contains data but sh_flag SHF_ALLOC is not set", 
+                            shname, shndx, sh->sh_type);
                 }
+                
                 break;
 
             case SHT_NULL:
                 break;
 
             case SHT_NOTE:
+                type = SECTION_METADATA;
                 break;
 
             default:
-                log_info("Unknown section with sh_type %x", sh->sh_type);
+                log_warning("Section %s (index %u) has unknown type %x", 
+                        shname, shndx, sh->sh_type);
                 break;
         }
 
-        // Only extract sections that have SHF_ALLOC set
-        //if (!(sh->sh_flags & SHF_ALLOC)) {
-        //    log_ctx_pop();
-        //    continue;
-        //}
-        // we're only interested in (sh->sh_type == SHT_PROGBITS || sh->sh_type == SHT_NOBITS) && (sh->sh_flags & SHF_ALLOC);
-
-        // Only extract sections that are relevant for the code
-        if (sh->sh_type != SHT_PROGBITS && sh->sh_type != SHT_NOBITS) {
-            switch (sh->sh_type) {
-                case SHT_INIT_ARRAY:
-                case SHT_FINI_ARRAY:
-                case SHT_PREINIT_ARRAY:
-                    log_warning("Support for type %u sections is not implemented yet",
-                            sh->sh_type);
-                    log_ctx_pop();
-                    return ENOTSUP;
-
-                case SHT_NOTE:
-                    log_trace("Skipping note section");
-                    break;
-                
-                default:
-                    log_trace("Skipping section with type %u",
-                            sh->sh_type);
-                    break;
-            }
+        // Discard .commend and .annobin.notes
+        if (strcmp(shname, ".comment") == 0 || strncmp(shname, ".annobin.", 9) == 0) {
+            log_trace("Discarding section %s (index %u)", shname, shndx);
             log_ctx_pop();
             continue;
         }
 
-        enum section_type type = SECTION_ZERO;
-        if (sh->sh_type == SHT_PROGBITS) {
-            if (!!(sh->sh_flags & SHF_EXECINSTR)) {
-                type = SECTION_CODE;
-            } else if (!!(sh->sh_flags & SHF_WRITE)) {
-                type = SECTION_DATA;
-            } else {
-                type = SECTION_READONLY;
-            }
+        // Only extract sections that are relevant for the linker
+        if (type >= SECTION_MAX_TYPES) {
+            log_ctx_pop();
+            continue;
         }
 
         struct section *section = section_alloc(objfile, shname, type,
@@ -271,7 +267,6 @@ static int parse_sections(const Elf64_Ehdr *eh,
             return ENOMEM;
         }
 
-        log_trace("Added section %u to section table", shndx);
         log_ctx_pop();
     }
 
@@ -394,7 +389,7 @@ static int parse_symtab(const Elf64_Ehdr *eh,
         uint64_t offset = 0;
         uint64_t size = sym->st_size;
 
-        enum symbol_type type = SYMBOL_NOTYPE;
+        enum symbol_type type = SYMBOL_MAX_TYPES;
         enum symbol_binding binding = SYMBOL_LOCAL;
 
         switch (sym->st_shndx) {
@@ -412,8 +407,11 @@ static int parse_symtab(const Elf64_Ehdr *eh,
             default:
                 section = section_table_at(sections, sym->st_shndx);
                 if (section == NULL) {
-                    log_debug("Symbol '%s' (index %u) refers to unmapped section %u",
-                            name, idx, sym->st_shndx);
+                    log_debug("Symbol '%s' (index %u, type %u, binding %u) refers to unmapped section %u",
+                            name, idx, 
+                            ELF64_ST_TYPE(sym->st_info), 
+                            ELF64_ST_BIND(sym->st_info), 
+                            sym->st_shndx);
                     status = EINVAL;
                     goto out;
                 }
@@ -472,7 +470,7 @@ static int parse_symtab(const Elf64_Ehdr *eh,
                 continue;
 
             case STT_FILE:
-                log_trace("Ignoring symbol '%s'", name);
+                type = SYMBOL_DEBUG;
                 continue;
 
             default:
@@ -482,19 +480,24 @@ static int parse_symtab(const Elf64_Ehdr *eh,
                 break;
         }
 
+        if (type >= SYMBOL_MAX_TYPES) {
+            log_warning("Ignoring symbol '%s' with unknown type", name);
+            continue;
+        }
+
         struct symbol *symbol = symbol_alloc(name, type, binding);
         if (symbol == NULL) {
             status = ENOMEM;
             goto out;
         }
 
-        bool defined = true;
+        bool defined = false;
         if (align > 0) {
             defined = symbol_define_common(symbol, size, align);
         } else if (offset > 0 || section != NULL) {
             defined = symbol_define(symbol, section, offset, size);
         } 
-        if (!defined) {
+        if ((align > 0 || section != NULL || offset > 0) && !defined) {
             symbol_put(symbol);
             status = EEXIST;
             goto out;
