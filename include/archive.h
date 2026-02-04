@@ -9,10 +9,10 @@ extern "C" {
 #include <stdbool.h>
 #include "utils/rbtree.h"
 
+
 /* Forward declarations */
 struct mfile;
 struct objectfile;
-
 
 
 /*
@@ -27,8 +27,6 @@ struct objectfile;
  */
 struct archive
 {
-    
-
     char *name;                 // name of the archive
     struct mfile *file;         // strong reference to the underlying memory mapped file
     int refcnt;                 // reference counter

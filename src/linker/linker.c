@@ -20,7 +20,7 @@
 #include <errno.h>
 
 
-int log_level = 1;  // initial log level
+int log_level = 2;  // initial log level
 int log_ctx = 0;    // initial log context
 log_ctx_t log_ctx_stack[LOG_CTX_MAX] = {0};
 

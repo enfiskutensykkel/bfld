@@ -14,19 +14,13 @@ struct archive;
 struct archive_member;
 
 
-// struct member_reference
-// struct symbol_reference
-
-
 /*
  * Entry in the archive index.
  */
 struct archive_entry
 {
-    // FIXME: 32-bit is sufficient?
     uint64_t hash;                  // calculated hash of the symbol
     uint64_t name;                  // symbol name
-    // TODO: separate hash table for archive members, use index to refer it (fewer gets/puts)
     struct archive *archive;        // strong reference to the archive that defines the symbol
     struct archive_member *member;  // weak pointer to the archive member where the symbol is defined
 };
