@@ -6,12 +6,22 @@
 #endif
 
 
+/*
+ * Duplicate string.
+ */
 extern char * strdup(const char *s);
 
+
+/*
+ * Count characters in string but not beyond maxlen.
+ */
 size_t strnlen(const char *s, size_t maxlen);
 
-extern int ftruncate(int fd, off_t length);
 
+/*
+ * Extend or truncate a file to a given length.
+ */
+extern int ftruncate(int fd, off_t length);
 
 
 #if (defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200809L)
@@ -43,7 +53,6 @@ extern int ftruncate(int fd, off_t length);
 #endif
 
 #endif
-
 
 
 #if !defined(HAS_STRDUP) || !HAS_STRDUP
@@ -82,11 +91,12 @@ size_t strnlen(const char *s, size_t maxlen)
 
 
 #if !defined(HAS_FTRUNCATE) || !HAS_TRUNCATE
+
 #ifdef _WIN32
 #include <io.h>
 int ftruncate(int fd, off_t length)
 {
-    return _chsize(fd, length);
+    return _chsize(fd, length); // FIXME: is it chsize (without underscore)?
 }
 
 #else
@@ -129,7 +139,7 @@ int ftruncate(int fd, off_t length)
         // We need to truncate the length
         // This relies on the undocumented F_FREESP argument to fcntl,
         // allowing the file to be truncated so that it ends at fl.l_start
-        // Shamelessly stolen from the gold linker source code
+        // Shamelessly stolen from the gold linker source code, ftruncate.c
 
         fl.l_whence = 0;
         fl.l_len = 0;
