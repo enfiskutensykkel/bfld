@@ -13,8 +13,9 @@ extern "C" {
 
 
 /* 
- * Sections worklist.
+ * Sections queue / sections worklist.
  * Used to process sections in order.
+ * first in last out (FIFO
  */
 struct sections
 {
@@ -91,12 +92,16 @@ bool sections_push(struct sections *sectq, struct section *sect)
 /*
  * Peek at the section at the given position relative 
  * to the start of the queue.
+ *
+ * Note that this is not cache-friendly once head moves or the 
+ * queue wraps (unlikely)
  */
 static inline
 struct section * sections_peek(const struct sections *sectq, uint64_t position)
 {
     return (struct section*) deque_peek(&sectq->q, position);
 }
+// FIXME: sections_at instead, peek just for front
 
 
 /*

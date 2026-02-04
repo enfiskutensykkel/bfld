@@ -12,6 +12,18 @@ extern "C" {
 struct symbol;
 
 
+// FIXME: make this so that it also takes a strong reference to section
+// need to change logic of symbol_merge/symbol_define, or make wrapper, global_define, global_undefine, global_merge
+
+//struct global
+//{
+//    uint64_t hash;
+//    uint64_t dfi;// distance from ideal, (probe sequence length)
+//    struct globals *globals;
+//    struct symbol *symbol;
+//};
+
+
 /*
  * Global symbol table.
  * Manages symbols by tracking them by their name.
