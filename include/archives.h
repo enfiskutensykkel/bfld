@@ -7,7 +7,7 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "utils/stringintern.h"
+#include "utils/stringpool.h"
 
 /* Some forward declarations */
 struct archive;
@@ -45,7 +45,7 @@ struct archives
     uint64_t entries;
     uint64_t threshold;
     struct archive_entry *table;
-    struct strings stringpool;
+    struct string_pool stringpool;
 };
 
 

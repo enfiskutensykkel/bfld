@@ -9,7 +9,7 @@
 #include <stdint.h>
 #include <utils/hash.h>
 #include <utils/align.h>
-#include <utils/stringintern.h>
+#include <utils/stringpool.h>
 
 
 struct archives * archives_alloc(void)
@@ -24,7 +24,7 @@ struct archives * archives_alloc(void)
     index->entries = 0;
     index->threshold = 0;
     index->table = NULL;
-    memset(&index->stringpool, 0, sizeof(struct strings));
+    index->stringpool = STRING_POOL_INIT;
     return index;
 }
 
@@ -113,7 +113,7 @@ bool archives_insert_symbol(struct archives *index,
 
     while (index->table[slot].hash != 0) {
         if (index->table[slot].hash == hash) {
-            const char *value = strings_at(&index->stringpool, index->table[slot].name);
+            const char *value = string_pool_at(&index->stringpool, index->table[slot].name);
             if (strcmp(name, value) == 0) {
                 // entry was already added
                 // fake that we added the symbol and keep old definition
@@ -126,7 +126,7 @@ bool archives_insert_symbol(struct archives *index,
     }
 
     struct archive_entry *entry = &index->table[slot];
-    uint64_t offset = strings_intern(&index->stringpool, name);
+    uint64_t offset = string_pool_intern(&index->stringpool, name);
     if (offset == 0) {
         return false;
     }
@@ -156,7 +156,7 @@ struct archive_member * archives_find_symbol(const struct archives *index,
     uint64_t slot = hash & (index->capacity - 1);
 
     while (index->table[slot].hash != 0) {
-        const char *value = strings_at(&index->stringpool, index->table[slot].name);
+        const char *value = string_pool_at(&index->stringpool, index->table[slot].name);
         if (strcmp(name, value) == 0) {
             return index->table[slot].member;
         }
@@ -186,7 +186,7 @@ void archives_clear_symbols(struct archives *index)
         index->table = NULL;
     }
 
-    strings_clear(&index->stringpool);
+    string_pool_clear(&index->stringpool);
     index->capacity = 0;
     index->entries = 0;
     index->table = NULL;

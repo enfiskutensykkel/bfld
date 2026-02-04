@@ -1,5 +1,5 @@
-#ifndef BFLD_ARCHIVE_FILE_H
-#define BFLD_ARCHIVE_FILE_H
+#ifndef BFLD_ARCHIVE_H
+#define BFLD_ARCHIVE_H
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -12,7 +12,7 @@ extern "C" {
 /* Forward declarations */
 struct mfile;
 struct objectfile;
-struct archive_reader;
+
 
 
 /*
@@ -27,6 +27,8 @@ struct archive_reader;
  */
 struct archive
 {
+    
+
     char *name;                 // name of the archive
     struct mfile *file;         // strong reference to the underlying memory mapped file
     int refcnt;                 // reference counter

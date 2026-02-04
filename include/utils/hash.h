@@ -103,6 +103,23 @@ uint64_t hash_fnv1a_64(const void *data, size_t size)
 }
 
 
+/*
+ * Generic golden ratio hash.
+ */
+//static inline
+//uint32_t hash_64(uint64_t value, uint8_t bits)
+//{
+//    return value * 0x61c8864680b583ebULL >> (64 - bits);
+//}
+//
+//
+//static inline
+//uint32_t hash_32(uint32_t value, uint8_t bits)
+//{
+//    return (value * 0x61c88647) >> (32 - bits);
+//}
+
+
 #ifdef __cplusplus
 }
 #endif

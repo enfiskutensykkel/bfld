@@ -128,6 +128,7 @@ static int parse_file(const uint8_t *ptr, size_t size,
             log_fatal("SYM64 archive format not supported");
             return ENOTSUP;
         } else if (strncmp(hdr->name, "//", 2) == 0) {
+            log_trace("Found GNU-style long name string table at offset %zu", offset);
             strtab = hdr;
         } else {
             if (strncmp(hdr->name, "#1/", 3) == 0) {
