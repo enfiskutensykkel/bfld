@@ -23,6 +23,13 @@ bool table_reserve(struct table *t, uint64_t capacity);
 
 
 static inline
+bool table_extend(struct table *t, uint64_t capacity)
+{
+    return table_reserve(t, t->capacity + capacity);
+}
+
+
+static inline
 void table_init(struct table *t)
 {
     t->table = NULL;

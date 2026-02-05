@@ -12,12 +12,6 @@ bool table_reserve(struct table *tbl, uint64_t capacity)
         return true;
     }
 
-    // Make sure capacity is aligned to a power of two
-    capacity = align_roundup(capacity);
-    if (capacity < 8) {
-        capacity = 8;
-    }
-
     // Naive check for overflow
     if (capacity * sizeof(void*) < tbl->capacity * sizeof(void*)) {
         return false;

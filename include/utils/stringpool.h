@@ -180,56 +180,56 @@ uint64_t string_pool_intern(struct string_pool *pool, const char *string)
 }
 
 
-//static inline
-//void string_pool_unintern(struct string_pool *pool, const char *string)
-//{
-//    if (string == NULL || string[0] == '\0' || pool->count == 0) {
-//        return;
-//    }
-//
-//    size_t length = strlen(string);
-//    uint32_t hash = hash_fnv1a_32(string, length);
-//    if (hash == 0) {
-//        hash = 1;
-//    }
-//
-//    uint64_t mask = pool->capacity - 1;
-//    uint64_t slot = hash & mask;
-//    uint32_t dfi = 0;
-//    struct intern *this = &pool->index[slot];
-//
-//    while (this->hash != 0 && dfi <= this->dfi) {
-//
-//        if (this->hash == hash) {
-//            const char *value = &pool->strings[this->offset];
-//            if (strcmp(value, string) == 0) {
-//                break;
-//            }
-//        }
-//
-//        slot = (slot + 1) & mask;
-//        this = &pool->index[slot];
-//        ++dfi;
-//    }
-//
-//    // Backwards shift deletion
-//    if (this->hash != 0 && dfi <= this->dfi) {
-//        pool->count--;
-//
-//        struct intern *next = &pool->index[(slot + 1) & mask];
-//        while (next->hash != 0 && next->dfi != 0) {
-//            *this = *next;
-//            this->dfi--;
-//            this = next;
-//            slot = (slot + 1) & mask;
-//            next = &pool->index[(slot + 1) & mask];
-//        }
-//
-//        this->hash = 0;
-//        this->dfi = 0;
-//        this->offset = 0;
-//    }
-//}
+static inline
+void string_pool_unintern(struct string_pool *pool, const char *string)
+{
+    if (string == NULL || string[0] == '\0' || pool->count == 0) {
+        return;
+    }
+
+    size_t length = strlen(string);
+    uint32_t hash = hash_fnv1a_32(string, length);
+    if (hash == 0) {
+        hash = 1;
+    }
+
+    uint64_t mask = pool->capacity - 1;
+    uint64_t slot = hash & mask;
+    uint32_t dfi = 0;
+    struct intern *this = &pool->index[slot];
+
+    while (this->hash != 0 && dfi <= this->dfi) {
+
+        if (this->hash == hash) {
+            const char *value = &pool->strings[this->offset];
+            if (strcmp(value, string) == 0) {
+                break;
+            }
+        }
+
+        slot = (slot + 1) & mask;
+        this = &pool->index[slot];
+        ++dfi;
+    }
+
+    // Backwards shift deletion
+    if (this->hash != 0 && dfi <= this->dfi) {
+        pool->count--;
+
+        struct intern *next = &pool->index[(slot + 1) & mask];
+        while (next->hash != 0 && next->dfi != 0) {
+            *this = *next;
+            this->dfi--;
+            this = next;
+            slot = (slot + 1) & mask;
+            next = &pool->index[(slot + 1) & mask];
+        }
+
+        this->hash = 0;
+        this->dfi = 0;
+        this->offset = 0;
+    }
+}
 
 
 /*
@@ -289,10 +289,22 @@ const char * string_pool_at(const struct string_pool *pool, uint64_t offset)
 }
 
 
-#define string_pool_for_each_string(iterator, pool) \
-    for (const char *__it = (pool)->strings, const char *iterator = __it; \
-            (pool)->strings != NULL && (__it - (pool)->strings) < (pool)->offset; \
-            __it = __it + strlen(__it) + 1, iterator = __it)
+/*
+ * Convenience function for interning a string and getting the copy.
+ */
+static inline
+const char * string_pool_copy(struct string_pool *pool, const char *string)
+{
+    uint64_t offset = string_pool_intern(pool, string);
+    return string_pool_at(pool, offset);
+}
+
+
+// FIXME: this is wrong, this should only iterate over valid entries (hash!=0)
+//#define string_pool_for_each_string(iterator, pool) \
+//    for (const char *__it = (pool)->strings, const char *iterator = __it; \
+//            (pool)->strings != NULL && (__it - (pool)->strings) < (pool)->offset; \
+//            __it = __it + strlen(__it) + 1, iterator = __it)
             
 
 #ifdef __cplusplus

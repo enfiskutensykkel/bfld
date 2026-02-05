@@ -135,8 +135,7 @@ bool linker_read_archive(struct linkerctx *ctx,
     if (after - before == 0) {
         log_notice("Archive does not provide any additional symbols");
     } else {
-        log_debug("Archive has %zu members and provides %llu new symbols", 
-                archive->nmembers, after - before);
+        log_debug("Archive provides %llu new symbols", after - before);
     }
 
     log_debug("Parsed archive file");

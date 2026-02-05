@@ -12,34 +12,44 @@ extern "C" {
 /* Some forward declarations */
 struct archive;
 struct archive_member;
-
-
-/*
- * Entry in the archive index.
- */
-struct archive_entry
-{
-    uint64_t hash;                  // calculated hash of the symbol
-    uint64_t name;                  // symbol name
-    struct archive *archive;        // strong reference to the archive that defines the symbol
-    struct archive_member *member;  // weak pointer to the archive member where the symbol is defined
-};
+struct archive_symbol;
 
 
 /*
  * Archive index.
  *
- * When reading archive files (.a files), we track the ranlib index 
- * and map symbols to archive members.
+ * This structure provides a global index over symbols and which
+ * archive files provide them.
+ *
+ * Archive files (.a files) contain multiple object files and a symbol
+ * index (called ranlib) that list which symbols are provided by each
+ * member file. During symbol resolution, a linker can look at the
+ * symbol index and determine if an archive member provides any
+ * unresolved symbols. If it does, the member file can be pulled
+ * out of the archive and added as an input file to the linker.
  */
 struct archives
 {
-    int refcnt;
-    uint64_t capacity;
-    uint64_t entries;
-    uint64_t threshold;
-    struct archive_entry *table;
-    struct string_pool stringpool;
+    int refcnt;                     // reference counter
+    struct archive **archives;      // dynamic array of archives (sorted by pointer value)
+    uint64_t narchives;             // number of archives
+    struct archive_symbol *index;   // hash table of symbols (symbol index)
+    uint64_t capacity;              // capacity of the symbol index
+    uint64_t entries;               // entries in the symbol index
+    uint64_t rehash_threshold;      // rehash threshold for the symbol index
+    struct string_pool names;       // string pool for symbol names
+};
+
+
+/*
+ * Entry in the archive symbol index.
+ */
+struct archive_symbol
+{
+    uint32_t hash;                  // calculated hash of the symbol
+    uint32_t dfi;                   // distance from ideal
+    uint64_t name;                  // symbol name (offset into the string pool)
+    struct archive_member *member;  // weak pointer to the archive member where the symbol is defined
 };
 
 

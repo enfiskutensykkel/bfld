@@ -7,46 +7,45 @@ extern "C" {
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
-#include "utils/rbtree.h"
+#include "utils/stringpool.h"
+#include "utils/list.h"
 
 
 /* Forward declarations */
 struct mfile;
 struct objectfile;
+struct archive_member;
 
 
 /*
  * Archive file handle.
  *
- * Archives have a symbol index, allowing the linker to determine
- * if it defines any symbol that it needs.
- *
- * Archives contain multiple object files that can be pulled
- * out of the archive and used as input file to the linker, in 
- * order to resolve any symbols that the linker needs.
+ * Archives files (.a files) contain multiple object files that can be 
+ * pulled out of the archive and used as input file to the linker. 
  */
 struct archive
 {
-    char *name;                 // name of the archive
-    struct mfile *file;         // strong reference to the underlying memory mapped file
+    const char *name;           // name of the archive
     int refcnt;                 // reference counter
-    struct rb_tree members;     // the archive's member files (map ordered by offsets)
-    size_t nmembers;            // number of archive members
+    struct mfile *file;         // strong reference to the underlying memory mapped file
     const uint8_t *file_data;   // pointer to file data
     size_t file_size;           // total size of the file
+    struct archive_member *members; // dynamic array of archive members
+    size_t nmembers;            // number of archive members
+    struct string_pool names;   // member names
 };
 
 
 /*
  * Archive member file.
+ *
  * An archive member file is an object file
  * that can be pulled out of the archive.
  */
 struct archive_member
 {
     struct archive *archive;    // weak reference to the archive 
-    char *name;                 // name/identifier of the archive member (NOTE: may be NULL)
-    struct rb_node map_entry;   // map entry
+    uint64_t name;              // archive member name (offset in the string pool)
     size_t offset;              // offset to the member file
     size_t size;                // size of the member file
     const uint8_t *content;     // pointer to member content
@@ -58,22 +57,6 @@ struct archive * archive_alloc(struct mfile *file,
                                const char *name,
                                const uint8_t *file_data,
                                size_t file_size);
-
-
-/*
- * Add an archive member file.
- */
-struct archive_member * archive_add_member(struct archive *archive,
-                                           const char *name,
-                                           size_t offset,
-                                           size_t size);
-
-
-/*
- * Look up an archive member by offset.
- */
-struct archive_member * archive_get_member(const struct archive *archive,
-                                           size_t offset);
 
 
 /*
@@ -89,6 +72,21 @@ void archive_put(struct archive *archive);
 
 
 /*
+ * Add an archive member file.
+ */
+struct archive_member * archive_add_member(struct archive *archive,
+                                           const char *name,
+                                           size_t offset,
+                                           size_t size);
+
+
+/*
+ * Look up an archive member file from offset.
+ */ 
+struct archive_member * archive_get_member(const struct archive *archive, size_t offset);
+
+
+/*
  * Extract the specified archive member as an object file.
  *
  * If the object file is already loaded, the reference counter is 
@@ -98,6 +96,13 @@ void archive_put(struct archive *archive);
  * so the caller must call objectfile_put() to relase it.
  */
 struct objectfile * archive_extract_member(struct archive_member *member);
+
+
+static inline
+const char * archive_member_name(struct archive_member *member)
+{
+    return string_pool_at(&member->archive->names, member->name);
+}
 
 
 /*

@@ -19,12 +19,14 @@ struct archives * archives_alloc(void)
         return NULL;
     }
 
+    index->archives = NULL;
     index->refcnt = 1;
     index->capacity = 0;
     index->entries = 0;
-    index->threshold = 0;
-    index->table = NULL;
-    index->stringpool = STRING_POOL_INIT;
+    index->rehash_threshold = 0;
+    index->index = NULL;
+    index->names = STRING_POOL_INIT;
+    index->narchives = 0;
     return index;
 }
 
@@ -56,112 +58,181 @@ static bool archives_rehash_symbols(struct archives *index, uint64_t capacity)
         return true;
     }
 
-    capacity = align_roundup(capacity); // make sure cacpacity is a power of two
+    if (capacity < 8) {
+        capacity = 64;
+    }
+
+    // Make sure cacpacity is a power of two
+    capacity = align_roundup(capacity); 
 
     // Do a naive overflow check
-    if (capacity * sizeof(struct archive_entry) < index->capacity * sizeof(struct archive_entry)) {
+    if (capacity * sizeof(struct archive_symbol) < index->capacity * sizeof(struct archive_symbol)) {
         return false;
     }
 
-    struct archive_entry *table = calloc(capacity, sizeof(struct archive_entry));
-    if (table == NULL) {
+    struct archive_symbol *ht = calloc(capacity, sizeof(struct archive_symbol));
+    if (ht == NULL) {
         return false;
     }
 
     // Move entries from the old table to the new
-    if (index->table != NULL) {
-        for (uint64_t i = 0; i < index->capacity; ++i) {
-            struct archive_entry *entry = &index->table[i];
-            if (entry->hash == 0) {
-                continue;
-            }
+    for (uint64_t i = 0; i < index->capacity; ++i) {
+        struct archive_symbol entry = index->index[i];
+        entry.dfi = 0;
 
-            // We do a naive slot search, since we know there are no duplicates
-            uint64_t slot = entry->hash & (capacity - 1);
-            while (table[slot].hash != 0) {
-                slot = (slot + 1) & (capacity - 1);
+        uint64_t slot = entry.hash & (capacity - 1);
+        
+        while (entry.hash != 0) {
+            struct archive_symbol *current = &index->index[slot];
+
+            if (current->hash == 0 || entry.dfi > current->dfi) {
+                struct archive_symbol tmp = *current;
+                *current = entry;
+                entry = tmp;
             }
-            table[slot] = *entry;
         }
-        free(index->table);
+
+        slot = (slot + 1) & (capacity - 1);
+        entry.dfi++;
     }
 
-    index->table = table;
+    free(index->index);
+    index->index = ht;
     index->capacity = capacity;
-    index->threshold = (index->capacity / 4) * 3;
+    index->rehash_threshold = (index->capacity / 4) * 3;
     return true;
 }
 
 
-// TODO: consider using robin hood hashing
-bool archives_insert_symbol(struct archives *index, 
-                            struct archive_member *member,
-                            const char *name)
+static bool archives_add_archive(struct archives *index, struct archive *archive)
 {
-    uint64_t hash = hash_fnv1a_64(name, strlen(name));
+    uint64_t low = 0;
+    uint64_t high = index->narchives - 1;
+
+    while (low <= high) {
+        uint64_t mid = low + (high - low) / 2;
+
+        if (index->archives[mid] == archive) {
+            return true;
+        } else if (index->archives[mid] < archive) {
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+
+    struct archive **a = (struct archive**) realloc(index->archives, sizeof(struct archive*) * (index->narchives + 1));
+    if (a == NULL) {
+        return false;
+    }
+
+    index->archives = a;
+
+    for (uint64_t i = index->narchives; i > low; --i) {
+        index->archives[i] = index->archives[i-1];
+    }
+   
+    index->archives[low] = archive_get(archive); 
+    index->narchives++;
+    return true;
+}
+
+
+bool archives_insert_symbol(struct archives *index, struct archive_member *member, const char *symbol_name)
+{
+    struct archive *archive = member->archive;
+    uint32_t hash = hash_fnv1a_32(symbol_name, strlen(symbol_name));
+    
     if (hash == 0) {
         hash = 1;
     }
 
-    if (index->entries >= index->threshold || index->entries == index->capacity) {
-        if (!archives_rehash_symbols(index, index->capacity > 0 ? index->capacity * 2 : 8)) {
+    if (index->entries >= index->rehash_threshold || index->entries == index->capacity) {
+        if (!archives_rehash_symbols(index, index->capacity * 2)) {
             return false;
         }
     }
 
-    uint64_t slot = hash & (index->capacity - 1);
+    bool inserted = false;
+    uint64_t mask = index->capacity - 1;
+    uint64_t slot = hash & mask;
+    uint32_t dfi = 0;
+    uint64_t name = 0;
 
-    while (index->table[slot].hash != 0) {
-        if (index->table[slot].hash == hash) {
-            const char *value = string_pool_at(&index->stringpool, index->table[slot].name);
-            if (strcmp(name, value) == 0) {
-                // entry was already added
-                // fake that we added the symbol and keep old definition
-                //log_trace("Ignoring already added symbol '%s'", name);
+    while (hash != 0) {
+        struct archive_symbol *current = &index->index[slot];
+
+        if (!inserted && current->hash == hash) {
+            const char *existing = string_pool_at(&index->names, current->name);
+            if (strcmp(symbol_name, existing) == 0) {
                 return true;
             }
         }
 
-        slot = (slot + 1) & (index->capacity - 1);
+        if (current->hash == 0 || dfi > current->dfi) {
+
+            if (!inserted) {
+                if (!archives_add_archive(index, archive)) {
+                    return false;
+                }
+
+                name = string_pool_intern(&index->names, symbol_name);
+                if (name == 0) {
+                    return false;
+                }
+
+                inserted = true;
+            }
+
+            struct archive_symbol tmp = *current;
+            current->hash = hash;
+            current->dfi = dfi;
+            current->name = name;
+            current->member = member;
+
+            hash = tmp.hash;
+            dfi = tmp.dfi;
+            name = tmp.name;
+            member = tmp.member;
+        }
+
+        slot = (slot + 1) & mask;
+        ++dfi;
     }
 
-    struct archive_entry *entry = &index->table[slot];
-    uint64_t offset = string_pool_intern(&index->stringpool, name);
-    if (offset == 0) {
-        return false;
-    }
-    entry->name = offset;
-
-    entry->hash = hash;
-    entry->archive = archive_get(member->archive);
-    entry->member = member;
-    index->entries++;
     return true;
 }
 
 
-// TODO: consider using robin hood hashing
-struct archive_member * archives_find_symbol(const struct archives *index,
-                                             const char *name)
+struct archive_member * 
+archives_find_symbol(const struct archives *index, const char *symbol_name)
 {
     if (index->capacity == 0) {
         return NULL;
     }
 
-    uint64_t hash = hash_fnv1a_64(name, strlen(name));
+    uint32_t hash = hash_fnv1a_32(symbol_name, strlen(symbol_name));
     if (hash == 0) {
         hash = 1;
     }
 
-    uint64_t slot = hash & (index->capacity - 1);
+    uint64_t mask = index->capacity - 1;
+    uint64_t slot = hash & mask;
+    uint32_t dfi =  0;
 
-    while (index->table[slot].hash != 0) {
-        const char *value = string_pool_at(&index->stringpool, index->table[slot].name);
-        if (strcmp(name, value) == 0) {
-            return index->table[slot].member;
+    const struct archive_symbol *this = &index->index[slot];
+
+    while (this->hash != 0 && dfi <= this->dfi) {
+        if (this->hash == hash) {
+            const char *existing = string_pool_at(&index->names, this->name);
+            if (strcmp(existing, symbol_name) == 0) {
+                return this;
+            }
         }
 
-        slot = (slot + 1) & (index->capacity - 1);
+        slot = (slot + 1) & mask;
+        this = &index->index[slot];
+        ++dfi;
     }
 
     return NULL;
@@ -170,25 +241,20 @@ struct archive_member * archives_find_symbol(const struct archives *index,
 
 void archives_clear_symbols(struct archives *index)
 {
-    if (index->table != NULL) {
-        for (uint64_t i = 0; index->entries > 0 && i < index->capacity; ++i) {
-            struct archive_entry *entry = &index->table[i];
-            if (entry->hash != 0) {
-                archive_put(entry->archive);
-                entry->hash = 0;
-                entry->name = 0;
-                entry->archive = NULL;
-                entry->member = NULL;
-                index->entries--;
-            }
+    if (index->archives != NULL) {
+        for (uint64_t i = 0; i < index->narchives; ++i) {
+            struct archive *ar = index->archives[i];
+            archive_put(ar);
         }
-        free(index->table);
-        index->table = NULL;
+        index->narchives = 0;
+        free(index->archives);
+        index->archives = NULL;
     }
 
-    string_pool_clear(&index->stringpool);
+    string_pool_clear(&index->names);
     index->capacity = 0;
     index->entries = 0;
-    index->table = NULL;
-    index->threshold = 0;
+    free(index->index);
+    index->index = NULL;
+    index->rehash_threshold = 0;
 }

@@ -340,11 +340,6 @@ static int parse_file(const uint8_t *ptr, size_t size,
             log_trace("Found GNU/SysV style ranlib symbol index at offset %zu", offset);
 
             if (ranlib == NULL) {
-                if (check_gnu_ranlib_32(hdr, membsz)) {
-                    parse_gnu_ranlib_32(hdr, membsz);
-                } else {
-                    parse_gnu_ranlib_64(hdr, membsz);
-                }
                 ranlib = hdr;
             } else {
                 log_warning("Multiple ranlib symbol indexes detected");
@@ -354,7 +349,6 @@ static int parse_file(const uint8_t *ptr, size_t size,
             log_trace("Found GNU/SysV style ranlib symbol index at offset %zu", offset);
 
             if (ranlib == NULL) {
-                parse_gnu_ranlib_64(hdr, membsz);
                 ranlib = hdr;
             } else {
                 log_warning("Multiple ranlib symbol indexes detected");
@@ -380,7 +374,6 @@ static int parse_file(const uint8_t *ptr, size_t size,
                 log_trace("Found BSD style ranlib symbol index at offset %zu", offset);
                 
                 if (ranlib == NULL) {
-                    parse_bsd_ranlib_64(hdr, membsz, ptr);
                     ranlib = hdr;
                 } else {
                     log_warning("Multiple ranlib symbol indexes detected");
@@ -390,16 +383,14 @@ static int parse_file(const uint8_t *ptr, size_t size,
                 log_trace("Found BSD style ranlib symbol index at offset %zu", offset);
 
                 if (ranlib == NULL) {
-                    parse_bsd_ranlib_32(hdr, membsz, ptr);
                     ranlib = hdr;
                 } else {
                     log_warning("Multiple ranlib symbol indexes detected");
                 }
             } else {
                 // Regular member
+                archive_add_member(archive, name, offset + sizeof(*hdr), membsz);
             }
-
-            //archive_add_member(archive, name, offset + sizeof(*hdr), membsz);
         }
 
         offset += sizeof(*hdr) + membsz;
@@ -409,6 +400,27 @@ static int parse_file(const uint8_t *ptr, size_t size,
     if (ranlib == NULL) {
         log_warning("Archive has no ranlib symbol index");
         return 0;
+    }
+
+    size_t ransize = member_size(ranlib);
+
+    if (check_bsd_name(ranlib)) {
+        size_t len = member_name_length(ranlib, NULL);
+        char name[len + 1];
+        member_name_string(ranlib, NULL, name, len+1);
+
+        if (strcmp(name, "__.SYMDEF_64") == 0) {
+            parse_bsd_ranlib_64(ranlib, ransize, ptr);
+        } else {
+            parse_bsd_ranlib_32(ranlib, ransize, ptr);
+        }
+
+    } else {
+        if (check_gnu_ranlib_32(ranlib, ransize)) {
+            parse_gnu_ranlib_32(ranlib, ransize);
+        } else {
+            parse_gnu_ranlib_64(ranlib, ransize);
+        }
     }
 
 //    const uint32_t *offsets = (const uint32_t*) (ranlib + 1);
