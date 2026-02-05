@@ -105,7 +105,10 @@ static void member_name_string(const struct ar_header *hdr, const struct ar_head
 
     if (check_bsd_name(hdr)) {
         // BSD style extended name
-        memcpy(name, (const void*) (hdr + 1), len);
+        size_t membsz = member_size(hdr);
+        if (membsz >= len) {
+            memcpy(name, (const void*) (hdr + 1), len);
+        }
     } else if (hdr->name[0] == '/' && hdr->name[1] >= '0' && hdr->name[1] <= '9') {
         // GNU style extended name
         if (strtab != NULL) {
@@ -142,9 +145,12 @@ static bool check_magic(const uint8_t *ptr, size_t size)
 }
 
 
-static int parse_gnu_ranlib_64(const struct ar_header *hdr)
+static int parse_gnu_ranlib_64(const struct ar_header *hdr, size_t size)
 {
-    size_t size = member_size(hdr);
+    if (size <= sizeof(uint64_t)) {
+        return EINVAL;
+    }
+
     const uint64_t *offsets = (const uint64_t*) (hdr + 1);
     uint64_t num_entries = read_be64((const uint8_t*) offsets);
 
@@ -167,9 +173,12 @@ static int parse_gnu_ranlib_64(const struct ar_header *hdr)
 }
 
 
-static int parse_gnu_ranlib_32(const struct ar_header *hdr)
+static int parse_gnu_ranlib_32(const struct ar_header *hdr, size_t size)
 {
-    size_t size = member_size(hdr);
+    if (size < sizeof(uint32_t)) {
+        return EINVAL;
+    }
+
     const uint32_t *offsets = (const uint32_t*) (hdr + 1);
     uint32_t num_entries = read_be32((const uint8_t*) offsets);
 
@@ -192,23 +201,49 @@ static int parse_gnu_ranlib_32(const struct ar_header *hdr)
 }
 
 
-static bool check_gnu_ranlib_32(const struct ar_header *hdr)
+static bool check_gnu_ranlib_32(const struct ar_header *hdr, size_t size)
 {
-    size_t size = member_size(hdr);
+    if (size < sizeof(uint32_t)) {
+        return false;
+    }
+
     uint32_t num_entries = read_be32((const uint8_t*) (hdr + 1));
     return (num_entries + 1) * sizeof(uint32_t) <= size;
 }
 
 
-static int parse_bsd_ranlib_64(const struct ar_header *hdr, const uint8_t *file_start)
+static int parse_bsd_ranlib_64(const struct ar_header *hdr, size_t size, const uint8_t *file_start)
 {
-    const char *start = (((const char*) (hdr+1)) + member_name_length(hdr, NULL));
-    uint64_t size = *((uint64_t*) start);
-    uint64_t num_entries = size / sizeof(struct bsd_ranlib_entry_64);
-    uint64_t strtabsize = *((uint64_t*) (start + size));
+    if (size < sizeof(uint64_t)) {
+        return EINVAL;
+    }
+
+    size_t namelen = member_name_length(hdr, NULL);
+    const char *start = (((const char*) (hdr+1)) + namelen);
+
+    if (size < namelen + sizeof(uint64_t)) {
+        return EINVAL;
+    }
+
+    uint64_t bytes = *((uint64_t*) start);
+
+    if (bytes % sizeof(struct bsd_ranlib_entry_64) != 0) {
+        return EINVAL;
+    }
+
+    if (size < namelen + 2*sizeof(uint64_t) + bytes) {
+        return EINVAL;
+    }
+
+    uint64_t num_entries = bytes / sizeof(struct bsd_ranlib_entry_64);
+    uint64_t strtabsize = *((uint64_t*) (start + sizeof(uint64_t) + bytes));
+
+    if (size < namelen + 2*sizeof(uint64_t) + bytes + strtabsize) {
+        return EINVAL;
+    }
 
     struct bsd_ranlib_entry_64 *entries = (struct bsd_ranlib_entry_64*) (start + sizeof(uint64_t));
-    const char *strtab = start + sizeof(uint64_t) + size + sizeof(uint64_t);
+    const char *strtab = start + sizeof(uint64_t) + bytes + sizeof(uint64_t);
     
     log_debug("Parsing BSD style ranlib index (%u symbols)", num_entries);
 
@@ -228,16 +263,39 @@ static int parse_bsd_ranlib_64(const struct ar_header *hdr, const uint8_t *file_
 }
 
 
-static int parse_bsd_ranlib_32(const struct ar_header *hdr, const uint8_t *file_start)
+static int parse_bsd_ranlib_32(const struct ar_header *hdr, size_t size, const uint8_t *file_start)
 {
-    const char *start = (((const char*) (hdr+1)) + member_name_length(hdr, NULL));
-    size_t size = *((uint32_t*) start);
-    uint32_t num_entries = size / sizeof(struct bsd_ranlib_entry_32);
-    uint32_t strtabsize = *((uint32_t*) (start + size));
+    if (size < sizeof(uint32_t)) {
+        return EINVAL;
+    }
+
+    size_t namelen = member_name_length(hdr, NULL);
+    const char *start = (((const char*) (hdr+1)) + namelen);
+
+    if (size < namelen + sizeof(uint32_t)) {
+        return EINVAL;
+    }
+
+    size_t bytes = *((uint32_t*) start);
+
+    if (bytes % sizeof(struct bsd_ranlib_entry_32) != 0) {
+        return EINVAL;
+    }
+
+    if (size < namelen + 2*sizeof(uint32_t) + bytes) {
+        return EINVAL;
+    }
+
+    uint32_t num_entries = bytes / sizeof(struct bsd_ranlib_entry_32);
+    uint32_t strtabsize = *((uint32_t*) (start + sizeof(uint32_t) + bytes));
+
+    if (size < namelen + 2*sizeof(uint32_t) + bytes + strtabsize) {
+        return EINVAL;
+    }
 
     struct bsd_ranlib_entry_32 *entries = (struct bsd_ranlib_entry_32*) (start + sizeof(uint32_t));
-    const char *strtab = start + sizeof(uint32_t) + size + sizeof(uint32_t);
-    
+    const char *strtab = start + sizeof(uint32_t) + bytes + sizeof(uint32_t);
+
     log_debug("Parsing BSD style ranlib index (%u symbols)", num_entries);
 
     for (uint32_t i = 0; i < num_entries; ++i) {
@@ -279,27 +337,37 @@ static int parse_file(const uint8_t *ptr, size_t size,
         }
 
         if (hdr->name[0] == '/' && (hdr->name[1] == ' ' || hdr->name[1] == '\0')) {
-            log_trace("Found GNU/SysV style ranlib index at offset %zu", offset);
+            log_trace("Found GNU/SysV style ranlib symbol index at offset %zu", offset);
 
             if (ranlib == NULL) {
-                if (check_gnu_ranlib_32(hdr)) {
-                    parse_gnu_ranlib_32(hdr);
+                if (check_gnu_ranlib_32(hdr, membsz)) {
+                    parse_gnu_ranlib_32(hdr, membsz);
                 } else {
-                    parse_gnu_ranlib_64(hdr);
+                    parse_gnu_ranlib_64(hdr, membsz);
                 }
                 ranlib = hdr;
+            } else {
+                log_warning("Multiple ranlib symbol indexes detected");
             }
+
         } else if (strncmp(hdr->name, "/SYM64/", 7) == 0) {
-            log_trace("Found GNU/SysV style ranlib index at offset %zu", offset);
+            log_trace("Found GNU/SysV style ranlib symbol index at offset %zu", offset);
 
             if (ranlib == NULL) {
-                parse_gnu_ranlib_64(hdr);
+                parse_gnu_ranlib_64(hdr, membsz);
                 ranlib = hdr;
+            } else {
+                log_warning("Multiple ranlib symbol indexes detected");
             }
         
         } else if (strncmp(hdr->name, "//", 2) == 0) {
-            log_debug("Found GNU/SysV style extended string table at offset %zu", offset);
-            strtab = hdr;
+            log_trace("Found GNU/SysV style extended string table at offset %zu", offset);
+
+            if (strtab == NULL) {
+                strtab = hdr;
+            } else {
+                log_warning("Multiple extended string tables detected");
+            }
 
         } else {
             size_t len = member_name_length(hdr, strtab);
@@ -309,21 +377,27 @@ static int parse_file(const uint8_t *ptr, size_t size,
             bool is_bsd = check_bsd_name(hdr);
 
             if (is_bsd && strcmp(name, "__.SYMDEF_64") == 0) {
-                log_trace("Found BSD style ranlib index at offset %zu", offset);
+                log_trace("Found BSD style ranlib symbol index at offset %zu", offset);
                 
                 if (ranlib == NULL) {
-                    parse_bsd_ranlib_64(hdr, ptr);
+                    parse_bsd_ranlib_64(hdr, membsz, ptr);
                     ranlib = hdr;
+                } else {
+                    log_warning("Multiple ranlib symbol indexes detected");
                 }
 
             } else if (is_bsd && strcmp(name, "__.SYMDEF") == 0) {
-                log_trace("Found BSD style ranlib index at offset %zu", offset);
+                log_trace("Found BSD style ranlib symbol index at offset %zu", offset);
 
                 if (ranlib == NULL) {
-                    parse_bsd_ranlib_32(hdr, ptr);
+                    parse_bsd_ranlib_32(hdr, membsz, ptr);
                     ranlib = hdr;
+                } else {
+                    log_warning("Multiple ranlib symbol indexes detected");
                 }
-            } 
+            } else {
+                // Regular member
+            }
 
             //archive_add_member(archive, name, offset + sizeof(*hdr), membsz);
         }
@@ -333,7 +407,7 @@ static int parse_file(const uint8_t *ptr, size_t size,
     }
 
     if (ranlib == NULL) {
-        log_warning("Archive has no ranlib index");
+        log_warning("Archive has no ranlib symbol index");
         return 0;
     }
 

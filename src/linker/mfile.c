@@ -70,7 +70,7 @@ int mfile_open_read(struct mfile **file, const char *pathname)
         return EBADF;
     }
 
-    log_debug("Opened file for reading");
+    log_trace("Opened file for reading");
 
     // Create file handle
     struct mfile *f = malloc(sizeof(struct mfile));
@@ -156,7 +156,7 @@ int mfile_open_write(struct mfile **file, const char *pathname, size_t size)
         return EBADF;
     }
 
-    log_debug("Opened file for writing");
+    log_trace("Opened file for writing");
 
     // Create file handle
     struct mfile *f = malloc(sizeof(struct mfile));
@@ -212,7 +212,7 @@ void mfile_put(struct mfile *file)
             close(file->fd);
         } 
 
-        log_debug("File closed");
+        log_trace("File closed");
 
         free(file->name);
         free(file);
