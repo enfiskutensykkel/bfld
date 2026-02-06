@@ -12,23 +12,30 @@ void test_tail_merge(void)
 
     const char *words[] = {"main", "domain", "_io_file_open", "mydomain", "foobar", "bar", "file_open", "open"};
 
-    for (size_t i = 0; i < sizeof(words) / sizeof(words[0]); ++i) {
+    for (size_t i = 0; i < 8; ++i) {
         string_pool_intern(&pool, words[i]);
     }
 
-    struct string_pool *copy = string_pool_clone_and_compact(&pool);
+    struct string_pool *copy = string_pool_tail_merge(&pool);
 
     fprintf(stderr, "Entries:\n");
     string_pool_for_each_offset(offs, copy) {
         fprintf(stderr, "%s\n", string_pool_at(copy, offs));
     }
+    assert(copy->count == 8);
 
     fprintf(stderr, "\nActual strings:\n");
     const char *s = &copy->strings[1];
+    size_t nstrings = 0;
+    size_t size = 0;
     while (s < copy->strings + copy->offset) {
         fprintf(stderr, "%s\n", s);
+        nstrings++;
+        size += strlen(s) + 1;
         s += strlen(s) + 1;
     }
+    assert(size == strlen("foobar") + 1 + strlen("mydomain") + 1 + strlen("_io_file_open") + 1);
+    assert(copy->offset == 1 + size);
     
     string_pool_put(copy);
     string_pool_clear(&pool);

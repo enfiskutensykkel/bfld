@@ -51,37 +51,29 @@ bool strissuffix(const char *suffix, size_t suffixlen, const char *s, size_t len
 }
 
 
-static struct string * tree_add_string(struct rb_tree *tree, const char *strings, uint64_t offset, size_t length)
+static bool tree_add_string(struct rb_tree *tree, const char *strings, struct string *string)
 {
-    struct string *w = malloc(sizeof(struct string));
-    if (w == NULL) {
-        return NULL;
-    }
-
-    w->offset = offset;
-    w->length = length;  // includes the NUL-character
-
     struct rb_node **pos = &(tree->root), *parent = NULL;
-    const char *string = &strings[offset];
+    const char *str = &strings[string->offset];
 
     while (*pos != NULL) {
         struct string *this = rb_entry(*pos, struct string, node);
         parent = *pos;
 
-        int result = strrevcmp(string, length, &strings[this->offset], this->length);
+        int result = strrevcmp(str, string->length, &strings[this->offset], this->length);
         if (result < 0) {
             pos = &((*pos)->left);
         } else if (result > 0) {
             pos = &((*pos)->right);
         } else {
-            free(w);
-            return this;
+            // This shouldn't happen
+            return false;
         }
     }
 
-    rb_insert_node(&w->node, parent, pos);
-    rb_insert_fixup(tree, &w->node);
-    return w;
+    rb_insert_node(&string->node, parent, pos);
+    rb_insert_fixup(tree, &string->node);
+    return true;
 }
 
 
@@ -257,7 +249,7 @@ void string_pool_clear(struct string_pool *pool)
 }
 
 
-static bool string_pool_insert_tail_merge_offset(struct string_pool *pool, uint64_t base_offset, size_t base_length, size_t tail_length)
+static bool insert_tail_merge_offset(struct string_pool *pool, uint64_t base_offset, size_t base_length, size_t tail_length)
 {
     size_t length = tail_length;
     uint64_t relative_offset = base_length - tail_length;
@@ -302,39 +294,49 @@ static bool string_pool_insert_tail_merge_offset(struct string_pool *pool, uint6
 }
 
 
-
-struct string_pool * string_pool_clone_and_compact(const struct string_pool *pool)
+struct string_pool * string_pool_tail_merge(const struct string_pool *pool)
 {
-    struct rb_tree tree;
-    struct rb_node *node;
+    if (pool->count == 0) {
+        return string_pool_alloc();
+    }
+
+    struct string *arena = malloc(sizeof(struct string) * pool->count);
+    if (arena == NULL) {
+        return NULL;
+    }
+    uint64_t arena_idx = 0;
+
     const char *strings = pool->strings;
 
-    struct string_pool *clone = NULL;
-
+    // Sort strings on reverse strings
+    struct rb_tree tree;
     rb_tree_init(&tree);
 
     for (uint64_t i = 0; i < pool->capacity; ++i) {
         const struct intern *this = &pool->index[i];
         if (this->hash != 0) {
-            struct string *s = tree_add_string(&tree, strings, this->offset, this->length);
-            if (s == NULL) {
-                goto leave;
-            }
+            struct string *s = &arena[arena_idx++];
+            s->offset = this->offset;
+            s->length = this->length;
+            tree_add_string(&tree, strings, s);
         }
     }
 
-    clone = string_pool_alloc();
+    struct string_pool *clone = string_pool_alloc();
     if (clone == NULL) {
-        goto leave;
+        free(arena);
+        return NULL;
     }
 
     string_pool_extend(clone, pool->size);
     string_pool_rehash(clone, pool->capacity);
 
-    node = rb_last(&tree);
+    struct rb_node *node = rb_last(&tree);
     struct string *longest = NULL;
     uint64_t offset = 0;
 
+    // Tree is sorted on reverse strings, iterate from back and intern only 
+    // the longest string versions but add entries for substrings
     while (node != NULL) {
         struct string *s = rb_entry(node, struct string, node);
 
@@ -347,19 +349,12 @@ struct string_pool * string_pool_clone_and_compact(const struct string_pool *poo
             longest = s;
 
         } else {
-            string_pool_insert_tail_merge_offset(clone, offset, longest->length, s->length);
+            insert_tail_merge_offset(clone, offset, longest->length, s->length);
         }
 
         node = rb_prev(node);
     }
 
-leave:
-    while (tree.root != NULL) {
-        struct rb_node *node = tree.root;
-        struct string *s = rb_entry(node, struct string, node);
-        rb_remove(&tree, node);
-        free(s);
-    }
-
+    free(arena);
     return clone;
 }

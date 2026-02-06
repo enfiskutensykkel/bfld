@@ -296,14 +296,12 @@ const char * string_pool_at(const struct string_pool *pool, uint64_t offset)
 /*
  * Clone the string pool and compact the copy by performing tail merging.
  */
-struct string_pool * string_pool_clone_and_compact(const struct string_pool *pool);
+struct string_pool * string_pool_tail_merge(const struct string_pool *pool);
 
 
 #define string_pool_for_each_offset(iterator, pool_ptr) \
-    for (uint64_t __idx = 0, iterator = (pool_ptr)->index != NULL ? (pool_ptr)->index[__idx].offset : 0; \
-            __idx < (pool_ptr)->capacity; \
-            iterator = (pool_ptr)->index[++__idx].offset) \
-        if ((pool_ptr)->index[__idx].hash != 0)
+    for (uint64_t __idx = 0; __idx < (pool_ptr)->capacity; __idx++) \
+        for (uint64_t __once = 1, iterator = (pool_ptr)->index[__idx].offset; __once && (pool_ptr)->index[__idx].hash != 0; __once = 0)
 
 
 #ifdef __cplusplus
