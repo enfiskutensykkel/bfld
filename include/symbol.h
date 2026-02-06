@@ -8,7 +8,6 @@ extern "C" {
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include "stringpool.h"
 
 // Forward declarations
 struct section;
@@ -46,8 +45,7 @@ enum symbol_binding
 struct symbol
 {
     int refcnt;                     // reference counter
-    struct string_pool *strpool;    // symbol name string pool 
-    uint64_t name;                  // symbol name (offset into the string pool)
+    char *name;                     // symbol name
     uint32_t hash;                  // precalculated hash of the symbol name
     enum symbol_binding binding;    // symbol binding type
     enum symbol_type type;          // symbol type
@@ -69,7 +67,7 @@ struct symbol
 static inline
 const char * symbol_name(const struct symbol *symbol)
 {
-    return string_pool_at(symbol->strpool, symbol->name);
+    return symbol->name;
 }
 
 
@@ -92,8 +90,7 @@ bool symbol_is_alive(const struct symbol *symbol);
 /*
  * Allocate a symbol descriptor.
  */
-struct symbol * symbol_alloc(struct string_pool *strpool,
-                             const char *name,
+struct symbol * symbol_alloc(const char *name,
                              enum symbol_type type,
                              enum symbol_binding binding);
 

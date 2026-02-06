@@ -190,8 +190,8 @@ void string_pool_unintern(struct string_pool *pool, const char *string)
         return;
     }
 
-    size_t length = strlen(string);
-    uint32_t hash = hash_fnv1a_32(string, length);
+    size_t length = strlen(string) + 1;
+    uint32_t hash = hash_fnv1a_32(string, length - 1);
     if (hash == 0) {
         hash = 1;  // hash == 0 means unused
     }
@@ -291,6 +291,12 @@ const char * string_pool_at(const struct string_pool *pool, uint64_t offset)
 
     return NULL;
 }
+
+
+/*
+ * Clone the string pool and compact the copy by performing tail merging.
+ */
+struct string_pool * string_pool_clone_and_compact(const struct string_pool *pool);
 
 
 #define string_pool_for_each_offset(iterator, pool_ptr) \

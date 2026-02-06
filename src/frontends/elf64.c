@@ -376,7 +376,6 @@ static int parse_reltab(const Elf64_Ehdr *eh,
  */
 static int parse_symtab(const Elf64_Ehdr *eh, 
                         const Elf64_Shdr *sh, 
-                        struct string_pool *strpool,
                         const struct section_table *sections, 
                         struct symbol_table *symbols)
 {
@@ -497,7 +496,7 @@ static int parse_symtab(const Elf64_Ehdr *eh,
             continue;
         }
 
-        struct symbol *symbol = symbol_alloc(strpool, name, type, binding);
+        struct symbol *symbol = symbol_alloc(name, type, binding);
         if (symbol == NULL) {
             status = ENOMEM;
             goto out;
@@ -535,7 +534,6 @@ out:
 static int parse_elf_file(const uint8_t *file_data, 
                           size_t file_size,
                           struct objectfile *objfile, 
-                          struct string_pool *strpool,
                           struct section_table *sections, 
                           struct symbol_table *symbols)
 {
@@ -560,7 +558,7 @@ static int parse_elf_file(const uint8_t *file_data,
 
     // Parse symbol table
     list_for_each_entry_safe(s, &symtabs, struct elf_section_entry, entry) {
-        status = parse_symtab(eh, s->shdr, strpool, sections, symbols);
+        status = parse_symtab(eh, s->shdr, sections, symbols);
         if (status != 0) {
             goto cleanup;
         }

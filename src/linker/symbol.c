@@ -32,14 +32,14 @@ void symbol_put(struct symbol *sym)
             section_put(sym->section);
             sym->section = NULL;
         }
-        string_pool_put(sym->strpool);
+        free(sym->name);
         free(sym);
     }
 }
 
 
-struct symbol * symbol_alloc(struct string_pool *strpool, const char *name, 
-                             enum symbol_type type, enum symbol_binding binding)
+struct symbol * symbol_alloc(const char *name, enum symbol_type type, 
+                             enum symbol_binding binding)
 {
     switch (type) {
         case SYMBOL_NOTYPE:
@@ -54,18 +54,18 @@ struct symbol * symbol_alloc(struct string_pool *strpool, const char *name,
             return NULL;
     }
 
-    uint64_t name_id = string_pool_intern(strpool, name);
-    if (name_id == 0) {
-        return NULL;
-    }
-
     struct symbol *sym = malloc(sizeof(struct symbol));
     if (sym == NULL) {
         return NULL;
     }
 
-    sym->strpool = string_pool_get(strpool);
-    sym->name = name_id;
+    sym->name = malloc(strlen(name) + 1);
+    if (sym->name == NULL) {
+        free(sym);
+        return NULL;
+    }
+    strcpy(sym->name, name);
+
     sym->hash = hash_fnv1a_32(name, strlen(name));
     sym->binding = binding;
     sym->type = type;

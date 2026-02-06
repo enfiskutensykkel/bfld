@@ -67,7 +67,6 @@ int globals_insert_symbol(struct globals *globals, struct symbol *symbol,
         struct globals_entry *this = rb_entry(*pos, struct globals_entry, map_entry);
         parent = *pos;
 
-
         int result = strcmp(name, symbol_name(this->symbol));
         if (result < 0) {
             pos = &((*pos)->left);

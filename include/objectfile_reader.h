@@ -14,7 +14,6 @@ extern "C" {
 #include "symbol.h"
 #include "symbols.h"
 #include "globals.h"
-#include "stringpool.h"
 
 
 /*
@@ -48,7 +47,6 @@ struct objectfile_reader
     int (*parse_file)(const uint8_t *file_data, 
                       size_t file_size,
                       struct objectfile *object_file,
-                      struct string_pool *string_pool,
                       struct section_table *sections,
                       struct symbol_table *symbols);
 };

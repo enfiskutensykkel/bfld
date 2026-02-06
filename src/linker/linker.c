@@ -185,16 +185,10 @@ bool linker_load_objectfile(struct linkerctx *ctx,
         return false;
     }
 
-    struct string_pool *strpool = string_pool_alloc();
-    if (strpool == NULL) {
-        log_ctx_pop();
-        return false;
-    }
-
     log_debug("Loading object file using front-end '%s'", reader->name);
 
     status = reader->parse_file(objfile->file_data, objfile->file_size,
-                                objfile, strpool, &secttab, &symtab);
+                                objfile, &secttab, &symtab);
     while (log_ctx > current_log_ctx) {
         log_warning("Unwinding log context stack");
         log_ctx_pop();
@@ -224,7 +218,8 @@ bool linker_load_objectfile(struct linkerctx *ctx,
 
         if (symbol_is_defined(sym)) {
             if (strncmp(".text._", section_name(sym->section), 7) == 0) {
-                log_notice("Symbol '%s' is defined in section %s", symbol_name(sym), section_name(sym));
+                log_notice("Symbol '%s' is defined in section %s", 
+                        symbol_name(sym), section_name(sym->section));
             }
         }
         
@@ -295,7 +290,6 @@ leave:
     }
 
     log_ctx_pop();
-    string_pool_put(strpool);
     symbol_table_clear(&symtab);
     section_table_clear(&secttab);
     return success;
