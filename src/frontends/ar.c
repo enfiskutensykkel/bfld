@@ -145,7 +145,7 @@ static bool check_magic(const uint8_t *ptr, size_t size)
 }
 
 
-static int parse_gnu_ranlib_64(const struct ar_header *hdr, size_t size)
+static int parse_gnu_ranlib_64(struct archive *archive, struct archives *index, const struct ar_header *hdr, size_t size)
 {
     if (size <= sizeof(uint64_t)) {
         return EINVAL;
@@ -161,19 +161,23 @@ static int parse_gnu_ranlib_64(const struct ar_header *hdr, size_t size)
     const char *symtab = (const char*) (offsets + num_entries + 1);
 
     log_debug("Parsing GNU/SysV style ranlib index (%lu symbols)", num_entries);
-    for (uint64_t i = 0; i < num_entries; ++i) {
+    for (uint64_t i = 0; i < num_entries; ++i, symtab += strlen(symtab) + 1) {
         const char *name = symtab;
         uint64_t offset = read_be64((const uint8_t*) &offsets[i + 1]) + sizeof(struct ar_header);
 
-        log_trace("Symbol '%s' offset %lu", name, offset);
-
-        symtab += strlen(symtab) + 1;
+        struct archive_member *member = archive_get_member(archive, offset);
+        if (member != NULL) {
+            archives_insert_symbol(index, member, name);
+        } else {
+            log_warning("Symbol '%s' (index %u) refers to non-existing archive member (offset %llu)",
+                    name, i, offset);
+        }
     }
     return 0;
 }
 
 
-static int parse_gnu_ranlib_32(const struct ar_header *hdr, size_t size)
+static int parse_gnu_ranlib_32(struct archive *archive, struct archives *index, const struct ar_header *hdr, size_t size)
 {
     if (size < sizeof(uint32_t)) {
         return EINVAL;
@@ -189,13 +193,17 @@ static int parse_gnu_ranlib_32(const struct ar_header *hdr, size_t size)
     const char *symtab = (const char*) (offsets + num_entries + 1);
 
     log_debug("Parsing GNU/SysV style ranlib index (%lu symbols)", num_entries);
-    for (uint32_t i = 0; i < num_entries; ++i) {
+    for (uint32_t i = 0; i < num_entries; ++i, symtab += strlen(symtab) + 1) {
         const char *name = symtab;
-        uint32_t offset = read_be32((const uint8_t*) &offsets[i + 1]);
+        uint32_t offset = read_be32((const uint8_t*) &offsets[i + 1]) + sizeof(struct ar_header);
 
-        log_trace("Symbol '%s' offset %lu", name, offset);
-
-        symtab += strlen(symtab) + 1;
+        struct archive_member *member = archive_get_member(archive, offset);
+        if (member != NULL) {
+            archives_insert_symbol(index, member, name);
+        } else {
+            log_warning("Symbol '%s' (index %u) refers to non-existing archive member (offset %lu)",
+                    name, i, offset);
+        }
     }
     return 0;
 }
@@ -212,7 +220,8 @@ static bool check_gnu_ranlib_32(const struct ar_header *hdr, size_t size)
 }
 
 
-static int parse_bsd_ranlib_64(const struct ar_header *hdr, size_t size, const uint8_t *file_start)
+static int parse_bsd_ranlib_64(struct archive *archive, struct archives *index,
+                               const struct ar_header *hdr, size_t size, const uint8_t *file_start)
 {
     if (size < sizeof(uint64_t)) {
         return EINVAL;
@@ -252,18 +261,26 @@ static int parse_bsd_ranlib_64(const struct ar_header *hdr, size_t size, const u
         const char *name = strtab + entry->strx;
         uint64_t offset = entry->offset;
         offset += sizeof(struct ar_header);
+
         if (check_bsd_name((struct ar_header*) (file_start + entry->offset))) {
             offset += member_name_length((struct ar_header*) (file_start + entry->offset), NULL);
         }
 
-        log_trace("Symbol '%s' offset %u", name, offset);
+        struct archive_member *member = archive_get_member(archive, offset);
+        if (member != NULL) {
+            archives_insert_symbol(index, member, name);
+        } else {
+            log_warning("Symbol '%s' (index %u) refers to non-existing archive member (offset %llu)",
+                    name, i, offset);
+        }
     }
 
     return 0;
 }
 
 
-static int parse_bsd_ranlib_32(const struct ar_header *hdr, size_t size, const uint8_t *file_start)
+static int parse_bsd_ranlib_32(struct archive *archive, struct archives *index, 
+                               const struct ar_header *hdr, size_t size, const uint8_t *file_start)
 {
     if (size < sizeof(uint32_t)) {
         return EINVAL;
@@ -303,11 +320,18 @@ static int parse_bsd_ranlib_32(const struct ar_header *hdr, size_t size, const u
         const char *name = strtab + entry->strx;
         uint32_t offset = entry->offset;
         offset += sizeof(struct ar_header);
+
         if (check_bsd_name((struct ar_header*) (file_start + entry->offset))) {
             offset += member_name_length((struct ar_header*) (file_start + entry->offset), NULL);
         }
 
-        log_trace("Symbol '%s' offset %u", name, offset);
+        struct archive_member *member = archive_get_member(archive, offset);
+        if (member != NULL) {
+            archives_insert_symbol(index, member, name);
+        } else {
+            log_warning("Symbol '%s' (index %u) refers to non-existing archive member (offset %lu)",
+                    name, i, offset);
+        }
     }
 
     return 0;
@@ -321,6 +345,7 @@ static int parse_file(const uint8_t *ptr, size_t size,
 
     const struct ar_header *strtab = NULL;
     const struct ar_header *ranlib = NULL;
+    size_t ransize = 0;
 
     while (offset < size) {
         const struct ar_header *hdr = (const void*) (ptr + offset);
@@ -341,6 +366,7 @@ static int parse_file(const uint8_t *ptr, size_t size,
 
             if (ranlib == NULL) {
                 ranlib = hdr;
+                ransize = membsz;
             } else {
                 log_warning("Multiple ranlib symbol indexes detected");
             }
@@ -350,6 +376,7 @@ static int parse_file(const uint8_t *ptr, size_t size,
 
             if (ranlib == NULL) {
                 ranlib = hdr;
+                ransize = membsz;
             } else {
                 log_warning("Multiple ranlib symbol indexes detected");
             }
@@ -368,27 +395,32 @@ static int parse_file(const uint8_t *ptr, size_t size,
             char name[len + 1];
             member_name_string(hdr, strtab, name, len+1);
 
-            bool is_bsd = check_bsd_name(hdr);
+            if (check_bsd_name(hdr)) {
+                if (strcmp(name, "__.SYMDEF_64") == 0) {
+                    log_trace("Found BSD style ranlib symbol index at offset %zu", offset);
 
-            if (is_bsd && strcmp(name, "__.SYMDEF_64") == 0) {
-                log_trace("Found BSD style ranlib symbol index at offset %zu", offset);
-                
-                if (ranlib == NULL) {
-                    ranlib = hdr;
+                    if (ranlib == NULL) {
+                        ranlib = hdr;
+                        ransize = membsz;
+                    } else {
+                        log_warning("Multiple ranlib symbol indexes detected");
+                    }
+
+                } else if (strcmp(name, "__.SYMDEF") == 0) {
+                    log_trace("Found BSD style ranlib symbol index at offset %zu", offset);
+
+                    if (ranlib == NULL) {
+                        ranlib = hdr;
+                        ransize = membsz;
+                    } else {
+                        log_warning("Multiple ranlib symbol indexes detected");
+                    }
                 } else {
-                    log_warning("Multiple ranlib symbol indexes detected");
-                }
-
-            } else if (is_bsd && strcmp(name, "__.SYMDEF") == 0) {
-                log_trace("Found BSD style ranlib symbol index at offset %zu", offset);
-
-                if (ranlib == NULL) {
-                    ranlib = hdr;
-                } else {
-                    log_warning("Multiple ranlib symbol indexes detected");
+                    // Regular archive member
+                    archive_add_member(archive, name, offset + sizeof(*hdr) + len, membsz - len);
                 }
             } else {
-                // Regular member
+                // Regular archive member
                 archive_add_member(archive, name, offset + sizeof(*hdr), membsz);
             }
         }
@@ -398,11 +430,14 @@ static int parse_file(const uint8_t *ptr, size_t size,
     }
 
     if (ranlib == NULL) {
-        log_warning("Archive has no ranlib symbol index");
+        log_warning("Archive has no symbol index");
         return 0;
     }
-
-    size_t ransize = member_size(ranlib);
+    
+    if (ransize == 0) {
+        log_warning("Archive symbol index is empty");
+        return 0;
+    }
 
     if (check_bsd_name(ranlib)) {
         size_t len = member_name_length(ranlib, NULL);
@@ -410,36 +445,18 @@ static int parse_file(const uint8_t *ptr, size_t size,
         member_name_string(ranlib, NULL, name, len+1);
 
         if (strcmp(name, "__.SYMDEF_64") == 0) {
-            parse_bsd_ranlib_64(ranlib, ransize, ptr);
+            parse_bsd_ranlib_64(archive, index, ranlib, ransize, ptr);
         } else {
-            parse_bsd_ranlib_32(ranlib, ransize, ptr);
+            parse_bsd_ranlib_32(archive, index, ranlib, ransize, ptr);
         }
 
     } else {
         if (check_gnu_ranlib_32(ranlib, ransize)) {
-            parse_gnu_ranlib_32(ranlib, ransize);
+            parse_gnu_ranlib_32(archive, index, ranlib, ransize);
         } else {
-            parse_gnu_ranlib_64(ranlib, ransize);
+            parse_gnu_ranlib_64(archive, index, ranlib, ransize);
         }
     }
-
-//    const uint32_t *offsets = (const uint32_t*) (ranlib + 1);
-//    uint32_t num_entries = bswap_32(offsets[0]);
-//    const char *symtab = (const char*) (offsets + num_entries + 1);
-//
-//    log_trace("Parsing ranlib index (%u symbols)", num_entries);
-//    for (uint32_t i = 0; i < num_entries; ++i) {
-//        uint32_t offset = bswap_32(offsets[i + 1]) + sizeof(struct ar_header);
-//        struct archive_member *member = archive_get_member(archive, offset);
-//
-//        if (member != NULL) {
-//            archives_insert_symbol(index, member, symtab);
-//        } else {
-//            log_error("Symbol '%s' (index %u) refers to non-existing archive member (offset %lu)",
-//                    symtab, i, offset);
-//        }
-//        symtab += strlen(symtab) + 1;
-//    }
 
     return 0;
 }

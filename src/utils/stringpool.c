@@ -12,12 +12,12 @@
 
 bool string_pool_rehash(struct string_pool *pool, uint64_t capacity)
 {
-    if (capacity <= pool->capacity) {
-        return true;
-    }
-
     if (capacity < 8) {
         capacity = 8;
+    }
+
+    if (capacity <= pool->capacity) {
+        return true;
     }
 
     // Make sure capacity is aligned to a power of two
@@ -35,6 +35,11 @@ bool string_pool_rehash(struct string_pool *pool, uint64_t capacity)
 
     for (uint64_t i = 0; i < pool->capacity; ++i) {
         const struct intern *entry = &pool->index[i];
+
+        if (entry->hash == 0) {
+            continue;
+        }
+
         uint32_t hash = entry->hash;
         uint32_t dfi = 0;
         uint64_t offset = entry->offset;
@@ -67,6 +72,13 @@ bool string_pool_rehash(struct string_pool *pool, uint64_t capacity)
     pool->capacity = capacity;
     pool->rehash_threshold = STRING_POOL_REHASH_THRESHOLD(capacity);
 
+    if (pool->strings == NULL) {
+        if (string_pool_extend(pool, 256)) {
+            pool->strings[0] = '\0';
+            pool->offset = 1;
+        }
+    }
+
     return true;
 }
 
@@ -90,6 +102,11 @@ bool string_pool_extend(struct string_pool *pool, size_t length)
     char *strings = (char*) realloc(pool->strings, size);
     if (strings == NULL) {
         return false;
+    }
+
+    if (pool->strings == NULL && pool->offset == 0) {
+        strings[0] = '\0';
+        pool->offset = 1;
     }
 
     pool->strings = strings;

@@ -103,6 +103,7 @@ bool string_pool_rehash(struct string_pool *pool, uint64_t capacity);
  * If the string is already added, the existing offset is returned.
  * Returns 0 if adding the string failed, as the first entry is reserved for the empty string.
  */
+#include <stdio.h>
 static inline
 uint64_t string_pool_intern(struct string_pool *pool, const char *string)
 {
@@ -112,9 +113,8 @@ uint64_t string_pool_intern(struct string_pool *pool, const char *string)
 
     size_t length = strlen(string) + 1;
     uint32_t hash = hash_fnv1a_32(string, length - 1);
-
     if (hash == 0) {
-        hash = 1;  // index 0 is reserved for the empty string
+        hash = 1;
     }
 
     if (pool->count >= pool->rehash_threshold) {
@@ -286,17 +286,6 @@ const char * string_pool_at(const struct string_pool *pool, uint64_t offset)
     }
 
     return NULL;
-}
-
-
-/*
- * Convenience function for interning a string and getting the copy.
- */
-static inline
-const char * string_pool_copy(struct string_pool *pool, const char *string)
-{
-    uint64_t offset = string_pool_intern(pool, string);
-    return string_pool_at(pool, offset);
 }
 
 

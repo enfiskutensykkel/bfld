@@ -58,10 +58,6 @@ static bool archives_rehash_symbols(struct archives *index, uint64_t capacity)
         return true;
     }
 
-    if (capacity < 8) {
-        capacity = 64;
-    }
-
     // Make sure cacpacity is a power of two
     capacity = align_roundup(capacity); 
 
@@ -78,22 +74,26 @@ static bool archives_rehash_symbols(struct archives *index, uint64_t capacity)
     // Move entries from the old table to the new
     for (uint64_t i = 0; i < index->capacity; ++i) {
         struct archive_symbol entry = index->index[i];
-        entry.dfi = 0;
 
+        if (entry.hash == 0) {
+            continue;
+        }
+
+        entry.dfi = 0;
         uint64_t slot = entry.hash & (capacity - 1);
         
         while (entry.hash != 0) {
-            struct archive_symbol *current = &index->index[slot];
+            struct archive_symbol *current = &ht[slot];
 
             if (current->hash == 0 || entry.dfi > current->dfi) {
                 struct archive_symbol tmp = *current;
                 *current = entry;
                 entry = tmp;
             }
-        }
 
-        slot = (slot + 1) & (capacity - 1);
-        entry.dfi++;
+            slot = (slot + 1) & (capacity - 1);
+            entry.dfi++;
+        }
     }
 
     free(index->index);
@@ -107,17 +107,20 @@ static bool archives_rehash_symbols(struct archives *index, uint64_t capacity)
 static bool archives_add_archive(struct archives *index, struct archive *archive)
 {
     uint64_t low = 0;
-    uint64_t high = index->narchives - 1;
 
-    while (low <= high) {
-        uint64_t mid = low + (high - low) / 2;
+    if (index->narchives > 0) {
+        uint64_t high = index->narchives - 1;
 
-        if (index->archives[mid] == archive) {
-            return true;
-        } else if (index->archives[mid] < archive) {
-            low = mid + 1;
-        } else {
-            high = mid - 1;
+        while (low <= high) {
+            uint64_t mid = low + (high - low) / 2;
+
+            if (index->archives[mid] == archive) {
+                return true;
+            } else if (index->archives[mid] < archive) {
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
         }
     }
 
@@ -142,13 +145,12 @@ bool archives_insert_symbol(struct archives *index, struct archive_member *membe
 {
     struct archive *archive = member->archive;
     uint32_t hash = hash_fnv1a_32(symbol_name, strlen(symbol_name));
-    
     if (hash == 0) {
         hash = 1;
     }
-
+    
     if (index->entries >= index->rehash_threshold || index->entries == index->capacity) {
-        if (!archives_rehash_symbols(index, index->capacity * 2)) {
+        if (!archives_rehash_symbols(index, index->capacity > 0 ? index->capacity * 2 : 64)) {
             return false;
         }
     }
@@ -200,6 +202,7 @@ bool archives_insert_symbol(struct archives *index, struct archive_member *membe
         ++dfi;
     }
 
+    index->entries++;
     return true;
 }
 
@@ -215,7 +218,6 @@ archives_find_symbol(const struct archives *index, const char *symbol_name)
     if (hash == 0) {
         hash = 1;
     }
-
     uint64_t mask = index->capacity - 1;
     uint64_t slot = hash & mask;
     uint32_t dfi =  0;
@@ -226,7 +228,7 @@ archives_find_symbol(const struct archives *index, const char *symbol_name)
         if (this->hash == hash) {
             const char *existing = string_pool_at(&index->names, this->name);
             if (strcmp(existing, symbol_name) == 0) {
-                return this;
+                return this->member;
             }
         }
 

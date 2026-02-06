@@ -25,7 +25,7 @@ struct archive_member;
  */
 struct archive
 {
-    const char *name;           // name of the archive
+    char *name;                 // name of the archive
     int refcnt;                 // reference counter
     struct mfile *file;         // strong reference to the underlying memory mapped file
     const uint8_t *file_data;   // pointer to file data

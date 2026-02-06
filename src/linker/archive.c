@@ -49,19 +49,21 @@ struct objectfile * archive_extract_member(struct archive_member *member)
 
 struct archive_member * archive_get_member(const struct archive *ar, size_t offset)
 {
-    size_t low = 0;
-    size_t high = ar->nmembers - 1;
+    if (ar->nmembers > 0) {
+        size_t low = 0;
+        size_t high = ar->nmembers - 1;
 
-    while (low <= high) {
-        size_t mid = low + (high - low) / 2;
-        struct archive_member *this = &ar->members[mid];
+        while (low <= high) {
+            size_t mid = low + (high - low) / 2;
+            struct archive_member *this = &ar->members[mid];
 
-        if (this->offset == offset) {
-            return this;
-        } else if (this->offset < offset) {
-            low = mid + 1;
-        } else {
-            high = mid - 1;
+            if (this->offset == offset) {
+                return this;
+            } else if (this->offset < offset) {
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
         }
     }
 
@@ -80,18 +82,21 @@ struct archive_member * archive_add_member(struct archive *ar,
     }
 
     size_t low = 0;
-    size_t high = ar->nmembers - 1;
 
-    while (low <= high) {
-        size_t mid = low + (high - low) / 2;
+    if (ar->members != NULL) {
+        size_t high = ar->nmembers - 1;
 
-        if (ar->members[mid].offset == offset) {
-            log_error("Member with offset %zu is already added to archive", offset);
-            return NULL;
-        } else if (ar->members[mid].offset < offset) {
-            low = mid + 1;
-        } else {
-            high = mid - 1;
+        while (low <= high) {
+            size_t mid = low + (high - low) / 2;
+
+            if (ar->members[mid].offset == offset) {
+                log_error("Member with offset %zu is already added to archive", offset);
+                return NULL;
+            } else if (ar->members[mid].offset < offset) {
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
         }
     }
 
@@ -140,6 +145,7 @@ void archive_put(struct archive *ar)
         
         mfile_put(ar->file);
         string_pool_clear(&ar->names);
+        free(ar->name);
         free(ar);
     }
 }
@@ -180,9 +186,14 @@ struct archive * archive_alloc(struct mfile *file,
         return NULL;
     }
 
-    string_pool_init(&ar->names);
-    ar->name = string_pool_copy(&ar->names, name);
+    ar->name = malloc(strlen(name) + 1);
+    if (ar->name == NULL) {
+        free(ar);
+        return NULL;
+    }
+    strcpy(ar->name, name);
 
+    string_pool_init(&ar->names);
     ar->file = mfile_get(file);
     ar->refcnt = 1;
     ar->file_data = file_data;
