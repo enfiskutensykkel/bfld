@@ -96,7 +96,7 @@ void layout_create_worklist(const struct layout *l, struct sections *wl)
         const struct sections *bucket = &l->sections[i - 1];
 
         for (uint64_t idx = 0, n = sections_size(bucket); idx < n; ++idx) {
-            sections_push(wl, sections_peek(bucket, idx));
+            sections_push(wl, sections_at(bucket, idx));
         }
     }
 }

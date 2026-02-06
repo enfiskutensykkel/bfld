@@ -93,9 +93,16 @@ bool symbols_push(struct symbols *symq, struct symbol *sym)
  * the start of the queue.
  */
 static inline
-struct symbol * symbols_peek(const struct symbols *symq, uint64_t position)
+struct symbol * symbols_at(const struct symbols *symq, uint64_t position)
 {
     return (struct symbol*) deque_peek(&symq->q, position);
+}
+
+
+static inline
+struct symbol * symbols_peek(const struct symbols *symq)
+{
+    return symbols_at(symq, 0);
 }
 
 

@@ -1,19 +1,62 @@
 #include "stringpool.h"
-#include "align.h"
-#include "hash.h"
+#include "utils/align.h"
+#include "utils/hash.h"
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
-#include <stdio.h>
+
+
+struct string_pool * string_pool_alloc(void)
+{
+    struct string_pool *pool = malloc(sizeof(struct string_pool));
+    if (pool == NULL) {
+        return NULL;
+    }
+
+    pool->refcnt = 1;
+    pool->strings = NULL;
+    pool->offset = 0;
+    pool->size = 0;
+    pool->count = 0;
+    pool->capacity = 0;
+    pool->index = NULL;
+    pool->rehash_threshold = 0;
+
+    string_pool_extend(pool, 256);
+    string_pool_rehash(pool, 64);
+    return pool;
+}
+
+
+struct string_pool * string_pool_get(struct string_pool *pool)
+{
+    assert(pool != NULL);
+    assert(pool->refcnt != 0);
+    pool->refcnt++;
+    return pool;
+}
+
+
+void string_pool_put(struct string_pool *pool)
+{
+    assert(pool != NULL);
+    assert(pool->refcnt != 0);
+
+    if (--(pool->refcnt) == 0) {
+        string_pool_clear(pool);
+        free(pool);
+    }
+}
+
 
 
 bool string_pool_rehash(struct string_pool *pool, uint64_t capacity)
 {
-    if (capacity < 8) {
-        capacity = 8;
+    if (capacity < 64) {
+        capacity = 64;
     }
 
     if (capacity <= pool->capacity) {
@@ -43,6 +86,7 @@ bool string_pool_rehash(struct string_pool *pool, uint64_t capacity)
         uint32_t hash = entry->hash;
         uint32_t dfi = 0;
         uint64_t offset = entry->offset;
+        size_t length = entry->length;
         uint64_t slot = hash & (capacity - 1);
         
         while (hash != 0) {
@@ -52,14 +96,17 @@ bool string_pool_rehash(struct string_pool *pool, uint64_t capacity)
                 uint64_t tmp_offset = this->offset;
                 uint32_t tmp_hash = this->hash;
                 uint32_t tmp_dfi = this->dfi;
+                size_t tmp_length = this->length;
 
                 this->hash = hash;
                 this->dfi = dfi;
                 this->offset = offset;
+                this->length = length;
 
                 offset = tmp_offset;
                 hash = tmp_hash;
                 dfi = tmp_dfi;
+                length = tmp_length;
             }
 
             slot = (slot + 1) & (capacity - 1);

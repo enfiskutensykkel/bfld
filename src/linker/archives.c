@@ -1,3 +1,4 @@
+#include "stringpool.h"
 #include "archives.h"
 #include "archive.h"
 #include "logging.h"
@@ -9,7 +10,6 @@
 #include <stdint.h>
 #include <utils/hash.h>
 #include <utils/align.h>
-#include <utils/stringpool.h>
 
 
 struct archives * archives_alloc(void)
@@ -25,7 +25,7 @@ struct archives * archives_alloc(void)
     index->entries = 0;
     index->rehash_threshold = 0;
     index->index = NULL;
-    index->names = STRING_POOL_INIT;
+    memset(&index->names, 0, sizeof(struct string_pool));
     index->narchives = 0;
     return index;
 }

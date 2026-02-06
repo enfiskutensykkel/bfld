@@ -1,5 +1,5 @@
-#ifndef BFLD_UTILS_STRING_POOL_H
-#define BFLD_UTILS_STRING_POOL_H
+#ifndef BFLD_STRING_POOL_H
+#define BFLD_STRING_POOL_H
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -8,7 +8,7 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
-#include "hash.h"
+#include "utils/hash.h"
 
 
 /*
@@ -22,6 +22,7 @@ struct intern
     uint32_t hash;      // computed hash of the string (0 means unused)
     uint32_t dfi;       // distance from ideal (for robin hood hashing)
     uint64_t offset;    // offset into the table to the string value
+    size_t length;      // length of the string
 };
 
 
@@ -47,6 +48,7 @@ struct intern
  */
 struct string_pool
 {
+    int refcnt;                 // reference counter
     char *strings;              // underlying string table
     uint64_t offset;            // current offset in the underlying string table
     uint64_t size;              // total size of the memory region holding the string table
@@ -57,23 +59,22 @@ struct string_pool
 };
 
 
-#define STRING_POOL_INIT (struct string_pool) {NULL, 0, 0, 0, 0, NULL, 0}
+/*
+ * Create a string pool.
+ */
+struct string_pool * string_pool_alloc(void);
 
 
 /*
- * Initialize the string pool.
+ * Take a string pool reference.
  */
-static inline
-void string_pool_init(struct string_pool *pool)
-{
-    pool->strings = NULL;
-    pool->offset = 0;
-    pool->size = 0;
-    pool->count = 0;
-    pool->capacity = 0;
-    pool->index = NULL;
-    pool->rehash_threshold = 0;
-}
+struct string_pool * string_pool_get(struct string_pool *pool);
+
+
+/*
+ * Release a string pool reference.
+ */
+void string_pool_put(struct string_pool *pool);
 
 
 /*
@@ -103,7 +104,6 @@ bool string_pool_rehash(struct string_pool *pool, uint64_t capacity);
  * If the string is already added, the existing offset is returned.
  * Returns 0 if adding the string failed, as the first entry is reserved for the empty string.
  */
-#include <stdio.h>
 static inline
 uint64_t string_pool_intern(struct string_pool *pool, const char *string)
 {
@@ -114,7 +114,7 @@ uint64_t string_pool_intern(struct string_pool *pool, const char *string)
     size_t length = strlen(string) + 1;
     uint32_t hash = hash_fnv1a_32(string, length - 1);
     if (hash == 0) {
-        hash = 1;
+        hash = 1;  // hash == 0 means unused
     }
 
     if (pool->count >= pool->rehash_threshold) {
@@ -135,8 +135,9 @@ uint64_t string_pool_intern(struct string_pool *pool, const char *string)
         uint32_t tmp_hash = this->hash;
         uint32_t tmp_dfi = this->dfi;
         uint64_t tmp_offset = this->offset;
+        size_t tmp_length = this->length;
 
-        if (result == 0 && tmp_hash == hash) {
+        if (result == 0 && tmp_hash == hash && tmp_length == length) {
             // Found an entry with the same hash, check if it is the same key
             const char *value = &pool->strings[this->offset];
             if (strcmp(string, value) == 0) {
@@ -166,10 +167,12 @@ uint64_t string_pool_intern(struct string_pool *pool, const char *string)
             this->hash = hash;
             this->offset = offset;
             this->dfi = dfi;
+            this->length = length;
 
             hash = tmp_hash;
             offset = tmp_offset;
             dfi = tmp_dfi;
+            length = tmp_length;
         }
 
         slot = (slot + 1) & mask;
@@ -190,7 +193,7 @@ void string_pool_unintern(struct string_pool *pool, const char *string)
     size_t length = strlen(string);
     uint32_t hash = hash_fnv1a_32(string, length);
     if (hash == 0) {
-        hash = 1;
+        hash = 1;  // hash == 0 means unused
     }
 
     uint64_t mask = pool->capacity - 1;
@@ -200,7 +203,7 @@ void string_pool_unintern(struct string_pool *pool, const char *string)
 
     while (this->hash != 0 && dfi <= this->dfi) {
 
-        if (this->hash == hash) {
+        if (this->hash == hash && this->length == length) {
             const char *value = &pool->strings[this->offset];
             if (strcmp(value, string) == 0) {
                 break;
@@ -228,6 +231,7 @@ void string_pool_unintern(struct string_pool *pool, const char *string)
         this->hash = 0;
         this->dfi = 0;
         this->offset = 0;
+        this->length = 0;
     }
 }
 
@@ -246,7 +250,7 @@ uint64_t string_pool_lookup(const struct string_pool *pool, const char *string)
     size_t length = strlen(string);
     uint32_t hash = hash_fnv1a_32(string, length);
     if (hash == 0) {
-        hash = 1;
+        hash = 1;  // hash == 0 means unused
     }
 
     uint64_t mask = pool->capacity - 1;
@@ -281,7 +285,7 @@ const char * string_pool_at(const struct string_pool *pool, uint64_t offset)
         return "";
     }
 
-    if (offset < pool->offset && pool->strings[offset - 1] == '\0') {
+    if (offset < pool->offset) {
         return &pool->strings[offset];
     }
 
@@ -289,12 +293,12 @@ const char * string_pool_at(const struct string_pool *pool, uint64_t offset)
 }
 
 
-// FIXME: this is wrong, this should only iterate over valid entries (hash!=0)
-//#define string_pool_for_each_string(iterator, pool) \
-//    for (const char *__it = (pool)->strings, const char *iterator = __it; \
-//            (pool)->strings != NULL && (__it - (pool)->strings) < (pool)->offset; \
-//            __it = __it + strlen(__it) + 1, iterator = __it)
-            
+#define string_pool_for_each_offset(iterator, pool_ptr) \
+    for (uint64_t __idx = 0, iterator = (pool_ptr)->index != NULL ? (pool_ptr)->index[__idx].offset : 0; \
+            __idx < (pool_ptr)->capacity; \
+            iterator = (pool_ptr)->index[++__idx].offset) \
+        if ((pool_ptr)->index[__idx].hash != 0)
+
 
 #ifdef __cplusplus
 }

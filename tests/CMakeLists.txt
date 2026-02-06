@@ -47,3 +47,4 @@ endmacro()
 
 # Add test directories
 add_subdirectory(utils)
+add_subdirectory(stringpool)

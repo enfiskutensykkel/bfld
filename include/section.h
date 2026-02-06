@@ -11,8 +11,11 @@ extern "C" {
 #include "sectiontype.h"
 
 
-/* Forward declaration of object file handle */
+/* Forward declarations */
 struct objectfile;
+struct symbol;
+struct group;
+struct layout;
 
 
 /* 
@@ -20,6 +23,12 @@ struct objectfile;
  * 
  * Contains information about a section, e.g., BSS, DATA, RODATA, TEXT, etc.,
  * and relocations that need to be applied/patched.
+ *
+ * Note: Sections have relocations, each holding a strong reference 
+ *       to its target symbol. The symbol may hold a strong reference
+ *       to (another) section. To break the circular dependency,
+ *       the user must call section_clear_relocs() before releasing
+ *       the last section reference.
  */
 struct section
 {
@@ -33,6 +42,7 @@ struct section
     size_t nrelocs;                 // number of entries in the relocation list.
     struct list_head relocs;        // list of relocations
     bool is_alive;                  // used for dead-code elimination / mark-and-sweep
+    struct group *group;            // weak pointer to the section group this section belongs to (if any)
     struct layout *layout;          // weak pointer to the layout (output section) this section belongs to
     uint64_t offset;                // finalized section offset from the base output section address
 };
@@ -55,6 +65,13 @@ struct reloc
 };
 
 
+static inline
+const char * section_name(const struct section *section)
+{
+    return section->name;
+}
+
+
 /*
  * Allocate a section descriptor.
  * This will take a strong reference to the object file descriptor.
@@ -64,6 +81,18 @@ struct section * section_alloc(struct objectfile *objectfile,
                                enum section_type type,
                                const uint8_t *content,
                                uint64_t size);
+
+
+/*
+ * Take a strong section reference.
+ */
+struct section * section_get(struct section *section);
+
+
+/*
+ * Release section reference.
+ */
+void section_put(struct section *section);
 
 
 /*
@@ -90,18 +119,6 @@ void section_remove_reloc(struct reloc *reloc);
  */
 void section_clear_relocs(struct section *section);
 
-
-
-/*
- * Take a strong section reference.
- */
-struct section * section_get(struct section *section);
-
-
-/*
- * Release section reference.
- */
-void section_put(struct section *section);
 
 
 /*

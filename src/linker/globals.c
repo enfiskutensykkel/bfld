@@ -61,12 +61,14 @@ int globals_insert_symbol(struct globals *globals, struct symbol *symbol,
                          struct symbol **existing)
 {
     struct rb_node **pos = &(globals->map.root), *parent = NULL;
+    const char *name = symbol_name(symbol);
 
     while (*pos != NULL) {
         struct globals_entry *this = rb_entry(*pos, struct globals_entry, map_entry);
         parent = *pos;
 
-        int result = strcmp(symbol->name, this->symbol->name);
+
+        int result = strcmp(name, symbol_name(this->symbol));
         if (result < 0) {
             pos = &((*pos)->left);
         } else if (result > 0) {
@@ -103,7 +105,7 @@ struct symbol * globals_find_symbol(const struct globals *globals, const char *n
     while (node != NULL) {
         struct globals_entry *entry = rb_entry(node, struct globals_entry, map_entry);
 
-        int result = strcmp(name, entry->symbol->name);
+        int result = strcmp(name, symbol_name(entry->symbol));
         if (result < 0) {
             node = node->left;
         } else if (result > 0) {

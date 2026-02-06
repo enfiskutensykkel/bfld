@@ -104,6 +104,8 @@ static const struct word * traverse_find(const struct rb_node *node, const char 
 
         return traverse_find(node->right, data);
     }
+
+    return NULL;
 }
 
 
@@ -145,6 +147,8 @@ static size_t copy_sorted_recurse(const struct rb_node *node, const char **dst)
         dst[pos++] = w->data;
         return pos + copy_sorted_recurse(node->right, &dst[pos]);
     }
+
+    return 0;
 }
 
 
@@ -219,7 +223,7 @@ int main()
 
     const char *to_find[] = {"pear", "coconut", "apple"};
     for (size_t i = 0; i < sizeof(to_find) / sizeof(*to_find); ++i) {
-        printf("Searching for %s\n");
+        printf("Searching for %s\n", to_find[i]);
         fflush(stdout);
 
         struct rb_node *node = rb_find(&tree, to_find[i], searchcmp);

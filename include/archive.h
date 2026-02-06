@@ -7,7 +7,7 @@ extern "C" {
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
-#include "utils/stringpool.h"
+#include "stringpool.h"
 #include "utils/list.h"
 
 
@@ -98,6 +98,12 @@ struct archive_member * archive_get_member(const struct archive *archive, size_t
 struct objectfile * archive_extract_member(struct archive_member *member);
 
 
+/*
+ * Get the name of the archive member.
+ *
+ * Note that this string must NOT be stored, as its lifetime
+ * depends on the underlying string pool used by the archive.
+ */
 static inline
 const char * archive_member_name(struct archive_member *member)
 {

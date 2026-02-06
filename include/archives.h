@@ -7,7 +7,7 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "utils/stringpool.h"
+#include "stringpool.h"
 
 /* Some forward declarations */
 struct archive;

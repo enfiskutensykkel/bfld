@@ -97,11 +97,18 @@ bool sections_push(struct sections *sectq, struct section *sect)
  * queue wraps (unlikely)
  */
 static inline
-struct section * sections_peek(const struct sections *sectq, uint64_t position)
+struct section * sections_at(const struct sections *sectq, uint64_t position)
 {
     return (struct section*) deque_peek(&sectq->q, position);
 }
-// FIXME: sections_at instead, peek just for front
+
+
+
+static inline
+struct section * sections_peek(const struct sections *sectq)
+{
+    return sections_at(sectq, 0);
+}
 
 
 /*

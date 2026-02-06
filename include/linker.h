@@ -19,6 +19,7 @@ struct objectfile_reader;
 struct archive;
 struct archive_reader;
 struct layout;
+struct string_pool;
 
 
 /* 
@@ -43,8 +44,6 @@ struct linkerctx
     
     uint64_t base_addr;             // base virtual address of the image
     uint64_t entry_addr;            // address of the image's entrypoint
-
-    
 };
 
 

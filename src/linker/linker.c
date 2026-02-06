@@ -3,6 +3,7 @@
 #include "archive_reader.h"
 #include "logging.h"
 #include "linker.h"
+#include "stringpool.h"
 #include "objectfile.h"
 #include "utils/list.h"
 #include "utils/align.h"
@@ -73,7 +74,13 @@ void linker_put(struct linkerctx *ctx)
     assert(ctx->refcnt > 0);
 
     if (--(ctx->refcnt) == 0) {
+        struct section *sect;
         log_trace("Destroying linker context");
+
+        while ((sect = sections_pop(&ctx->sections)) != NULL) {
+            section_clear_relocs(sect);
+            section_put(sect);
+        }
 
         symbols_clear(&ctx->unresolved);
         globals_clear(&ctx->globals);
@@ -178,10 +185,16 @@ bool linker_load_objectfile(struct linkerctx *ctx,
         return false;
     }
 
+    struct string_pool *strpool = string_pool_alloc();
+    if (strpool == NULL) {
+        log_ctx_pop();
+        return false;
+    }
+
     log_debug("Loading object file using front-end '%s'", reader->name);
 
     status = reader->parse_file(objfile->file_data, objfile->file_size,
-                                objfile, &secttab, &symtab);
+                                objfile, strpool, &secttab, &symtab);
     while (log_ctx > current_log_ctx) {
         log_warning("Unwinding log context stack");
         log_ctx_pop();
@@ -210,8 +223,8 @@ bool linker_load_objectfile(struct linkerctx *ctx,
         }
 
         if (symbol_is_defined(sym)) {
-            if (strncmp(".text._", sym->section->name, 7) == 0) {
-                log_notice("Symbol '%s' is defined in section %s", sym->name, sym->section->name);
+            if (strncmp(".text._", section_name(sym->section), 7) == 0) {
+                log_notice("Symbol '%s' is defined in section %s", symbol_name(sym), section_name(sym));
             }
         }
         
@@ -223,14 +236,14 @@ bool linker_load_objectfile(struct linkerctx *ctx,
             // Symbol already exists in the global symbol table, merge them and keep the existing
             if (!symbol_merge(existing, sym)) {
                 status = EINVAL;
-                log_error("Failed to merge symbol definition for symbol '%s'", sym->name);
+                log_error("Failed to merge symbol definition for symbol '%s'", symbol_name(sym));
                 goto leave;
             }
             symbol_undefine(sym);
         }
 
         if (!symbol_is_defined(existing)) {
-            log_trace("Adding undefined symbol '%s' to unresolved queue", existing->name);
+            log_trace("Adding undefined symbol '%s' to unresolved queue", symbol_name(existing));
 
             if (!symbols_push(&ctx->unresolved, existing)) {
                 goto leave;
@@ -259,7 +272,7 @@ bool linker_load_objectfile(struct linkerctx *ctx,
 
         // Fixup relocations that point to global symbols
         list_for_each_entry(reloc, &sect->relocs, struct reloc, list_entry) {
-            struct symbol *global = globals_find_symbol(&ctx->globals, reloc->symbol->name);
+            struct symbol *global = globals_find_symbol(&ctx->globals, symbol_name(reloc->symbol));
 
             if (global != NULL && global != reloc->symbol) {
                 symbol_put(reloc->symbol);
@@ -273,7 +286,16 @@ bool linker_load_objectfile(struct linkerctx *ctx,
     success = true;
 
 leave:
+    for (uint64_t i = 0; secttab.nsections > 0 && i < secttab.capacity; ++i) {
+        struct section *sect = section_table_at(&secttab, i);
+        if (sect != NULL) {
+            section_clear_relocs(sect);
+            section_table_remove(&secttab, i);
+        }
+    }
+
     log_ctx_pop();
+    string_pool_put(strpool);
     symbol_table_clear(&symtab);
     section_table_clear(&secttab);
     return success;
@@ -292,10 +314,10 @@ bool linker_resolve_globals(struct linkerctx *ctx)
         }
 
         // Try to find an archive that provides the undefined symbol
-        struct archive_member *m = archives_find_symbol(&ctx->archives, sym->name);
+        struct archive_member *m = archives_find_symbol(&ctx->archives, symbol_name(sym));
         if (m == NULL) {
             symbol_put(sym);
-            log_error("Undefined reference to symbol '%s'", sym->name);
+            log_error("Undefined reference to symbol '%s'", symbol_name(sym));
             return false;
         }
 
@@ -303,13 +325,13 @@ bool linker_resolve_globals(struct linkerctx *ctx)
         // We don't try to load it again
         if (archive_is_member_extracted(m)) {
             log_ctx_new(m->objfile->name);
-            log_error("Object file is already loaded but symbol '%s' is still undefined", sym->name);
+            log_error("Object file is already loaded but symbol '%s' is still undefined", symbol_name(sym));
             log_ctx_pop();
             symbol_put(sym);
             return false;
         }
 
-        log_trace("Symbol '%s' is provided by archive %s", sym->name, m->archive->name);
+        log_trace("Symbol '%s' is provided by archive %s", symbol_name(sym), m->archive->name);
 
         struct objectfile *objfile = archive_extract_member(m);
         if (objfile != NULL) {
@@ -323,13 +345,16 @@ bool linker_resolve_globals(struct linkerctx *ctx)
 
         if (!symbol_is_defined(sym) && !sym->is_common) {
             log_error("Symbol '%s' was already provided by archive, but is still undefined",
-                    sym->name);
+                    symbol_name(sym));
             symbol_put(sym);
             return false;
         }
 
         symbol_put(sym);
     }
+
+    // All symbols were resolved, we don't need to hold archives in memory any longer
+    archives_clear_symbols(&ctx->archives);
 
     return true;
 }
@@ -411,7 +436,7 @@ bool linker_resolve_globals(struct linkerctx *ctx)
 //
 //    // Start with using all sections marked as kept
 //    for (uint64_t i = 0; i < keep->q.capacity; ++i) {
-//        sect = sections_peek(keep, i);
+//        sect = sections_at(keep, i);
 //        if (sect != NULL) {
 //            sect->is_alive = true;
 //            sections_push(&wl, sect);

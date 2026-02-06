@@ -8,6 +8,10 @@ extern "C" {
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "stringpool.h"
+
+// Forward declarations
+struct section;
 
 
 /*
@@ -38,17 +42,13 @@ enum symbol_binding
 
 /* 
  * Symbol descriptor.
- *
- * Note that symbols only hold weak references to the section where
- * it is defined in order to avoid circular ownership.
- * 
- * As such, the user must take care to release symbol references 
- * before releasing section references.
  */
 struct symbol
 {
-    char *name;                     // symbol name
     int refcnt;                     // reference counter
+    struct string_pool *strpool;    // symbol name string pool 
+    uint64_t name;                  // symbol name (offset into the string pool)
+    uint32_t hash;                  // precalculated hash of the symbol name
     enum symbol_binding binding;    // symbol binding type
     enum symbol_type type;          // symbol type
     uint64_t align;                 // symbol address alignment requirement (finalized address must be a multiple of align)
@@ -56,9 +56,21 @@ struct symbol
     bool is_absolute;               // is the definition offset relative to a section base address or an absolute address
     bool is_common;                 // does the symbol refer to a common section?
     bool is_used;                   // is the symbol used? set if forced kept, exported or used in a reloc
-    struct section *section;        // weak reference to the section where the symbol is defined
+    struct section *section;        // strong reference to the section where the symbol is defined
     uint64_t offset;                // offset into the section to the definition or absolute address
 };
+
+
+/*
+ * Helper function to get the symbol name.
+ * Note that the pointer returned by this function must not be stored,
+ * as it points to the underlying string pool shared by all symbols.
+ */
+static inline
+const char * symbol_name(const struct symbol *symbol)
+{
+    return string_pool_at(symbol->strpool, symbol->name);
+}
 
 
 /*
@@ -80,7 +92,8 @@ bool symbol_is_alive(const struct symbol *symbol);
 /*
  * Allocate a symbol descriptor.
  */
-struct symbol * symbol_alloc(const char *name,
+struct symbol * symbol_alloc(struct string_pool *strpool,
+                             const char *name,
                              enum symbol_type type,
                              enum symbol_binding binding);
 
@@ -134,15 +147,11 @@ bool symbol_define_common(struct symbol *symbol, uint64_t size, uint64_t align);
  * is set to the largest of the current and the new definition.
  *
  * Returns true on success and false otherwise.
- *
- * Note: Since symbols only hold weak references to sections,
- *       the user must take care to release symbol references
- *       before releasing sections.
  */
 bool symbol_define(struct symbol *symbol,
-                  struct section *section,
-                  uint64_t offset,
-                  uint64_t size);
+                   struct section *section,
+                   uint64_t offset,
+                   uint64_t size);
                            
 
 /*

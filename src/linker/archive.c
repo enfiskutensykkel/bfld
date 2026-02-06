@@ -2,6 +2,7 @@
 #include "logging.h"
 #include "objectfile.h"
 #include "mfile.h"
+#include "stringpool.h"
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
@@ -9,7 +10,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <utils/list.h>
-#include <utils/stringpool.h>
 
 
 struct objectfile * archive_extract_member(struct archive_member *member)
@@ -193,7 +193,7 @@ struct archive * archive_alloc(struct mfile *file,
     }
     strcpy(ar->name, name);
 
-    string_pool_init(&ar->names);
+    memset(&ar->names, 0, sizeof(struct string_pool));
     ar->file = mfile_get(file);
     ar->refcnt = 1;
     ar->file_data = file_data;

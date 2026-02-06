@@ -2,6 +2,8 @@
 #include "section.h"
 #include "logging.h"
 #include "objectfile.h"
+#include "stringpool.h"
+#include "utils/hash.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -9,9 +11,6 @@
 #include <stdbool.h>
 #include <assert.h>
 #include <errno.h>
-
-
-extern char * strdup(const char *s);
 
 
 struct symbol * symbol_get(struct symbol *sym)
@@ -30,17 +29,17 @@ void symbol_put(struct symbol *sym)
 
     if (--(sym->refcnt) == 0) {
         if (sym->section != NULL) {
-            //section_put(sym->section);
+            section_put(sym->section);
             sym->section = NULL;
         }
-        free(sym->name);
+        string_pool_put(sym->strpool);
         free(sym);
     }
 }
 
 
-struct symbol * symbol_alloc(const char *name, enum symbol_type type, 
-                             enum symbol_binding binding)
+struct symbol * symbol_alloc(struct string_pool *strpool, const char *name, 
+                             enum symbol_type type, enum symbol_binding binding)
 {
     switch (type) {
         case SYMBOL_NOTYPE:
@@ -55,17 +54,19 @@ struct symbol * symbol_alloc(const char *name, enum symbol_type type,
             return NULL;
     }
 
+    uint64_t name_id = string_pool_intern(strpool, name);
+    if (name_id == 0) {
+        return NULL;
+    }
+
     struct symbol *sym = malloc(sizeof(struct symbol));
     if (sym == NULL) {
         return NULL;
     }
 
-    sym->name = strdup(name);
-    if (sym->name == NULL) {
-        free(sym);
-        return NULL;
-    }
-
+    sym->strpool = string_pool_get(strpool);
+    sym->name = name_id;
+    sym->hash = hash_fnv1a_32(name, strlen(name));
     sym->binding = binding;
     sym->type = type;
     sym->refcnt = 1;
@@ -143,8 +144,8 @@ bool symbol_define(struct symbol *sym, struct section *section,
         // This is a relative definition
         sym->is_absolute = false;
         sym->offset = offset;
-        //sym->section = section_get(section);
-        sym->section = section;
+        sym->section = section_get(section);
+        //sym->section = section;
 
         if (sym->is_used) {
             // This should not really happen, but if it does notify the user about it
@@ -155,7 +156,7 @@ bool symbol_define(struct symbol *sym, struct section *section,
 
     // Release old section
     if (old_section != NULL) {
-        //section_put(old_section);
+        section_put(old_section);
     }
 
     return true;
@@ -165,7 +166,7 @@ bool symbol_define(struct symbol *sym, struct section *section,
 void symbol_undefine(struct symbol *sym)
 {
     if (sym->section != NULL) {
-        //section_put(sym->section);
+        section_put(sym->section);
         sym->section = NULL;
     }
     sym->is_common = false;
@@ -183,7 +184,7 @@ bool symbol_merge(struct symbol *existing, const struct symbol *incoming)
     assert(incoming != NULL && "Invalid argument for incoming symbol");
     assert(existing->binding != SYMBOL_LOCAL && "Existing symbol can not be SYMBOL_LOCAL");
     assert(incoming->binding != SYMBOL_LOCAL && "Incoming symbol can not be SYMBOL_LOCAL");
-    assert(strcmp(existing->name, incoming->name) == 0 && "Existing and incoming symbols are not the same symbol");
+    assert(existing->hash == incoming->hash && "Existing and incoming symbols are not the same symbol");
 
     if (incoming->is_used) {
         log_debug("Marking symbol '%s' as used", existing->name);
