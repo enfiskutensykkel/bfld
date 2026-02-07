@@ -9,7 +9,7 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 
-// Forward declarations
+/* Forward declarations */
 struct section;
 
 
@@ -45,8 +45,8 @@ enum symbol_binding
 struct symbol
 {
     int refcnt;                     // reference counter
-    char *name;                     // symbol name
     uint32_t hash;                  // precalculated hash of the symbol name
+    char *name;                     // symbol name
     enum symbol_binding binding;    // symbol binding type
     enum symbol_type type;          // symbol type
     uint64_t align;                 // symbol address alignment requirement (finalized address must be a multiple of align)

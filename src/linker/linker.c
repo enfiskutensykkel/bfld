@@ -354,6 +354,8 @@ bool linker_resolve_globals(struct linkerctx *ctx)
 }
 //
 //
+//FIXME: maybe this is not the way to do it, maybe create a fake section of size X for each symbol
+//and then simply add them to layout, which does this bucket magic already
 //bool linker_create_common_section(struct linkerctx *ctx)
 //{
 //    bool success = false;

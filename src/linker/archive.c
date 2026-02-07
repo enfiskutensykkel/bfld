@@ -84,10 +84,10 @@ struct archive_member * archive_add_member(struct archive *ar,
     size_t low = 0;
 
     if (ar->members != NULL) {
-        size_t high = ar->nmembers - 1;
+        size_t high = ar->nmembers;
 
-        while (low <= high) {
-            size_t mid = low + (high - low) / 2;
+        while (low < high) {
+            size_t mid = low + ((high - low) >> 1);
 
             if (ar->members[mid].offset == offset) {
                 log_error("Member with offset %zu is already added to archive", offset);
@@ -95,7 +95,7 @@ struct archive_member * archive_add_member(struct archive *ar,
             } else if (ar->members[mid].offset < offset) {
                 low = mid + 1;
             } else {
-                high = mid - 1;
+                high = mid;
             }
         }
     }
@@ -105,13 +105,13 @@ struct archive_member * archive_add_member(struct archive *ar,
         return NULL;
     }
 
-    ar->members = members;
-    
-    for (uint64_t i = ar->nmembers; i > low; --i) {
-        ar->members[i] = ar->members[i - 1];
+    if (low < ar->nmembers) {
+        memmove(&members[low + 1],
+                &members[low],
+                (ar->nmembers - low) * sizeof(struct archive_member));
     }
 
-    struct archive_member *member = &ar->members[low];
+    struct archive_member *member = &members[low];
     member->name = string_pool_intern(&ar->names, name);
     member->archive = ar;
     member->offset = offset;
@@ -119,6 +119,7 @@ struct archive_member * archive_add_member(struct archive *ar,
     member->content = ar->file_data + offset;
     member->objfile = NULL;
 
+    ar->members = members;
     ar->nmembers++;
     return member;
 }

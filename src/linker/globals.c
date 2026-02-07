@@ -1,118 +1,181 @@
 #include "globals.h"
 #include "symbol.h"
 #include "logging.h"
-#include "utils/rbtree.h"
+#include "utils/hash.h"
+#include "utils/align.h"
+#include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
 
 
-struct globals * globals_alloc(void)
+static bool rehash(struct globals *g, uint64_t capacity)
 {
-    struct globals *globals = malloc(sizeof(struct globals));
-    if (globals == NULL) {
-        return NULL;
+    if (capacity < 128) {
+        capacity = 128;
     }
 
-    globals->refcnt = 1;
-    globals->nsymbols = 0;
-    rb_tree_init(&globals->map);
-    return globals;
-}
-
-
-struct globals * globals_get(struct globals *globals)
-{
-    assert(globals != NULL);
-    assert(globals->refcnt > 0);
-    ++(globals->refcnt);
-    return globals;
-}
-
-
-void globals_put(struct globals *globals)
-{
-    assert(globals != NULL);
-    assert(globals->refcnt > 0);
-
-    if (--(globals->refcnt) == 0) {
-        globals_clear(globals);
-        free(globals);
+    if (capacity <= g->capacity) {
+        return true;
     }
-}
 
-
-void globals_clear(struct globals *globals)
-{
-    while (globals->map.root != NULL) {
-        struct rb_node *node = globals->map.root;
-        struct globals_entry *entry = rb_entry(node, struct globals_entry, map_entry);
-
-        rb_remove(&globals->map, &entry->map_entry);
-        symbol_put(entry->symbol);
-        free(entry);
+    // Round capacity up to a power of two and make sure we don't overflow
+    capacity = align_roundup(capacity);
+    if (capacity * sizeof(struct global) < g->capacity * sizeof(struct global)) {
+        return false;
     }
-    globals->nsymbols = 0;
-}
 
+    struct global *table = (struct global*) calloc(capacity, sizeof(struct global));
+    if (table == NULL) {
+        return false;
+    }
 
-int globals_insert_symbol(struct globals *globals, struct symbol *symbol,
-                         struct symbol **existing)
-{
-    struct rb_node **pos = &(globals->map.root), *parent = NULL;
-    const char *name = symbol_name(symbol);
+    for (uint64_t i = 0; i < g->capacity; ++i) {
+        struct global current = g->table[i];
 
-    while (*pos != NULL) {
-        struct globals_entry *this = rb_entry(*pos, struct globals_entry, map_entry);
-        parent = *pos;
+        if (current.hash == 0) {
+            continue;
+        }
 
-        int result = strcmp(name, symbol_name(this->symbol));
-        if (result < 0) {
-            pos = &((*pos)->left);
-        } else if (result > 0) {
-            pos = &((*pos)->right);
-        } else {
-            if (existing != NULL) {
-                *existing = this->symbol;
+        current.dfi = 0;
+        uint64_t slot = current.hash & (capacity - 1);
+
+        while (current.hash != 0) {
+            struct global *this = &table[slot];
+
+            if (this->hash == 0 || current.dfi > this->dfi) {
+                struct global tmp = *this;
+                *this = current;
+                current = tmp;
             }
 
-            return EEXIST;
+            slot = (slot + 1) & (capacity - 1);
+            current.dfi++;
         }
     }
 
-    struct globals_entry *entry = malloc(sizeof(struct globals_entry));
-    if (entry == NULL) {
-        return ENOMEM;
+    free(g->table);
+    g->table = table;
+    g->capacity = capacity;
+    g->rehash_threshold = GLOBALS_REHASH_THRESHOLD(capacity);
+    return true;
+}
+
+
+int globals_insert_symbol(struct globals *g, 
+                          struct symbol *symbol,
+                          struct symbol **existing)
+{
+    const char *name = symbol_name(symbol);
+
+    struct symbol *e = globals_find_symbol(g, name);
+    if (e != NULL) {
+        if (existing != NULL) {
+            *existing = e;
+        }
+        return EEXIST;
     }
 
-    entry->globals = globals;
-    entry->symbol = symbol_get(symbol);
-    rb_insert_node(&entry->map_entry, parent, pos);
-    rb_insert_fixup(&globals->map, &entry->map_entry);
+    size_t length = strlen(name);
+    uint32_t hash = hash_fnv1a_32(name, length);
+    if (hash == 0) {
+        hash = 1;
+    }
 
-    ++(globals->nsymbols);
+    if (g->nglobals >= g->rehash_threshold) {
+        uint64_t capacity = g->capacity > 0 ? g->capacity * 2 : 128;
+        if (!rehash(g, capacity)) {
+            return ENOMEM;
+        }
+    }
+
+    struct global entry = (struct global) {
+        .hash = hash,
+        .dfi = 0,
+        .symbol = symbol
+    };
+    uint64_t slot = entry.hash & (g->capacity - 1);
+
+    while (entry.hash != 0) {
+        struct global *this = &g->table[slot];
+
+        if (this->hash == 0 || entry.dfi > this->dfi) {
+            struct global tmp = *this;
+            *this = entry;
+            if (hash != 0) {
+                hash = 0;
+                this->symbol = symbol_get(entry.symbol);
+                g->nglobals++;
+            }
+            entry = tmp;
+        }
+
+        slot = (slot + 1) & (g->capacity - 1);
+        entry.dfi++;
+    }
 
     return 0;
 }
 
 
-struct symbol * globals_find_symbol(const struct globals *globals, const char *name)
+void globals_remove_symbol(struct globals *g, const struct symbol *symbol)
 {
-    struct rb_node *node = globals->map.root;
-
-    while (node != NULL) {
-        struct globals_entry *entry = rb_entry(node, struct globals_entry, map_entry);
-
-        int result = strcmp(name, symbol_name(entry->symbol));
-        if (result < 0) {
-            node = node->left;
-        } else if (result > 0) {
-            node = node->right;
-        } else {
-            return entry->symbol;
-        }
+    if (g->nglobals == 0) {
+        return;
     }
 
-    return NULL;
+    const char *name = symbol_name(symbol);
+    size_t length = strlen(name);
+    uint32_t hash = hash_fnv1a_32(name, length);
+    if (hash == 0) {
+        hash = 1;
+    }
+
+    uint64_t slot = hash & (g->capacity - 1);
+    struct global *this = &g->table[slot];
+    uint64_t dfi = 0;
+
+    while (this->hash != 0 && dfi <= this->dfi) {
+        if (this->hash == hash && this->symbol == symbol) {
+            symbol_put(this->symbol);
+            break;
+        }
+        slot = (slot + 1) & (g->capacity - 1);
+        this = &g->table[slot];
+        ++dfi;
+    }
+    
+    if (this->hash != 0 && dfi <= this->dfi) {
+        g->nglobals--;
+
+        struct global *next = &g->table[(slot + 1) & (g->capacity - 1)];
+        while (next->hash != 0 && next->dfi != 0) {
+            *this = *next;
+            this->dfi--;
+            this = next;
+        }
+
+        this->hash = 0;
+        this->dfi = 0;
+        this->symbol = NULL;
+    }
+}
+
+
+void globals_clear(struct globals *g)
+{
+    for (uint64_t i = 0; g->nglobals > 0 && i < g->capacity; ++i) {
+        struct global *this = &g->table[i];
+        if (this->hash != 0) {
+            symbol_put(this->symbol);
+            g->nglobals--;
+        }
+    }
+    free(g->table);
+    g->table = NULL;
+    g->rehash_threshold = 0;
+    g->capacity = 0;
 }

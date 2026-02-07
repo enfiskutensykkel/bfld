@@ -47,7 +47,6 @@ struct linkerctx
 };
 
 
-
 /*
  * Create linker context.
  */

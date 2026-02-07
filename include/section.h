@@ -32,7 +32,7 @@ struct layout;
  */
 struct section
 {
-    struct objectfile *objfile;     // strong reference to the object file the section is defined in
+    struct objectfile *objfile;     // strong reference to the object file the section is defined in (NOTE: can be NULL if section is synthetic)
     char *name;                     // name of the section (NOTE: can be NULL)
     int refcnt;                     // reference counter
     enum section_type type;         // section type 
@@ -42,9 +42,11 @@ struct section
     size_t nrelocs;                 // number of entries in the relocation list.
     struct list_head relocs;        // list of relocations
     bool is_alive;                  // used for dead-code elimination / mark-and-sweep
-    struct group *group;            // weak pointer to the section group this section belongs to (if any)
+    struct group *group;            // strong reference to the section group this section belongs to (if any)
     struct layout *layout;          // weak pointer to the layout (output section) this section belongs to
     uint64_t offset;                // finalized section offset from the base output section address
+    struct symbol **symbols;        // dynamic array of weak references to symbols that are defined in this section
+    size_t nsymbols;                // number of symbols that are defined in this section
 };
 
 
@@ -120,7 +122,6 @@ void section_remove_reloc(struct reloc *reloc);
 void section_clear_relocs(struct section *section);
 
 
-
 /*
  * Duplicate a section and its relocations.
  *
@@ -128,6 +129,18 @@ void section_clear_relocs(struct section *section);
  * as the original section.
  */
 struct section * section_clone(const struct section *section, const char *name);
+
+
+/*
+ * Add a reverse reference to a symbol defined in this section.
+ */
+bool section_add_symbol_reference(struct section *section, struct symbol *symbol);
+
+
+/*
+ * Remove a reverse reference to a symbol.
+ */
+void section_remove_symbol_reference(struct section *section, const struct symbol *symbol);
 
 
 #ifdef __cplusplus

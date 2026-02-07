@@ -4,8 +4,7 @@
 extern "C" {
 #endif
 
-
-#include "sections.h"
+struct section;
 
 
 /*
@@ -15,8 +14,18 @@ struct group
 {
     char *name;
     int refcnt;
-    struct sections sections;
+    struct section *sections;
+    size_t nsections;
 };
+
+
+struct group * group_alloc(size_t nsections);
+
+
+struct group * group_get(struct group *group);
+
+
+void group_put(struct group *group);
 
 
 #ifdef __cplusplus

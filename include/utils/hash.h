@@ -104,6 +104,20 @@ uint64_t hash_fnv1a_64(const void *data, size_t size)
 
 
 /*
+ * SplitMix64 hash for pointer values.
+ */
+static inline
+uint64_t hash_pointer(const void *ptr)
+{
+    uint64_t hash = (uint64_t) ptr;
+    hash = (hash ^ (hash >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    hash = (hash ^ (hash >> 27)) * 0x94d049bb133111ebULL;
+    hash = hash ^ (hash >> 31);
+    return hash;
+}
+
+
+/*
  * Generic golden ratio hash.
  */
 //static inline

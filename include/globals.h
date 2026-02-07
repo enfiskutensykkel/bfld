@@ -6,86 +6,104 @@ extern "C" {
 
 #include <stddef.h>
 #include <stdint.h>
-#include "utils/rbtree.h"
+#include <stdbool.h>
+#include <string.h>
+#include "symbol.h"
+#include "utils/hash.h"
 
 
-// Forward declaration of symbol
-struct symbol;
+/* Forward declaration */
+struct section;
+struct globals;
+struct string_pool;
 
 
-// FIXME: make this so that it also takes a strong reference to section
-// need to change logic of symbol_merge/symbol_define, or make wrapper, global_define, global_undefine, global_merge
-
-//struct global
-//{
-//    uint64_t hash;
-//    uint64_t dfi;// distance from ideal, (probe sequence length)
-//    struct globals *globals;
-//    struct symbol *symbol;
-//};
+#define GLOBALS_REHASH_THRESHOLD(capacity) \
+    (((capacity) / 4) * 3)
 
 
 /*
- * Global symbol table.
- * Manages symbols by tracking them by their name.
+ * Entry in the global symbol index hash table.
+ * Allows tracking symbols by name.
  */
-// FIXME: convert to hash table at a later point, need to rehash at load factor
+struct global
+{
+    uint32_t hash;          // hash of the symbol name
+    uint64_t dfi;           // distance from ideal in the name hash table
+    struct symbol *symbol;  // strong reference to the symbol
+};
+
+
+/*
+ * Global symbol index.
+ * Tracks global symbols by names and by sections.
+ */
 struct globals
 {
-    int refcnt;                 // 0 if embedded/stack allocated, >0 if shared
-    uint64_t nsymbols;          // number of symbols in the symbol table
-    struct rb_tree map;         // map of symbols by name
+    struct global *table;       // hash table of global symbols ordered by names
+    uint64_t capacity;          // capacity of the hash table
+    uint64_t nglobals;          // number of global symbols in the hash table
+    uint64_t rehash_threshold;  // rehashing threshold
 };
 
 
 /*
- * Entry in the global symbol table (internal data structure).
+ * Clear the symbol index and remove all entries.
  */
-struct globals_entry
+void globals_clear(struct globals *g);
+
+
+/*
+ * Look up a symbol from its name in the global symbol index.
+ */
+static inline
+struct symbol * globals_find_symbol(const struct globals *g, const char *name)
 {
-    struct globals *globals;    // weak reference to the global symbol table
-    struct rb_node map_entry;   // map entry data
-    struct symbol *symbol;      // strong reference to the symbol
-};
+    if (g->nglobals == 0) {
+        return NULL;
+    }
 
+    uint32_t hash = hash_fnv1a_32(name, strlen(name));
+    if (hash == 0) {
+        hash = 1;
+    }
 
-#define globals_symbol(node) \
-    rb_entry(node, struct globals_entry, map_entry)->symbol
+    uint64_t slot = hash & (g->capacity - 1);
+    uint64_t dfi = 0;
+
+    const struct global *this = &g->table[slot];
+
+    while (this->hash != 0 && dfi <= this->dfi) {
+        if (this->hash == hash) {
+            if (strcmp(name, symbol_name(this->symbol)) == 0) {
+                return this->symbol;
+            }
+        }
+
+        slot = (slot + 1) & (g->capacity - 1);
+        this = &g->table[slot];
+        ++dfi;
+    }
+
+    return NULL;
+}
 
 
 /*
- * Create a reference counted global symbol table.
+ * Remove symbol from the global symbol index.
  */
-struct globals * globals_alloc(void);
+void globals_remove_symbol(struct globals *g, const struct symbol *symbol);
 
 
 /*
- * Take a global symbol table reference.
- */
-struct globals * globals_get(struct globals *globals);
-
-
-/*
- * Release the global symbol table reference.
- */
-void globals_put(struct globals *globals);
-
-
-/*
- * Clear the global symbol table and remove all entries.
- */
-void globals_clear(struct globals *globals);
-
-
-/*
- * Insert symbol in the global symbol table.
- * 
+ * Insert a symbol to the global symbol index.
+ *
  * If the symbol's name is unique, a strong reference to
- * the symbol is taken, the symbol is inserted into the table,
+ * the symbol is taken, the symbol is inserted into the index,
  * and the function returns 0.
  *
  * If a symbol with the same name already is inserted in the symbol 
- * table, this funtion returns EEXIST. 
+ * index, this funtion returns EEXIST. 
  *
  * If the optional existing pointer is non-NULL and a symbol with the same
  * name already is inserted, the pointer is set to the existing symbol.
@@ -94,15 +112,21 @@ void globals_clear(struct globals *globals);
  * This function returns ENOMEM on failure to allocate internal
  * structure.
  */
-int globals_insert_symbol(struct globals *globals,
+int globals_insert_symbol(struct globals *g, 
                           struct symbol *symbol,
                           struct symbol **existing);
 
 
 /*
- * Look up a symbol in the global symbol table.
+ * Remove all symbols in the index that isn't marked as used.
  */
-struct symbol * globals_find_symbol(const struct globals *globals, const char *name);
+void globals_prune_dead_symbols(struct globals *g);
+
+
+/*
+ * Build a string table consisting of all the symbols in the index.
+ */
+struct string_table globals_build_string_table(struct globals *g);
 
 
 #ifdef __cplusplus

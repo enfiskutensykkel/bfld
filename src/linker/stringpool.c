@@ -149,7 +149,7 @@ bool string_pool_rehash(struct string_pool *pool, uint64_t capacity)
 
         if (entry->hash == 0) {
             continue;
-}
+        }
 
         uint32_t hash = entry->hash;
         uint32_t dfi = 0;

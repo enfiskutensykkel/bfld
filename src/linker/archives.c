@@ -109,17 +109,17 @@ static bool archives_add_archive(struct archives *index, struct archive *archive
     uint64_t low = 0;
 
     if (index->narchives > 0) {
-        uint64_t high = index->narchives - 1;
+        uint64_t high = index->narchives;
 
-        while (low <= high) {
-            uint64_t mid = low + (high - low) / 2;
+        while (low < high) {
+            uint64_t mid = low + ((high - low) >> 1);
 
             if (index->archives[mid] == archive) {
                 return true;
             } else if (index->archives[mid] < archive) {
                 low = mid + 1;
             } else {
-                high = mid - 1;
+                high = mid;
             }
         }
     }
@@ -129,13 +129,14 @@ static bool archives_add_archive(struct archives *index, struct archive *archive
         return false;
     }
 
-    index->archives = a;
-
-    for (uint64_t i = index->narchives; i > low; --i) {
-        index->archives[i] = index->archives[i-1];
+    if (low < index->narchives) {
+        memmove(&a[low + 1],
+                &a[low],
+                (index->narchives - low) * sizeof(struct archive*));
     }
+    a[low] = archive_get(archive);
    
-    index->archives[low] = archive_get(archive); 
+    index->archives = a;
     index->narchives++;
     return true;
 }
@@ -143,12 +144,16 @@ static bool archives_add_archive(struct archives *index, struct archive *archive
 
 bool archives_insert_symbol(struct archives *index, struct archive_member *member, const char *symbol_name)
 {
+    if (archives_find_symbol(index, symbol_name) != NULL) {
+        return false;
+    }
+
     struct archive *archive = member->archive;
     uint32_t hash = hash_fnv1a_32(symbol_name, strlen(symbol_name));
     if (hash == 0) {
         hash = 1;
     }
-    
+
     if (index->entries >= index->rehash_threshold || index->entries == index->capacity) {
         if (!archives_rehash_symbols(index, index->capacity > 0 ? index->capacity * 2 : 64)) {
             return false;
@@ -163,13 +168,6 @@ bool archives_insert_symbol(struct archives *index, struct archive_member *membe
 
     while (hash != 0) {
         struct archive_symbol *current = &index->index[slot];
-
-        if (!inserted && current->hash == hash) {
-            const char *existing = string_pool_at(&index->names, current->name);
-            if (strcmp(symbol_name, existing) == 0) {
-                return true;
-            }
-        }
 
         if (current->hash == 0 || dfi > current->dfi) {
 

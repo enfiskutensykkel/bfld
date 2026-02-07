@@ -28,9 +28,8 @@ void symbol_put(struct symbol *sym)
     assert(sym->refcnt > 0);
 
     if (--(sym->refcnt) == 0) {
-        if (sym->section != NULL) {
-            section_put(sym->section);
-            sym->section = NULL;
+        if (symbol_is_defined(sym)) {
+            symbol_undefine(sym);
         }
         free(sym->name);
         free(sym);
@@ -66,7 +65,10 @@ struct symbol * symbol_alloc(const char *name, enum symbol_type type,
     }
     strcpy(sym->name, name);
 
-    sym->hash = hash_fnv1a_32(name, strlen(name));
+    sym->hash = hash_fnv1a_32(sym->name, strlen(name));
+    if (sym->hash == 0) {
+        sym->hash = 1;
+    }
     sym->binding = binding;
     sym->type = type;
     sym->refcnt = 1;
@@ -145,7 +147,7 @@ bool symbol_define(struct symbol *sym, struct section *section,
         sym->is_absolute = false;
         sym->offset = offset;
         sym->section = section_get(section);
-        //sym->section = section;
+        section_add_symbol_reference(section, sym);
 
         if (sym->is_used) {
             // This should not really happen, but if it does notify the user about it
@@ -156,6 +158,9 @@ bool symbol_define(struct symbol *sym, struct section *section,
 
     // Release old section
     if (old_section != NULL) {
+        if (old_section != sym->section) {
+            section_remove_symbol_reference(old_section, sym);
+        }
         section_put(old_section);
     }
 
@@ -166,6 +171,7 @@ bool symbol_define(struct symbol *sym, struct section *section,
 void symbol_undefine(struct symbol *sym)
 {
     if (sym->section != NULL) {
+        section_remove_symbol_reference(sym->section, sym);
         section_put(sym->section);
         sym->section = NULL;
     }

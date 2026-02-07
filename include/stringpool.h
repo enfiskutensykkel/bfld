@@ -98,6 +98,28 @@ bool string_pool_extend(struct string_pool *pool, size_t size);
 bool string_pool_rehash(struct string_pool *pool, uint64_t capacity);
 
 
+static inline
+uint64_t string_pool_raw_intern(struct string_pool *pool, const char *string)
+{
+    if (string == NULL || string[0] == '\0') {
+        return 0;
+    }
+
+    size_t length = strlen(string) + 1;
+
+    if (pool->size - pool->offset <= length) {
+        if (!string_pool_extend(pool, length)) {
+            return 0;
+        }
+    }
+
+    uint64_t offset = pool->offset;
+    memcpy(&pool->strings[offset], string, length);
+    pool->offset += length;
+    return offset;
+}
+
+
 /*
  * Add a string to the string pool and return the offset.
  *
@@ -117,48 +139,52 @@ uint64_t string_pool_intern(struct string_pool *pool, const char *string)
         hash = 1;  // hash == 0 means unused
     }
 
+    // Check if entry already exists
+    uint64_t mask = pool->capacity - 1;
+    uint64_t slot = hash & mask;
+    uint32_t dfi = 0;
+
+    if (pool->count > 0) {
+        while (pool->index[slot].hash != 0 && pool->index[slot].dfi <= dfi) {
+            if (pool->index[slot].hash == hash) {
+                uint64_t offset = pool->index[slot].offset;
+                const char *value = &pool->strings[offset];
+                if (strcmp(string, value) == 0) {
+                    return offset;
+                }
+            }
+            slot = (slot + 1) & mask;
+            ++dfi;
+        }
+    }
+
+    // Resize and rehash if we need to
     if (pool->count >= pool->rehash_threshold) {
         if (!string_pool_rehash(pool, pool->capacity > 0 ? pool->capacity * 2 : 8)) {
             return 0;
         }
     }
 
+    mask = pool->capacity - 1;
+    slot = hash & mask;
+    dfi = 0;
+
     uint64_t result = 0;
-    uint64_t mask = pool->capacity - 1;
-    uint64_t slot = hash & mask;
     uint64_t offset = 0;
-    uint32_t dfi = 0;
 
     while (hash != 0) {
         struct intern *this = &pool->index[slot];
 
-        uint32_t tmp_hash = this->hash;
-        uint32_t tmp_dfi = this->dfi;
-        uint64_t tmp_offset = this->offset;
-        size_t tmp_length = this->length;
+        if (this->hash == 0 || dfi > this->dfi) {
+            struct intern tmp = *this;
 
-        if (result == 0 && tmp_hash == hash && tmp_length == length) {
-            // Found an entry with the same hash, check if it is the same key
-            const char *value = &pool->strings[this->offset];
-            if (strcmp(string, value) == 0) {
-                result = this->offset;
-                break;
-            }
-        }
-
-        if (tmp_hash == 0 || dfi > this->dfi) {
             // Found an available slot or the start of a new bucket
             if (result == 0) {
                 // Insert our string into the pool data
-                if (pool->size - pool->offset <= length) {
-                    if (!string_pool_extend(pool, length)) {
-                        return 0;
-                    }
+                result = offset = string_pool_raw_intern(pool, string);
+                if (result == 0) {
+                    return 0;
                 }
-
-                result = offset = pool->offset;
-                memcpy(&pool->strings[offset], string, length);
-                pool->offset += length;
                 pool->count++;
             }
 
@@ -169,10 +195,10 @@ uint64_t string_pool_intern(struct string_pool *pool, const char *string)
             this->dfi = dfi;
             this->length = length;
 
-            hash = tmp_hash;
-            offset = tmp_offset;
-            dfi = tmp_dfi;
-            length = tmp_length;
+            hash = tmp.hash;
+            offset = tmp.offset;
+            dfi = tmp.dfi;
+            length = tmp.length;
         }
 
         slot = (slot + 1) & mask;
@@ -295,6 +321,7 @@ const char * string_pool_at(const struct string_pool *pool, uint64_t offset)
 
 /*
  * Clone the string pool and compact the copy by performing tail merging.
+ * FIXME: build string pool from string table (and perform tail merging) string_pool_tail_merge(const char *strtab, size_t size);
  */
 struct string_pool * string_pool_tail_merge(const struct string_pool *pool);
 

@@ -67,6 +67,9 @@ struct section * section_alloc(struct objectfile *objfile,
     sect->nrelocs = 0;
     list_head_init(&sect->relocs);
     sect->is_alive = false;
+
+    sect->symbols = NULL;
+    sect->nsymbols = 0;
     
     return sect;
 }
@@ -101,6 +104,8 @@ struct section * section_clone(const struct section *original, const char *name)
     sect->size = original->size;
     sect->nrelocs = 0;
     sect->is_alive = false;
+    sect->nsymbols = 0;
+    sect->symbols = NULL;
 
     // Copy relocations from the original
     list_head_init(&sect->relocs);
@@ -136,6 +141,11 @@ void section_put(struct section *sect)
         if (sect->name != NULL) {
             free(sect->name);
         }
+
+        if (sect->symbols != NULL) {
+            free(sect->symbols);
+        }
+
         free(sect);
     }
 }
@@ -178,5 +188,69 @@ void section_clear_relocs(struct section *sect)
 {
     while (!list_empty(&sect->relocs)) {
         section_remove_reloc(list_first_entry(&sect->relocs, struct reloc, list_entry));
+    }
+}
+
+
+bool section_add_symbol_reference(struct section *sect, struct symbol *sym)
+{
+    size_t low = 0;
+    
+    if (sect->nsymbols > 0) {
+        size_t high = sect->nsymbols;
+
+        while (low < high) {
+            size_t mid = low + ((high - low) >> 1);
+            
+            if (sect->symbols[mid] == sym) {
+                log_warning("Reference to symbol '%s' was already added", sym->name);
+                return true;
+            } else if (sect->symbols[mid] < sym) {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
+        }
+    }
+
+    struct symbol **syms = realloc(sect->symbols, sizeof(struct symbol*) * (sect->nsymbols + 1));
+    if (syms == NULL) {
+        return false;
+    }
+
+    if (low < sect->nsymbols) {
+        memmove(&syms[low + 1], 
+                &syms[low], 
+                (sect->nsymbols - low) * sizeof(struct symbol*));
+    }
+    syms[low] = sym;  // weak reference
+
+    sect->symbols = syms;
+    sect->nsymbols++;
+    return true;
+}
+
+
+void section_remove_symbol_reference(struct section *sect, const struct symbol *sym)
+{
+    if (sect->nsymbols > 0) {
+        size_t low = 0;
+        size_t high = sect->nsymbols - 1;
+
+        while (low <= high) {
+            size_t mid = low + ((high - low) >> 1);
+            
+            if (sect->symbols[mid] == sym) {
+                for (size_t i = mid; i < sect->nsymbols - 1; ++i) {
+                    sect->symbols[i] = sect->symbols[i + 1];
+                }
+                sect->nsymbols--;
+                return;
+            } else if (sect->symbols[mid] < sym) {
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
     }
 }
