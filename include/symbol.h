@@ -53,7 +53,7 @@ struct symbol
     uint64_t size;                  // symbol size
     bool is_absolute;               // is the definition offset relative to a section base address or an absolute address
     bool is_common;                 // does the symbol refer to a common section?
-    bool is_used;                   // is the symbol used? set if forced kept, exported or used in a reloc
+    //bool is_used;                   // is the symbol used? set if forced kept, exported or used in a reloc
     struct section *section;        // strong reference to the section where the symbol is defined
     uint64_t offset;                // offset into the section to the definition or absolute address
 };

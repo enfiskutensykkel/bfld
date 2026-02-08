@@ -76,7 +76,7 @@ struct symbol * symbol_alloc(const char *name, enum symbol_type type,
     sym->size = 0;
     sym->is_absolute = false;
     sym->is_common = false;
-    sym->is_used = false;
+    //sym->is_used = false;
     sym->section = NULL;
     sym->offset = 0;
 
@@ -149,11 +149,10 @@ bool symbol_define(struct symbol *sym, struct section *section,
         sym->section = section_get(section);
         section_add_symbol_reference(section, sym);
 
-        if (sym->is_used) {
-            // This should not really happen, but if it does notify the user about it
-            log_notice("Symbol '%s' is marked as in use, marking definition as alive", sym->name);
-            sym->section->is_alive = true;
-        }
+        //if (sym->is_used && sym->section->discarded) {
+        //    // This should not really happen, but if it does notify the user about it
+        //    log_warning("Symbol '%s' is marked as in use, but section it is defined in is discarded", sym->name);
+        //}
     }
 
     // Release old section
@@ -180,7 +179,7 @@ void symbol_undefine(struct symbol *sym)
     sym->align = 0;
     sym->offset = 0;
     sym->is_absolute = false;
-    sym->is_used = false;
+//    sym->is_used = false;
 }
 
 
@@ -192,10 +191,10 @@ bool symbol_merge(struct symbol *existing, const struct symbol *incoming)
     assert(incoming->binding != SYMBOL_LOCAL && "Incoming symbol can not be SYMBOL_LOCAL");
     assert(existing->hash == incoming->hash && "Existing and incoming symbols are not the same symbol");
 
-    if (incoming->is_used) {
-        log_debug("Marking symbol '%s' as used", existing->name);
-        existing->is_used = true;
-    }
+//    if (incoming->is_used) {
+//        log_debug("Marking symbol '%s' as used", existing->name);
+//        existing->is_used = true;
+//    }
 
     if (existing->is_common && incoming->is_common) {
         if (incoming->align > existing->align) {
@@ -267,21 +266,21 @@ bool symbol_merge(struct symbol *existing, const struct symbol *incoming)
 }
 
 
-bool symbol_is_alive(const struct symbol *sym)
-{
-    // Symbols that are kept, exported or referenced by a relocation
-    // are always considered "alive"
-    if (sym->is_used) {
-        return true;
-    }
-
-    if (!symbol_is_defined(sym)) {
-        return false; // disregard undefined symbols
-    }
-
-    if (sym->is_absolute || sym->section == NULL) {
-        return false; // disregard absolute symbols that aren't used
-    }
-
-    return sym->section->is_alive;
-}
+//bool symbol_is_alive(const struct symbol *sym)
+//{
+//    // Symbols that are kept, exported or referenced by a relocation
+//    // are always considered "alive"
+//    if (sym->is_used) {
+//        return true;
+//    }
+//
+//    if (!symbol_is_defined(sym)) {
+//        return false; // disregard undefined symbols
+//    }
+//
+//    if (sym->is_absolute || sym->section == NULL) {
+//        return false; // disregard absolute symbols that aren't used
+//    }
+//
+//    return !sym->section->discarded;
+//}

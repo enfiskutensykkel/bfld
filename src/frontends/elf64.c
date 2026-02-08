@@ -16,10 +16,10 @@
  * Data structure for tracking ELF sections we want 
  * to revisit after the initial parsing.
  */
-struct elf_section_entry
+struct elf_section
 {
     struct list_head entry;
-    const Elf64_Shdr* shdr;
+    const Elf64_Shdr* sh;
 };
 
 
@@ -63,17 +63,41 @@ static bool check_elf_header(const uint8_t *file_data, size_t file_size, uint32_
 /*
  * Helper function to get a section header with the given index.
  */
-static inline const Elf64_Shdr * elf_section(const Elf64_Ehdr *eh, uint64_t idx)
+static inline 
+const Elf64_Shdr * elf_section(const Elf64_Ehdr *eh, uint64_t idx)
 {
     return ((const Elf64_Shdr*) (((const uint8_t*) eh) + eh->e_shoff)) + idx;
 }
 
 
 /*
- * Helper function to look up a string (for example section names) from
- * the global string table.
+ * Helper function to get the symbol at the given index.
  */
-static const char * lookup_strtab_str(const Elf64_Ehdr *ehdr, uint32_t offset)
+static inline 
+const Elf64_Sym * elf_symbol(const Elf64_Ehdr *eh, const Elf64_Shdr *sh, uint64_t idx)
+{
+    const Elf64_Sym *symtab = (const Elf64_Sym*) (((const uint8_t*) eh) + sh->sh_offset);
+    return &symtab[idx];
+}
+
+
+/*
+ * Helper function to get the name of the symbol at the given index.
+ */
+static inline
+const char * elf_symbol_name(const Elf64_Ehdr *eh, const Elf64_Shdr *sh, uint64_t idx)
+{
+    const Elf64_Shdr *link = elf_section(eh, sh->sh_link);
+    const Elf64_Sym *symtab = (const Elf64_Sym*) (((const uint8_t*) eh) + sh->sh_offset);
+    const char *strtab = (const char*) ((const uint8_t*) eh) + link->sh_offset;
+    return &strtab[symtab[idx].st_name];
+}
+
+
+/*
+ * Helper function to look up a section name.
+ */
+static const char * elf_section_name(const Elf64_Ehdr *ehdr, const Elf64_Shdr *shdr)
 {
     if (ehdr->e_shstrndx == SHN_UNDEF) {
         return NULL;
@@ -92,7 +116,7 @@ static const char * lookup_strtab_str(const Elf64_Ehdr *ehdr, uint32_t offset)
     }
 
     const char *strtab = ((const char*) ehdr) + elf_section(ehdr, ehdr->e_shstrndx)->sh_offset;
-    return strtab + offset;
+    return strtab + shdr->sh_name;
 }
 
 
@@ -101,11 +125,11 @@ static const char * lookup_strtab_str(const Elf64_Ehdr *ehdr, uint32_t offset)
  */
 static inline int add_section(struct list_head *list, const Elf64_Shdr *sh)
 {
-    struct elf_section_entry *entry = malloc(sizeof(struct elf_section_entry));
+    struct elf_section *entry = malloc(sizeof(struct elf_section));
     if (entry == NULL) {
         return ENOMEM;
     }
-    entry->shdr = sh;
+    entry->sh = sh;
     list_insert_tail(list, &entry->entry);
     return 0;
 }
@@ -117,6 +141,7 @@ static inline int add_section(struct list_head *list, const Elf64_Shdr *sh)
 static int parse_sections(const Elf64_Ehdr *eh, 
                           struct objectfile *objfile, 
                           struct section_table *sections,
+                          struct list_head *groups,
                           struct list_head *reltabs,
                           struct list_head *symtabs)
 {
@@ -133,7 +158,7 @@ static int parse_sections(const Elf64_Ehdr *eh,
 
     for (uint64_t shndx = 0; shndx < shnum; ++shndx) {
         const Elf64_Shdr *sh = elf_section(eh, shndx);
-        const char *shname = lookup_strtab_str(eh, sh->sh_name);
+        const char *shname = elf_section_name(eh, sh);
 
         log_ctx_push(LOG_CTX_SECTION(shname));
 
@@ -141,15 +166,10 @@ static int parse_sections(const Elf64_Ehdr *eh,
 
         switch (sh->sh_type) {
             case SHT_GROUP:
-                log_warning("Section groups are not handled yet");
-                // sh_link points to symbol table
-                // sh_info points to signature symbol
-                // TODO: strategy for same signature, "first one wins", "largest one wins", "make sure all duplicates are same size", "make sure all duplicates have same content"
-                // contents: first entry is usually GRP_COMDAT, subsequent entries are indices of sections that belong in list
-                // need a seen group set
-                // if signature is new, keep all sections listed, add signature to seen set
-                // if signature is alreadyy seen, discard (do not extract) every section listed in that group
-                // discard the section itself
+                if (add_section(groups, sh) != 0) {
+                    log_ctx_pop();
+                    return ENOMEM;
+                }
                 break;
 
             case SHT_SYMTAB:
@@ -259,7 +279,7 @@ static int parse_sections(const Elf64_Ehdr *eh,
                         sh->sh_size / sh->sh_entsize, sh->sh_entsize);
             }
 
-            log_warning("Merge sections are not supported yet");
+            log_info("Merge sections are not supported yet");
         }
 
         struct section *section = section_alloc(objfile, shname, type,
@@ -293,7 +313,7 @@ static int parse_reltab(const Elf64_Ehdr *eh,
                         const struct section_table *sects, 
                         const struct symbol_table *syms)
 {
-    log_ctx_push(LOG_CTX_SECTION(lookup_strtab_str(eh, sh->sh_name)));
+    log_ctx_push(LOG_CTX_SECTION(elf_section_name(eh, sh)));
 
     switch (sh->sh_type) {
         case SHT_REL:
@@ -371,6 +391,49 @@ static int parse_reltab(const Elf64_Ehdr *eh,
 }
 
 
+static int parse_group(const Elf64_Ehdr *eh,
+                       const Elf64_Shdr *sh,
+                       const struct section_table *sections,
+                       struct groups *groups)
+{
+    // TODO: strategy for same signature, "first one wins", "largest one wins", "make sure all duplicates are same size", "make sure all duplicates have same content"
+    // contents: first entry is usually GRP_COMDAT, subsequent entries are indices of sections that belong in list
+    // need a seen group set
+    // if signature is new, keep all sections listed, add signature to seen set
+    // if signature is alreadyy seen, discard (do not extract) every section listed in that group
+    // discard the section itself
+    
+    log_ctx_push(LOG_CTX_SECTION(elf_section_name(eh, sh)));
+
+    const char *signature = elf_symbol_name(eh, elf_section(eh, sh->sh_link), sh->sh_info);
+    const uint32_t *entries = (const uint32_t*) (((const uint8_t*) eh) + sh->sh_offset);
+    struct group *group = groups_create(groups, signature, sh->sh_size / sizeof(uint32_t));
+    bool new_group = group_empty(group);
+    bool comdat = true;
+
+    // First entry contains GRP_COMDAT in almost all cases
+    if (!(entries[0] & GRP_COMDAT)) {
+        // if COMDAT flag is not set, we can not rely on name alone to do deduplication
+        log_warning("Section group '%s' is not COMDAT", signature);
+        comdat = false;
+    }
+
+    for (uint32_t idx = 1; idx < sh->sh_size / sizeof(uint32_t); ++idx) {
+        struct section *sect = section_table_at(sections, entries[idx]);
+        if (sect != NULL) {
+            group_add_section(group, sect);
+            if (comdat && !new_group) {
+                sect->discard = true;
+            }
+        }
+    }
+
+    // deduplication
+    log_ctx_pop();
+    return 0;
+}
+
+
 /*
  * Parse the symbol table and extract symbols.
  */
@@ -382,19 +445,17 @@ static int parse_symtab(const Elf64_Ehdr *eh,
     int status = -1;
     assert(sh->sh_type == SHT_SYMTAB);
 
-    log_ctx_push(LOG_CTX_SECTION(lookup_strtab_str(eh, sh->sh_name)));
+    log_ctx_push(LOG_CTX_SECTION(elf_section_name(eh, sh)));
 
     if (!symbol_table_reserve(symbols, sh->sh_size / sh->sh_entsize)) {
         log_ctx_pop();
         return ENOMEM;
     }
 
-    const char* strtab = (const char*) ((const uint8_t*) eh) + elf_section(eh, sh->sh_link)->sh_offset;
-
     log_trace("Parsing symbol table");
     for (uint32_t idx = 1; idx < sh->sh_size / sh->sh_entsize; ++idx) {
-        const Elf64_Sym *sym = ((const Elf64_Sym*) (((const uint8_t*) eh) + sh->sh_offset)) + idx;
-        const char *name = strtab + sym->st_name;
+        const Elf64_Sym *sym = elf_symbol(eh, sh, idx);
+        const char *name = elf_symbol_name(eh, sh, idx);
         struct section *section = NULL; 
         uint64_t align = 0;
         uint64_t offset = 0;
@@ -534,6 +595,7 @@ out:
 static int parse_elf_file(const uint8_t *file_data, 
                           size_t file_size,
                           struct objectfile *objfile, 
+                          struct groups *groups,
                           struct section_table *sections, 
                           struct symbol_table *symbols)
 {
@@ -541,11 +603,12 @@ static int parse_elf_file(const uint8_t *file_data,
     const Elf64_Ehdr* eh = (const void*) file_data;
     struct list_head reltabs = LIST_HEAD_INIT(reltabs);
     struct list_head symtabs = LIST_HEAD_INIT(symtabs);
+    struct list_head groupsects = LIST_HEAD_INIT(groupsects);
 
     (void) file_size; // unused parameter
     
     // Parse file and create sections
-    status = parse_sections(eh, objfile, sections, &reltabs, &symtabs);
+    status = parse_sections(eh, objfile, sections, &groupsects, &reltabs, &symtabs);
     if (status != 0) {
         goto cleanup;
     }
@@ -556,9 +619,19 @@ static int parse_elf_file(const uint8_t *file_data,
         goto cleanup;
     }
 
+    // Parse section groups
+    list_for_each_entry_safe(s, &groupsects, struct elf_section, entry) {
+        status = parse_group(eh, s->sh, sections, groups);
+        if (status != 0) {
+            goto cleanup;
+        }
+        list_remove(&s->entry);
+        free(s);
+    }
+
     // Parse symbol table
-    list_for_each_entry_safe(s, &symtabs, struct elf_section_entry, entry) {
-        status = parse_symtab(eh, s->shdr, sections, symbols);
+    list_for_each_entry_safe(s, &symtabs, struct elf_section, entry) {
+        status = parse_symtab(eh, s->sh, sections, symbols);
         if (status != 0) {
             goto cleanup;
         }
@@ -567,8 +640,8 @@ static int parse_elf_file(const uint8_t *file_data,
     }
 
     // Parse relocation tables
-    list_for_each_entry_safe(s, &reltabs, struct elf_section_entry, entry) {
-        status = parse_reltab(eh, s->shdr, sections, symbols);
+    list_for_each_entry_safe(s, &reltabs, struct elf_section, entry) {
+        status = parse_reltab(eh, s->sh, sections, symbols);
         if (status != 0) {
             goto cleanup;
         }
@@ -577,12 +650,17 @@ static int parse_elf_file(const uint8_t *file_data,
     }
 
 cleanup:
-    list_for_each_entry_safe(s, &symtabs, struct elf_section_entry, entry) {
+    list_for_each_entry_safe(s, &groupsects, struct elf_section, entry) {
         list_remove(&s->entry);
         free(s);
     }
 
-    list_for_each_entry_safe(s, &reltabs, struct elf_section_entry, entry) {
+    list_for_each_entry_safe(s, &symtabs, struct elf_section, entry) {
+        list_remove(&s->entry);
+        free(s);
+    }
+
+    list_for_each_entry_safe(s, &reltabs, struct elf_section, entry) {
         list_remove(&s->entry);
         free(s);
     }

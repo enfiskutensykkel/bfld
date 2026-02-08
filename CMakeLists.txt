@@ -48,6 +48,7 @@ add_library(linkerlib SHARED
     src/linker/symbols.c
     src/linker/globals.c
     src/linker/layout.c
+    src/linker/groups.c
     src/linker/posixcompat.c
 )
 target_include_directories(linkerlib PUBLIC include)  # also includes "include/utils"

@@ -52,6 +52,7 @@ struct linkerctx * linker_alloc(const char *name, uint32_t target)
     memset(&ctx->sections, 0, sizeof(struct sections));
     memset(&ctx->unresolved, 0, sizeof(struct symbols));
     memset(&ctx->archives, 0, sizeof(struct archives));
+    memset(&ctx->groups, 0, sizeof(struct groups));
 
     ctx->target_march = target;
     ctx->target_cpu_align = backend->cpu_code_alignment;
@@ -81,6 +82,8 @@ void linker_put(struct linkerctx *ctx)
             section_clear_relocs(sect);
             section_put(sect);
         }
+
+        groups_clear(&ctx->groups);
 
         symbols_clear(&ctx->unresolved);
         globals_clear(&ctx->globals);
@@ -188,7 +191,7 @@ bool linker_load_objectfile(struct linkerctx *ctx,
     log_debug("Loading object file using front-end '%s'", reader->name);
 
     status = reader->parse_file(objfile->file_data, objfile->file_size,
-                                objfile, &secttab, &symtab);
+                                objfile, &ctx->groups, &secttab, &symtab);
     while (log_ctx > current_log_ctx) {
         log_warning("Unwinding log context stack");
         log_ctx_pop();

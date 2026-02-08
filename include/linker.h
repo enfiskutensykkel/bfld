@@ -12,6 +12,7 @@ extern "C" {
 #include "symbols.h"
 #include "globals.h"
 #include "archives.h"
+#include "groups.h"
 
 /* Some forward declarations */
 struct objectfile;
@@ -34,6 +35,7 @@ struct linkerctx
     struct globals globals;         // global symbols
     struct sections sections;       // worklist of input sections
     struct symbols unresolved;      // queue of unresolved symbols
+    struct groups groups;           // section groups
 
     uint32_t target_march;          // target machine code architecture
     uint64_t target_cpu_align;      // minimum CPU code alignment requirement

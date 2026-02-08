@@ -12,18 +12,10 @@
 #include <errno.h>
 
 
-static bool rehash(struct globals *g, uint64_t capacity)
+static bool rehash(struct globals *g)
 {
-    if (capacity < 128) {
-        capacity = 128;
-    }
+    uint64_t capacity = g->capacity > 0 ? g->capacity * 2 : 128;
 
-    if (capacity <= g->capacity) {
-        return true;
-    }
-
-    // Round capacity up to a power of two and make sure we don't overflow
-    capacity = align_roundup(capacity);
     if (capacity * sizeof(struct global) < g->capacity * sizeof(struct global)) {
         return false;
     }
@@ -86,8 +78,7 @@ int globals_insert_symbol(struct globals *g,
     }
 
     if (g->nglobals >= g->rehash_threshold) {
-        uint64_t capacity = g->capacity > 0 ? g->capacity * 2 : 128;
-        if (!rehash(g, capacity)) {
+        if (!rehash(g)) {
             return ENOMEM;
         }
     }
