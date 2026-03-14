@@ -68,9 +68,10 @@ struct section * section_alloc(struct objectfile *objfile,
     sect->size = size;
     sect->nrelocs = 0;
     list_head_init(&sect->relocs);
-    sect->group = NULL;
+    sect->group_id = 0;
+    //sect->group = NULL;
     //sect->is_alive = false;
-    sect->discard = false;
+    //sect->discard = false;
 
     sect->symbols = NULL;
     sect->nsymbols = 0;
@@ -108,8 +109,8 @@ struct section * section_clone(const struct section *original, const char *name)
     sect->size = original->size;
     sect->nrelocs = 0;
     //sect->is_alive = false;
-    sect->group = NULL;
-    sect->discard = false;
+    sect->group_id = 0;
+    //sect->discard = false;
     sect->nsymbols = 0;
     sect->symbols = NULL;
 

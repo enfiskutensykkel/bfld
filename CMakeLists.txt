@@ -35,7 +35,7 @@ add_library(linkerlib SHARED
     src/utils/deque.c
     src/utils/table.c
     src/utils/rbtree.c
-    src/linker/stringpool.c
+    src/linker/strpool.c
     src/linker/mfile.c 
     src/linker/registry.c
     src/linker/linker.c
@@ -48,7 +48,6 @@ add_library(linkerlib SHARED
     src/linker/symbols.c
     src/linker/globals.c
     src/linker/layout.c
-    src/linker/groups.c
     src/linker/posixcompat.c
 )
 target_include_directories(linkerlib PUBLIC include)  # also includes "include/utils"

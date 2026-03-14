@@ -407,8 +407,7 @@ static int parse_group(const Elf64_Ehdr *eh,
 
     const char *signature = elf_symbol_name(eh, elf_section(eh, sh->sh_link), sh->sh_info);
     const uint32_t *entries = (const uint32_t*) (((const uint8_t*) eh) + sh->sh_offset);
-    struct group *group = groups_create(groups, signature, sh->sh_size / sizeof(uint32_t));
-    bool new_group = group_empty(group);
+    uint64_t group_id = groups_create_group(groups, signature);
     bool comdat = true;
 
     // First entry contains GRP_COMDAT in almost all cases
@@ -421,10 +420,7 @@ static int parse_group(const Elf64_Ehdr *eh,
     for (uint32_t idx = 1; idx < sh->sh_size / sizeof(uint32_t); ++idx) {
         struct section *sect = section_table_at(sections, entries[idx]);
         if (sect != NULL) {
-            group_add_section(group, sect);
-            if (comdat && !new_group) {
-                sect->discard = true;
-            }
+            sect->group_id = group_id;
         }
     }
 

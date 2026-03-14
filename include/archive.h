@@ -7,7 +7,7 @@ extern "C" {
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
-#include "stringpool.h"
+#include "strpool.h"
 #include "utils/list.h"
 
 
@@ -32,7 +32,7 @@ struct archive
     size_t file_size;           // total size of the file
     struct archive_member *members; // dynamic array of archive members
     size_t nmembers;            // number of archive members
-    struct string_pool names;   // member names
+    struct strpool names;       // member names
 };
 
 
@@ -107,7 +107,7 @@ struct objectfile * archive_extract_member(struct archive_member *member);
 static inline
 const char * archive_member_name(struct archive_member *member)
 {
-    return string_pool_at(&member->archive->names, member->name);
+    return strpool_at(&member->archive->names, member->name);
 }
 
 

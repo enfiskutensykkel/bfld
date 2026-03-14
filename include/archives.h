@@ -7,7 +7,7 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "stringpool.h"
+#include "strpool.h"
 
 /* Some forward declarations */
 struct archive;
@@ -37,7 +37,7 @@ struct archives
     uint64_t capacity;              // capacity of the symbol index
     uint64_t entries;               // entries in the symbol index
     uint64_t rehash_threshold;      // rehash threshold for the symbol index
-    struct string_pool names;       // string pool for symbol names
+    struct strpool names;           // string pool for symbol names
 };
 
 

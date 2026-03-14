@@ -7,66 +7,45 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include "sections.h"
-
-struct section;
+#include "strpool.h"
 
 
 /*
- * Section group representation.
+ * Convenience wrapper for string pool to keep track of section groups.
  */
-struct group
-{
-    uint32_t hash;
-    size_t dfi;
-    char *name;
-    struct sections sections;
-};
-
-
 struct groups
 {
-    struct group *table;
-    size_t capacity;
-    size_t ngroups;
-    size_t rehash_threshold;
+    struct strpool names;
 };
 
 
 static inline
-const char * group_name(const struct group *group)
+const char * group_name(const struct groups *groups, uint64_t group_id)
 {
-    return group->name;
+    return strpool_at(&groups->names, group_id);
+}
+
+
+
+static inline
+uint64_t groups_create_group(struct groups *groups, const char *name)
+{
+    return strpool_intern(&groups->names, name);
 }
 
 
 static inline
-bool group_add_section(struct group *group, struct section *section)
-{
-    if (section->group != NULL) {
-        return false;
-    }
-
-    return sections_push(&group->sections, section);
+uint64_t groups_lookup_group(const struct groups *groups, const char *name)
+{ 
+    return strpool_lookup(&groups->names, name);
 }
 
 
-static inline bool group_empty(const struct group *group)
+static inline
+void groups_clear(struct groups *groups)
 {
-    return sections_empty(&group->sections);
+    strpool_clear(&groups->names);
 }
-
-
-struct group * groups_create(struct groups *groups, const char *name, size_t nsections);
-
-
-struct group * groups_lookup(const struct groups *groups, const char *name);
-
-
-void groups_remove(struct groups *groups, const char *name);
-
-
-void groups_clear(struct groups *groups);
 
 
 #ifdef __cplusplus

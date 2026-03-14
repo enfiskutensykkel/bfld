@@ -46,7 +46,7 @@ struct intern
  * The hash table uses Robin Hood hashing to deal
  * with collisions, and rehashes when size >= rehash_threshold.
  */
-struct string_pool
+struct strpool
 {
     int refcnt;                 // reference counter
     char *strings;              // underlying string table
@@ -62,31 +62,31 @@ struct string_pool
 /*
  * Create a string pool.
  */
-struct string_pool * string_pool_alloc(void);
+struct strpool * strpool_alloc(void);
 
 
 /*
  * Take a string pool reference.
  */
-struct string_pool * string_pool_get(struct string_pool *pool);
+struct strpool * strpool_get(struct strpool *pool);
 
 
 /*
  * Release a string pool reference.
  */
-void string_pool_put(struct string_pool *pool);
+void strpool_put(struct strpool *pool);
 
 
 /*
  * Clear the string pool entirely.
  */
-void string_pool_clear(struct string_pool *pool);
+void strpool_clear(struct strpool *pool);
 
 
 /*
  * Grow the underlying string table with at least size bvtes.
  */
-bool string_pool_extend(struct string_pool *pool, size_t size);
+bool strpool_extend(struct strpool *pool, size_t size);
 
 
 /*
@@ -95,20 +95,23 @@ bool string_pool_extend(struct string_pool *pool, size_t size);
  * Note that this does not compact the underlying string table,
  * since offsets are expected to be stable.
  */
-bool string_pool_rehash(struct string_pool *pool, uint64_t capacity);
+bool strpool_rehash(struct strpool *pool, uint64_t capacity);
 
 
+/*
+ * Append a string with a given length to the underlying string table.
+ *
+ * Note that length should include the terminating NUL-character.
+ */
 static inline
-uint64_t string_pool_raw_intern(struct string_pool *pool, const char *string)
+uint64_t strpool_raw_intern(struct strpool *pool, const char *string, size_t length)
 {
     if (string == NULL || string[0] == '\0') {
         return 0;
     }
 
-    size_t length = strlen(string) + 1;
-
     if (pool->size - pool->offset <= length) {
-        if (!string_pool_extend(pool, length)) {
+        if (!strpool_extend(pool, length)) {
             return 0;
         }
     }
@@ -127,7 +130,7 @@ uint64_t string_pool_raw_intern(struct string_pool *pool, const char *string)
  * Returns 0 if adding the string failed, as the first entry is reserved for the empty string.
  */
 static inline
-uint64_t string_pool_intern(struct string_pool *pool, const char *string)
+uint64_t strpool_intern(struct strpool *pool, const char *string)
 {
     if (string == NULL || string[0] == '\0') {
         return 0;
@@ -160,7 +163,7 @@ uint64_t string_pool_intern(struct string_pool *pool, const char *string)
 
     // Resize and rehash if we need to
     if (pool->count >= pool->rehash_threshold) {
-        if (!string_pool_rehash(pool, pool->capacity > 0 ? pool->capacity * 2 : 8)) {
+        if (!strpool_rehash(pool, pool->capacity > 0 ? pool->capacity * 2 : 8)) {
             return 0;
         }
     }
@@ -181,7 +184,7 @@ uint64_t string_pool_intern(struct string_pool *pool, const char *string)
             // Found an available slot or the start of a new bucket
             if (result == 0) {
                 // Insert our string into the pool data
-                result = offset = string_pool_raw_intern(pool, string);
+                result = offset = strpool_raw_intern(pool, string, length);
                 if (result == 0) {
                     return 0;
                 }
@@ -210,7 +213,7 @@ uint64_t string_pool_intern(struct string_pool *pool, const char *string)
 
 
 static inline
-void string_pool_unintern(struct string_pool *pool, const char *string)
+void strpool_unintern(struct strpool *pool, const char *string)
 {
     if (string == NULL || string[0] == '\0' || pool->count == 0) {
         return;
@@ -267,7 +270,7 @@ void string_pool_unintern(struct string_pool *pool, const char *string)
  * Returns 0 if not found, which is also the same as the empty string.
  */
 static inline
-uint64_t string_pool_lookup(const struct string_pool *pool, const char *string)
+uint64_t strpool_lookup(const struct strpool *pool, const char *string)
 {
     if (string == NULL || string[0] == '\0') {
         return 0;
@@ -305,7 +308,7 @@ uint64_t string_pool_lookup(const struct string_pool *pool, const char *string)
  * Get the string at the given offset.
  */
 static inline
-const char * string_pool_at(const struct string_pool *pool, uint64_t offset)
+const char * strpool_at(const struct strpool *pool, uint64_t offset)
 {
     if (offset == 0) {
         return "";
@@ -320,13 +323,16 @@ const char * string_pool_at(const struct string_pool *pool, uint64_t offset)
 
 
 /*
- * Clone the string pool and compact the copy by performing tail merging.
- * FIXME: build string pool from string table (and perform tail merging) string_pool_tail_merge(const char *strtab, size_t size);
+ * Parse a string table with NUL-terminated strings, and build a string pool. 
+ * This will also perform tail merging, in order to compact the underlying 
+ * string table used by the pool.
+ *
+ * Returns the number of strings in the string pool after merging.
  */
-struct string_pool * string_pool_tail_merge(const struct string_pool *pool);
+uint64_t strpool_pack(struct strpool *pool, const char *strtab, uint64_t size);
 
 
-#define string_pool_for_each_offset(iterator, pool_ptr) \
+#define strpool_for_each_offset(iterator, pool_ptr) \
     for (uint64_t __idx = 0; __idx < (pool_ptr)->capacity; __idx++) \
         for (uint64_t __once = 1, iterator = (pool_ptr)->index[__idx].offset; __once && (pool_ptr)->index[__idx].hash != 0; __once = 0)
 

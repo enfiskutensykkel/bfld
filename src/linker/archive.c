@@ -2,7 +2,7 @@
 #include "logging.h"
 #include "objectfile.h"
 #include "mfile.h"
-#include "stringpool.h"
+#include "strpool.h"
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
@@ -112,7 +112,7 @@ struct archive_member * archive_add_member(struct archive *ar,
     }
 
     struct archive_member *member = &members[low];
-    member->name = string_pool_intern(&ar->names, name);
+    member->name = strpool_intern(&ar->names, name);
     member->archive = ar;
     member->offset = offset;
     member->size = size;
@@ -145,7 +145,7 @@ void archive_put(struct archive *ar)
         ar->nmembers = 0;
         
         mfile_put(ar->file);
-        string_pool_clear(&ar->names);
+        strpool_clear(&ar->names);
         free(ar->name);
         free(ar);
     }
@@ -194,7 +194,7 @@ struct archive * archive_alloc(struct mfile *file,
     }
     strcpy(ar->name, name);
 
-    memset(&ar->names, 0, sizeof(struct string_pool));
+    memset(&ar->names, 0, sizeof(struct strpool));
     ar->file = mfile_get(file);
     ar->refcnt = 1;
     ar->file_data = file_data;

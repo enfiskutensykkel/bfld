@@ -1,4 +1,4 @@
-#include "stringpool.h"
+#include "strpool.h"
 #include "logging.h"
 #include <stdlib.h>
 #include <string.h>
@@ -8,77 +8,83 @@
 
 void test_tail_merge(void)
 {
-    struct string_pool pool = {0};
+    struct strpool pool = {0};
 
-    const char *words[] = {"main", "domain", "_io_file_open", "mydomain", "foobar", "bar", "file_open", "open"};
-
-    for (size_t i = 0; i < 8; ++i) {
-        string_pool_intern(&pool, words[i]);
+    const char strtab[] = "\0atomic_open\0main\0domain\0_io_file_open\0tor-arne\0bjarne\0mydomain\0foobar\0bar\0file_open\0open\0arne\0per-arne";
+    uint64_t totalcount = 0;
+    const char *s = strtab;
+    fprintf(stderr, "All strings:\n");
+    while (s < strtab + sizeof(strtab)) {
+        size_t n = strlen(s) + 1;
+        fprintf(stderr, "'%s'\n", s);
+        totalcount++;
+        s += n;
     }
+    strpool_pack(&pool, strtab, sizeof(strtab));
 
-    struct string_pool *copy = string_pool_tail_merge(&pool);
-
-    fprintf(stderr, "Entries:\n");
-    string_pool_for_each_offset(offs, copy) {
-        fprintf(stderr, "%s\n", string_pool_at(copy, offs));
+    fprintf(stderr, "\nPool entries:\n");
+    strpool_for_each_offset(offs, &pool) {
+        fprintf(stderr, "'%s'\n", strpool_at(&pool, offs));
     }
-    assert(copy->count == 8);
+    assert(pool.count == totalcount);
 
-    fprintf(stderr, "\nActual strings:\n");
-    const char *s = &copy->strings[1];
+    fprintf(stderr, "\nInterned strings:\n");
+    s = &pool.strings[0];
     size_t nstrings = 0;
     size_t size = 0;
-    while (s < copy->strings + copy->offset) {
-        fprintf(stderr, "%s\n", s);
+    while (s < pool.strings + pool.offset) {
+        size_t n = strlen(s) + 1;
+        fprintf(stderr, "'%s'\n", s);
         nstrings++;
-        size += strlen(s) + 1;
-        s += strlen(s) + 1;
+        size += n;
+        s += n;
     }
-    assert(size == strlen("foobar") + 1 + strlen("mydomain") + 1 + strlen("_io_file_open") + 1);
-    assert(copy->offset == 1 + size);
+    assert(pool.offset == size);
+    assert(pool.offset < sizeof(strtab));
+
+    fprintf(stderr, "%lu\n", strpool_lookup(&pool, "arne"));
     
-    string_pool_put(copy);
-    string_pool_clear(&pool);
+    strpool_clear(&pool);
 }
 
 
 int main(int argc, char **argv)
 {
     log_level = 9;
-    struct string_pool pool = {0};
-    uint64_t offset = string_pool_intern(&pool, "hello");
-    assert(strcmp(string_pool_at(&pool, offset), "hello") == 0);
+    struct strpool pool = {0};
+    uint64_t offset = strpool_intern(&pool, "hello");
+    assert(strcmp(strpool_at(&pool, offset), "hello") == 0);
 
     const char *strings[] = {"A", "B", "C", "this is a string", "this is another string", "A"};
     uint64_t offsets[sizeof(strings) / sizeof(strings[0])];
     for (size_t i = 0; i < sizeof(strings) / sizeof(strings[0]); ++i) {
-        offsets[i] = string_pool_intern(&pool, strings[i]);
+        offsets[i] = strpool_intern(&pool, strings[i]);
     }
 
     assert(offsets[0] == offsets[sizeof(strings) / sizeof(strings[0]) - 1]);
 
     for (size_t i = 0; i < sizeof(strings) / sizeof(strings[0]); ++i) {
-        assert(string_pool_lookup(&pool, strings[i]) == offsets[i]);
+        assert(strpool_lookup(&pool, strings[i]) == offsets[i]);
     }
 
-    string_pool_unintern(&pool, "B");
+    strpool_unintern(&pool, "B");
 
-    string_pool_for_each_offset(offs, &pool) {
-        assert(strcmp("B", string_pool_at(&pool, offs)) != 0);
+    strpool_for_each_offset(offs, &pool) {
+        assert(strcmp("B", strpool_at(&pool, offs)) != 0);
     }
 
-//    string_pool_for_each_offset(offs, &pool) {
-//        fprintf(stderr, "offset=%lu string=%s\n", offs, string_pool_at(&pool, offs));
+//    strpool_for_each_offset(offs, &pool) {
+//        fprintf(stderr, "offset=%lu string=%s\n", offs, strpool_at(&pool, offs));
 //    }
 //
 //    for (uint64_t i = 0; i < pool.capacity; ++i) {
 //        const struct intern *intern = &pool.index[i];
 //        if (intern->hash != 0) {
-//            fprintf(stderr, "offset=%lu length=%zu string=%s\n", intern->offset, intern->length, string_pool_at(&pool, intern->offset));
+//            fprintf(stderr, "offset=%lu length=%zu string=%s\n", intern->offset, intern->length, strpool_at(&pool, intern->offset));
 //        }
 //    }
 
-    string_pool_clear(&pool);
+    strpool_clear(&pool);
     assert(pool.capacity == 0);
 
     test_tail_merge();

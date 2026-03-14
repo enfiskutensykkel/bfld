@@ -2,7 +2,6 @@
 #include "section.h"
 #include "logging.h"
 #include "objectfile.h"
-#include "stringpool.h"
 #include "utils/hash.h"
 #include <stdlib.h>
 #include <string.h>

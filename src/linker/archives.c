@@ -1,4 +1,4 @@
-#include "stringpool.h"
+#include "strpool.h"
 #include "archives.h"
 #include "archive.h"
 #include "logging.h"
@@ -25,7 +25,7 @@ struct archives * archives_alloc(void)
     index->entries = 0;
     index->rehash_threshold = 0;
     index->index = NULL;
-    memset(&index->names, 0, sizeof(struct string_pool));
+    memset(&index->names, 0, sizeof(struct strpool));
     index->narchives = 0;
     return index;
 }
@@ -176,7 +176,7 @@ bool archives_insert_symbol(struct archives *index, struct archive_member *membe
                     return false;
                 }
 
-                name = string_pool_intern(&index->names, symbol_name);
+                name = strpool_intern(&index->names, symbol_name);
                 if (name == 0) {
                     return false;
                 }
@@ -224,7 +224,7 @@ archives_find_symbol(const struct archives *index, const char *symbol_name)
 
     while (this->hash != 0 && dfi <= this->dfi) {
         if (this->hash == hash) {
-            const char *existing = string_pool_at(&index->names, this->name);
+            const char *existing = strpool_at(&index->names, this->name);
             if (strcmp(existing, symbol_name) == 0) {
                 return this->member;
             }
@@ -251,7 +251,7 @@ void archives_clear_symbols(struct archives *index)
         index->archives = NULL;
     }
 
-    string_pool_clear(&index->names);
+    strpool_clear(&index->names);
     index->capacity = 0;
     index->entries = 0;
     free(index->index);

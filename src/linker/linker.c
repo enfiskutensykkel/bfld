@@ -3,7 +3,7 @@
 #include "archive_reader.h"
 #include "logging.h"
 #include "linker.h"
-#include "stringpool.h"
+#include "strpool.h"
 #include "objectfile.h"
 #include "utils/list.h"
 #include "utils/align.h"
@@ -12,6 +12,7 @@
 #include "symbols.h"
 #include "symbol.h"
 #include "globals.h"
+#include "groups.h"
 #include "mfile.h"
 #include "archive.h"
 #include "archives.h"
@@ -52,7 +53,6 @@ struct linkerctx * linker_alloc(const char *name, uint32_t target)
     memset(&ctx->sections, 0, sizeof(struct sections));
     memset(&ctx->unresolved, 0, sizeof(struct symbols));
     memset(&ctx->archives, 0, sizeof(struct archives));
-    memset(&ctx->groups, 0, sizeof(struct groups));
 
     ctx->target_march = target;
     ctx->target_cpu_align = backend->cpu_code_alignment;
@@ -82,8 +82,6 @@ void linker_put(struct linkerctx *ctx)
             section_clear_relocs(sect);
             section_put(sect);
         }
-
-        groups_clear(&ctx->groups);
 
         symbols_clear(&ctx->unresolved);
         globals_clear(&ctx->globals);
@@ -164,6 +162,7 @@ bool linker_load_objectfile(struct linkerctx *ctx,
 
     struct section_table secttab = {0};
     struct symbol_table symtab = {0};
+    struct groups groups = {0};
 
     uint32_t march = 0;
 
@@ -191,7 +190,7 @@ bool linker_load_objectfile(struct linkerctx *ctx,
     log_debug("Loading object file using front-end '%s'", reader->name);
 
     status = reader->parse_file(objfile->file_data, objfile->file_size,
-                                objfile, &ctx->groups, &secttab, &symtab);
+                                objfile, &groups, &secttab, &symtab);
     while (log_ctx > current_log_ctx) {
         log_warning("Unwinding log context stack");
         log_ctx_pop();
@@ -268,6 +267,11 @@ bool linker_load_objectfile(struct linkerctx *ctx,
             goto leave;
         }
 
+        // FIXME fixup global group ID
+        if (sect->group_id != 0) {
+            log_debug("Section group '%s'", group_name(&groups, sect->group_id));
+        }
+
         // Fixup relocations that point to global symbols
         list_for_each_entry(reloc, &sect->relocs, struct reloc, list_entry) {
             struct symbol *global = globals_find_symbol(&ctx->globals, symbol_name(reloc->symbol));
@@ -295,6 +299,7 @@ leave:
     log_ctx_pop();
     symbol_table_clear(&symtab);
     section_table_clear(&secttab);
+    groups_clear(&groups);
     return success;
 }
 

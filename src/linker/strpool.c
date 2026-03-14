@@ -1,6 +1,5 @@
 #include "logging.h"
-#include "utils/rbtree.h"
-#include "stringpool.h"
+#include "strpool.h"
 #include "utils/align.h"
 #include "utils/hash.h"
 #include <stddef.h>
@@ -11,32 +10,28 @@
 #include <assert.h>
 
 
-struct string
-{
-    struct rb_node node;
-    uint64_t offset;
-    size_t length;
-};
-
-
 static inline
 int strrevcmp(const char *s1, size_t len1, const char *s2, size_t len2)
 {
-    size_t i = len1 > 0 ? len1 - 1 : 0;
-    size_t j = len2 > 0 ? len2 - 1 : 0;
+    size_t i = len1;
+    size_t j = len2;
 
     while (i != 0 && j != 0) {
-        unsigned char c1 = s1[i - 1];
-        unsigned char c2 = s2[j - 1];
+        unsigned char c1 = s1[--i];
+        unsigned char c2 = s2[--j];
 
         if (c1 != c2) {
-            return c1 - c2;
+            return (c1 < c2) ? -1 : 1;
         }
-
-        --i, --j;
     }
 
-    return (int) len1 - (int) len2;
+    if (len1 < len2) {
+        return -1;
+    } else if (len1 > len2) {
+        return 1;
+    }
+
+    return 0;
 }
 
 
@@ -51,35 +46,9 @@ bool strissuffix(const char *suffix, size_t suffixlen, const char *s, size_t len
 }
 
 
-static bool tree_add_string(struct rb_tree *tree, const char *strings, struct string *string)
+struct strpool * strpool_alloc(void)
 {
-    struct rb_node **pos = &(tree->root), *parent = NULL;
-    const char *str = &strings[string->offset];
-
-    while (*pos != NULL) {
-        struct string *this = rb_entry(*pos, struct string, node);
-        parent = *pos;
-
-        int result = strrevcmp(str, string->length, &strings[this->offset], this->length);
-        if (result < 0) {
-            pos = &((*pos)->left);
-        } else if (result > 0) {
-            pos = &((*pos)->right);
-        } else {
-            // This shouldn't happen
-            return false;
-        }
-    }
-
-    rb_insert_node(&string->node, parent, pos);
-    rb_insert_fixup(tree, &string->node);
-    return true;
-}
-
-
-struct string_pool * string_pool_alloc(void)
-{
-    struct string_pool *pool = malloc(sizeof(struct string_pool));
+    struct strpool *pool = malloc(sizeof(struct strpool));
     if (pool == NULL) {
         return NULL;
     }
@@ -93,13 +62,13 @@ struct string_pool * string_pool_alloc(void)
     pool->index = NULL;
     pool->rehash_threshold = 0;
 
-    string_pool_extend(pool, 256);
-    string_pool_rehash(pool, 64);
+    strpool_extend(pool, 256);
+    strpool_rehash(pool, 64);
     return pool;
 }
 
 
-struct string_pool * string_pool_get(struct string_pool *pool)
+struct strpool * strpool_get(struct strpool *pool)
 {
     assert(pool != NULL);
     assert(pool->refcnt != 0);
@@ -108,20 +77,19 @@ struct string_pool * string_pool_get(struct string_pool *pool)
 }
 
 
-void string_pool_put(struct string_pool *pool)
+void strpool_put(struct strpool *pool)
 {
     assert(pool != NULL);
     assert(pool->refcnt != 0);
 
     if (--(pool->refcnt) == 0) {
-        string_pool_clear(pool);
+        strpool_clear(pool);
         free(pool);
     }
 }
 
 
-
-bool string_pool_rehash(struct string_pool *pool, uint64_t capacity)
+bool strpool_rehash(struct strpool *pool, uint64_t capacity)
 {
     if (capacity < 64) {
         capacity = 64;
@@ -188,7 +156,7 @@ bool string_pool_rehash(struct string_pool *pool, uint64_t capacity)
     pool->rehash_threshold = STRING_POOL_REHASH_THRESHOLD(capacity);
 
     if (pool->strings == NULL) {
-        if (string_pool_extend(pool, 256)) {
+        if (strpool_extend(pool, 256)) {
             pool->strings[0] = '\0';
             pool->offset = 1;
         }
@@ -198,7 +166,7 @@ bool string_pool_rehash(struct string_pool *pool, uint64_t capacity)
 }
 
 
-bool string_pool_extend(struct string_pool *pool, size_t length)
+bool strpool_extend(struct strpool *pool, size_t length)
 {
     if (pool->size - pool->offset >= length) {
         return true;
@@ -230,7 +198,7 @@ bool string_pool_extend(struct string_pool *pool, size_t length)
 }
 
 
-void string_pool_clear(struct string_pool *pool)
+void strpool_clear(struct strpool *pool)
 {
     if (pool->index != NULL) {
         free(pool->index);
@@ -249,7 +217,7 @@ void string_pool_clear(struct string_pool *pool)
 }
 
 
-static bool insert_tail_merge_offset(struct string_pool *pool, uint64_t base_offset, size_t base_length, size_t tail_length)
+static bool insert_tail_merge_offset(struct strpool *pool, uint64_t base_offset, size_t base_length, size_t tail_length)
 {
     size_t length = tail_length;
     uint64_t relative_offset = base_length - tail_length;
@@ -294,67 +262,121 @@ static bool insert_tail_merge_offset(struct string_pool *pool, uint64_t base_off
 }
 
 
-struct string_pool * string_pool_tail_merge(const struct string_pool *pool)
+static inline
+void swap_strings(const char **strings, size_t *lengths, uint64_t i, uint64_t j)
 {
-    if (pool->count == 0) {
-        return string_pool_alloc();
+    const char *tmp_string = strings[i];
+    size_t tmp_length = lengths[i];
+    strings[i] = strings[j];
+    lengths[i] = lengths[j];
+    strings[j] = tmp_string;
+    lengths[j] = tmp_length;
+}
+
+
+static inline
+uint64_t partition_strings(const char **strings, size_t *lengths, 
+                       uint64_t low, uint64_t high)
+{
+    // Do Sedgewick's "median of three"
+    uint64_t mid = (low + high) / 2;
+    if (strrevcmp(strings[mid], lengths[mid], strings[low], lengths[low]) < 0) {
+        swap_strings(strings, lengths, mid, low);
     }
 
-    struct string *arena = malloc(sizeof(struct string) * pool->count);
-    if (arena == NULL) {
-        return NULL;
+    if (strrevcmp(strings[high], lengths[high], strings[low], lengths[low]) < 0) {
+        swap_strings(strings, lengths, low, high);
     }
-    uint64_t arena_idx = 0;
 
-    const char *strings = pool->strings;
+    if (strrevcmp(strings[mid], lengths[mid], strings[high], lengths[high]) < 0) {
+        swap_strings(strings, lengths, mid, high);
+    }
 
-    // Sort strings on reverse strings
-    struct rb_tree tree;
-    rb_tree_init(&tree);
+    // Select middle element as pivot
+    const char *pivot_s = strings[mid];
+    size_t pivot_l = lengths[mid];
 
-    for (uint64_t i = 0; i < pool->capacity; ++i) {
-        const struct intern *this = &pool->index[i];
-        if (this->hash != 0) {
-            struct string *s = &arena[arena_idx++];
-            s->offset = this->offset;
-            s->length = this->length;
-            tree_add_string(&tree, strings, s);
+    // Do Hoare's partitioning
+    uint64_t i = low - 1, j = high + 1;
+    while (true) {
+        do {
+            ++i;
+        } while (strrevcmp(strings[i], lengths[i], pivot_s, pivot_l) < 0);
+
+        do {
+            --j;
+        } while (strrevcmp(strings[j], lengths[j], pivot_s, pivot_l) > 0);
+
+        if (i >= j) {
+            return j;
+        }
+
+        swap_strings(strings, lengths, i, j);
+    }
+}
+
+
+static void sort_strings(const char **strings, size_t *lengths, uint64_t low, uint64_t high)
+{
+    if (low < high) {
+        uint64_t pivot = partition_strings(strings, lengths, low, high);
+        sort_strings(strings, lengths, low, pivot);
+        sort_strings(strings, lengths, pivot + 1, high);
+    }
+}
+
+
+uint64_t strpool_pack(struct strpool *pool, const char *strtab, uint64_t size)
+{
+    if (pool->size - pool->offset <= size) {
+        if (!strpool_extend(pool, size)) {
+            return 0;
         }
     }
 
-    struct string_pool *clone = string_pool_alloc();
-    if (clone == NULL) {
-        free(arena);
-        return NULL;
+    uint64_t count = 0;
+    const char **sorted = malloc(sizeof(const char*) * size);
+    size_t *lengths = malloc(sizeof(size_t) * size);
+
+    // Extract strings and their lengths from the string table
+    uint64_t pos = 0;
+    while (pos < size) {
+        size_t n = 0;
+
+        while (pos + n < size && strtab[pos + n] != '\0') {
+            ++n;
+        }
+
+        sorted[count] = &strtab[pos];
+        lengths[count] = n;
+        ++count;
+
+        pos += n + 1;
     }
 
-    string_pool_extend(clone, pool->size);
-    string_pool_rehash(clone, pool->capacity);
+    // Sort the string table (reverse)
+    sort_strings(sorted, lengths, 0, count-1);
 
-    struct rb_node *node = rb_last(&tree);
-    struct string *longest = NULL;
+    // Iterate from back and intern the logest version
+    // of the string and add entries for substrings
+    const char *longest = NULL;
+    size_t length = 0;
     uint64_t offset = 0;
 
-    // Tree is sorted on reverse strings, iterate from back and intern only 
-    // the longest string versions but add entries for substrings
-    while (node != NULL) {
-        struct string *s = rb_entry(node, struct string, node);
+    for (uint64_t i = count; i > 0; --i) {
+        const char *str = sorted[i - 1];
+        size_t len = lengths[i - 1];
 
-        if (longest == NULL) {
-            offset = string_pool_intern(clone, &strings[s->offset]);
-            longest = s;
-
-        } else if (!strissuffix(&strings[s->offset], s->length, &strings[longest->offset], longest->length)) {
-            offset = string_pool_intern(clone, &strings[s->offset]);
-            longest = s;
-
+        if (longest == NULL || !strissuffix(str, len, longest, length)) {
+            offset = strpool_intern(pool, str);
+            longest = str;
+            length = len;
         } else {
-            insert_tail_merge_offset(clone, offset, longest->length, s->length);
+            insert_tail_merge_offset(pool, offset, length, len);
         }
-
-        node = rb_prev(node);
     }
-
-    free(arena);
-    return clone;
+    
+    free(lengths);
+    free(sorted);
+    return count;
 }

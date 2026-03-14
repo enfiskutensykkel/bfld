@@ -15,7 +15,6 @@ extern "C" {
 /* Forward declaration */
 struct section;
 struct globals;
-struct string_pool;
 
 
 #define GLOBALS_REHASH_THRESHOLD(capacity) \
