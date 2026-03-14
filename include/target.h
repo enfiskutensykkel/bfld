@@ -27,6 +27,11 @@ struct target
     const char *name;
 
     /*
+     * Pointer size.
+     */
+    size_t pointer_size;
+
+    /*
      * CPU code alignment requirements.
      */
     uint64_t cpu_code_alignment;

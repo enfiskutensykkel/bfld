@@ -29,7 +29,6 @@ struct linkerctx
 {
     char *name;                     // output file name
     int refcnt;                     // reference counter
-    bool gc_sections;               // should we keep all sections and symbols?
     struct archives archives;       // archive symbol index
     struct globals globals;         // global symbols
     struct sections sections;       // worklist of input sections
@@ -37,7 +36,9 @@ struct linkerctx
     struct groups groups;           // section groups
 
     uint32_t target_march;          // target machine code architecture
+    uint64_t target_ptr_size;       // pointer alignment for target machine code
     uint64_t target_cpu_align;      // minimum CPU code alignment requirement
+    uint64_t target_got_entry_size; 
     uint64_t target_pgsz_min;       // target minimum page size
     uint64_t target_pgsz_max;       // target maximum page size
     uint64_t target_sect_align;     // minimum boundary/alignment between sections with different attributes
@@ -46,8 +47,23 @@ struct linkerctx
     uint64_t base_addr;             // base virtual address of the image
     uint64_t entry_addr;            // address of the image's entrypoint
 
-    struct section *got;            // GOT section reference
+    struct section *got;            // .got section reference (global offset table)
+    struct section *preinit_array;
+    struct section *init_array;     // .init_array section
+    struct section *fini_array;     // .fini_array section
+    struct section *init;
+    struct section *fini;
 };
+
+
+/*
+ * Helper function to look up a global symbol.
+ */
+static inline
+struct symbol * linker_find_symbol(struct linkerctx *ctx, const char *name)
+{
+    return globals_find_symbol(&ctx->globals, name);
+}
 
 
 /*
@@ -85,10 +101,25 @@ bool linker_read_archive(struct linkerctx *ctx,
                          const struct archive_reader *reader);
 
 
+
+
+
+bool linker_add_marker_symbol(struct linkerctx *ctx,
+                              const char *symbol_name,
+                              struct section *section,
+                              enum symbol_type symbol_type);
+
+
 /*
  * Create synthetic section for the global offset table (GOT)
  */
 bool linker_add_got_section(struct linkerctx *ctx);
+
+
+/*
+ * Add C runtime marker symbols.
+ */
+bool linker_add_crt_markers(struct linkerctx *ctx);
 
 
 /*
@@ -99,12 +130,17 @@ bool linker_resolve_globals(struct linkerctx *ctx);
 
 
 /*
- * Mark reachable sections and symbols as alive, and
- * sweep those that aren't.
- *
- * This is effectively a dead-code elimination (DCE).
+ * Mark reachable sections and symbols as alive.
+ * Part of dead code elimination (DCE).
  */
-void linker_gc_sections(struct linkerctx *ctx);
+void linker_dce_mark(struct linkerctx *ctx, const struct symbols *keep);
+
+
+/*
+ * Remove sections and symbols that aren't marked as alive.
+ * Part of dead code elimination (DCE)
+ */
+void linker_dce_sweep(struct linkerctx *ctx);
 
 
 /*

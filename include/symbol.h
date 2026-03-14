@@ -8,6 +8,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "section.h"
 
 /* Forward declarations */
 struct section;
@@ -66,7 +67,6 @@ struct symbol
     bool is_absolute;               // is the definition offset relative to a section base address or an absolute address
     bool is_common;                 // does the symbol refer to a common section?
     enum symbol_export visibility;  // symbol visibility
-    //bool is_used;                   // is the symbol used? set if forced kept, exported or used in a reloc
     struct section *section;        // strong reference to the section where the symbol is defined
     uint64_t offset;                // offset into the section to the definition or absolute address
 };
@@ -97,7 +97,19 @@ bool symbol_is_defined(const struct symbol *symbol)
 /*
  * Helper function to determine if a symbol is "alive".
  */
-bool symbol_is_alive(const struct symbol *symbol);
+static inline
+bool symbol_is_alive(const struct symbol *symbol)
+{
+    if (symbol->is_absolute) {
+        return true;
+    }
+
+    if (symbol->section != NULL && symbol->section->is_alive) {
+        return true;
+    }
+
+    return false;
+}
 
 
 /*
@@ -162,7 +174,18 @@ bool symbol_define(struct symbol *symbol,
                    struct section *section,
                    uint64_t offset,
                    uint64_t size);
-                           
+
+
+/*
+ * Define an absolute symbol.
+ */
+static inline
+bool symbol_define_absolute(struct symbol *symbol,
+                            uint64_t address,
+                            uint64_t size)
+{
+    return symbol_define(symbol, NULL, address, size);
+}
 
 /*
  * Update an existing symbol definition.

@@ -117,9 +117,9 @@ int globals_insert_symbol(struct globals *g,
 
 
 /*
- * Remove all symbols in the index that isn't marked as used.
+ * Remove all symbols in the index that isn't marked as alive.
  */
-void globals_prune_dead_symbols(struct globals *g);
+//void globals_undefine_symbols(struct globals *g);
 
 
 /*

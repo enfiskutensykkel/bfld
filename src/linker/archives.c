@@ -145,7 +145,7 @@ static bool archives_add_archive(struct archives *index, struct archive *archive
 bool archives_insert_symbol(struct archives *index, struct archive_member *member, const char *symbol_name)
 {
     if (archives_find_symbol(index, symbol_name) != NULL) {
-        return false;
+        return true;
     }
 
     struct archive *archive = member->archive;

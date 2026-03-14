@@ -279,11 +279,12 @@ static int parse_sections(const Elf64_Ehdr *eh,
                         sh->sh_size / sh->sh_entsize, sh->sh_entsize);
             }
 
-            log_info("Merge sections are not supported yet");
+            //log_info("Merge sections are not supported yet");
         }
 
+        const uint8_t *content = sh->sh_type != SHT_NOBITS ? ((const uint8_t*) eh) + sh->sh_offset : NULL;
         struct section *section = section_alloc(objfile, shname, type,
-                                                ((const uint8_t*) eh) + sh->sh_offset,
+                                                content,
                                                 sh->sh_size);
         if (section == NULL) {
             log_ctx_pop();
@@ -534,6 +535,7 @@ static int parse_symtab(const Elf64_Ehdr *eh,
                 type = SYMBOL_SECTION;
                 break;
 
+            case STT_GNU_IFUNC:
             case STT_FUNC:
                 type = SYMBOL_FUNCTION;
                 break;

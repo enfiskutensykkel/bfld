@@ -259,6 +259,7 @@ int main(int argc, char **argv)
     }
 
     linker_add_got_section(ctx);
+    linker_add_crt_markers(ctx);
 
     for (int i = start; i < argc; ++i) {
         bool success = load_file(ctx, argv[i]);
@@ -269,7 +270,7 @@ int main(int argc, char **argv)
     } 
 
     if (sections_empty(&ctx->sections)) {
-        log_error("No input files");
+        log_fatal("No input files");
         linker_put(ctx);
         exit(1);
     }
@@ -277,6 +278,23 @@ int main(int argc, char **argv)
     if (!linker_resolve_globals(ctx)) {
         linker_put(ctx);
         exit(2);
+    }
+
+    struct symbol *entry = linker_find_symbol(ctx, opts.entry);
+    if (entry == NULL) {
+        log_fatal("Undefined reference to symbol '%s'", opts.entry);
+        linker_put(ctx);
+        exit(2);
+    }
+
+    if (opts.gc_sections) {
+        struct symbols keep = {0};
+        symbols_push(&keep, entry);
+
+        linker_dce_mark(ctx, &keep);
+        linker_dce_sweep(ctx);
+
+        symbols_clear(&keep);
     }
 
     linker_put(ctx);

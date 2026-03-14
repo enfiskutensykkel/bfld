@@ -5,7 +5,6 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
-#include "sections.h"
 
 
 struct section * section_alloc(struct objectfile *objfile,
@@ -44,7 +43,7 @@ struct section * section_alloc(struct objectfile *objfile,
     if (name == NULL) {
         // Section has no name, let's invent one
         name = section_type_to_string(type);
-        log_warning("Section has unknown name. defaulting to '%s'", name);
+        log_warning("Section has unknown name. Defaulting to '%s'", name);
     }
 
     struct section *sect = malloc(sizeof(struct section));
@@ -68,9 +67,7 @@ struct section * section_alloc(struct objectfile *objfile,
     sect->nrelocs = 0;
     list_head_init(&sect->relocs);
     sect->group_id = 0;
-    //sect->group = NULL;
-    //sect->is_alive = false;
-    //sect->discard = false;
+    sect->is_alive = false;
 
     sect->symbols = NULL;
     sect->nsymbols = 0;
@@ -107,9 +104,8 @@ struct section * section_clone(const struct section *original, const char *name)
     sect->content = original->content;
     sect->size = original->size;
     sect->nrelocs = 0;
-    //sect->is_alive = false;
+    sect->is_alive = false;
     sect->group_id = 0;
-    //sect->discard = false;
     sect->nsymbols = 0;
     sect->symbols = NULL;
 
@@ -260,43 +256,3 @@ void section_remove_symbol_reference(struct section *sect, const struct symbol *
         }
     }
 }
-
-
-//void section_mark_alive(struct section *sect)
-//{
-//    struct sections wl = {0};
-//
-//    sections_push(&wl, sect);
-//
-//    if (sect->group != NULL) {
-//        struct group *grp = sect->group;
-//        log_debug("Section is part of group '%s'", grp->name);
-//
-//        for (uint64_t i = 0; i < sections_size(&grp->sections); ++i) {
-//            struct section *s = sections_at(&grp->sections, i);
-//            sections_push(&wl, s);
-//        }
-//    }
-//
-//    while ((sect = sections_pop(&wl)) != NULL) {
-//
-//        if (!sect->is_alive) {
-//            sect->is_alive = true;
-//            list_for_each_entry(r, &sect->relocs, struct reloc, list_entry) {
-//                struct symbol *sym = r->symbol;
-//
-//                //if (!sym->is_used) {
-//                //    sym->is_used = true;
-//                //}
-//
-//                if (symbol_is_defined(sym) && sym->section != NULL) {
-//                    sections_push(&wl, sym->section);
-//                }
-//            }
-//        }
-//
-//        section_put(sect);
-//    }
-//
-//    sections_clear(&wl);
-//}

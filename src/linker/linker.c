@@ -47,7 +47,6 @@ struct linkerctx * linker_alloc(const char *name, uint32_t target)
     strcpy(ctx->name, name);
 
     ctx->refcnt = 1;
-    ctx->gc_sections = false;
     memset(&ctx->globals, 0, sizeof(struct globals));
     memset(&ctx->sections, 0, sizeof(struct sections));
     memset(&ctx->unresolved, 0, sizeof(struct symbols));
@@ -56,6 +55,8 @@ struct linkerctx * linker_alloc(const char *name, uint32_t target)
     memset(&ctx->groups, 0, sizeof(struct groups));
 
     ctx->target_march = target;
+    ctx->target_ptr_size = backend->pointer_size;
+    ctx->target_got_entry_size = backend->got_entry_size;
     ctx->target_cpu_align = backend->cpu_code_alignment;
     ctx->target_pgsz_min = backend->min_page_size;
     ctx->target_pgsz_max = backend->max_page_size;
@@ -66,6 +67,11 @@ struct linkerctx * linker_alloc(const char *name, uint32_t target)
     ctx->entry_addr = 0;
 
     ctx->got = NULL;
+    ctx->preinit_array = NULL;
+    ctx->init_array = NULL;
+    ctx->fini_array = NULL;
+    ctx->init = NULL;
+    ctx->fini = NULL;
 
     log_trace("Created linker context");
     return ctx;
@@ -89,6 +95,31 @@ void linker_put(struct linkerctx *ctx)
         if (ctx->got != NULL) {
             section_put(ctx->got);
             ctx->got = NULL;
+        }
+
+        if (ctx->preinit_array != NULL) {
+            section_put(ctx->preinit_array);
+            ctx->preinit_array = NULL;
+        }
+
+        if (ctx->init_array != NULL) {
+            section_put(ctx->init_array);
+            ctx->init_array = NULL;
+        }
+
+        if (ctx->fini_array != NULL) {
+            section_put(ctx->fini_array);
+            ctx->fini_array = NULL;
+        }
+
+        if (ctx->init != NULL) {
+            section_put(ctx->init);
+            ctx->init = NULL;
+        }
+
+        if (ctx->fini != NULL) {
+            section_put(ctx->fini);
+            ctx->fini = NULL;
         }
 
         groups_clear(&ctx->groups);
@@ -132,7 +163,7 @@ bool linker_read_archive(struct linkerctx *ctx,
         return false;
     }
 
-    log_debug("Reading archive using reader '%s'", reader->name);
+    log_trace("Reading archive using reader '%s'", reader->name);
 
     uint64_t before = ctx->archives.entries;
     int status = reader->parse_file(archive->file_data, archive->file_size, 
@@ -156,7 +187,7 @@ bool linker_read_archive(struct linkerctx *ctx,
         log_debug("Archive provides %llu new symbols", after - before);
     }
 
-    log_debug("Parsed archive file");
+    log_trace("Parsed archive file");
     log_ctx_pop();
     return true;
 }
@@ -197,7 +228,7 @@ bool linker_load_objectfile(struct linkerctx *ctx,
         return false;
     }
 
-    log_debug("Loading object file using front-end '%s'", reader->name);
+    log_trace("Loading object file using front-end '%s'", reader->name);
 
     status = reader->parse_file(objfile->file_data, objfile->file_size,
                                 objfile, &groups, &secttab, &symtab);
@@ -244,7 +275,7 @@ bool linker_load_objectfile(struct linkerctx *ctx,
 
                 if (realgroup == 0) {
                     log_notice("Discarding symbol '%s' defined in seciton group %s", 
-                            sym->name, name);
+                            symbol_name(sym), name);
                     symbol_table_remove(&symtab, i);
                     continue;
                 }
@@ -290,10 +321,10 @@ bool linker_load_objectfile(struct linkerctx *ctx,
 
         symbol_table_remove(&symtab, i);
     }
-    log_debug("File defines %llu symbols and references %llu symbols", defined, undefined);
+    log_trace("File defines %llu symbols and references %llu symbols", defined, undefined);
 
     // Add file's sections to the sections queue
-    log_debug("File defines %llu sections", secttab.nsections);
+    log_trace("File defines %llu sections", secttab.nsections);
     for (uint64_t i = 0; secttab.nsections > 0 && i < secttab.capacity; ++i) {
         struct section *sect = section_table_at(&secttab, i);
         
@@ -364,8 +395,14 @@ bool linker_resolve_globals(struct linkerctx *ctx)
         // Try to find an archive that provides the undefined symbol
         struct archive_member *m = archives_find_symbol(&ctx->archives, symbol_name(sym));
         if (m == NULL) {
-            symbol_put(sym);
+            if (sym->binding == SYMBOL_WEAK) {
+                log_trace("Weak symbol '%s' remains undefined", symbol_name(sym));
+                symbol_put(sym);
+                continue;
+            }
+
             log_error("Undefined reference to symbol '%s'", symbol_name(sym));
+            symbol_put(sym);
             return false;
         }
 
@@ -408,32 +445,184 @@ bool linker_resolve_globals(struct linkerctx *ctx)
 }
 
 
-bool linker_add_got_section(struct linkerctx *ctx)
+bool linker_add_marker_symbol(struct linkerctx *ctx,
+                              const char *name,
+                              struct section *sect,
+                              enum symbol_type type)
 {
-    if (ctx->got == NULL) {
-        struct section *sect = section_alloc(NULL, ".got", SECTION_DATA, NULL, 8);
-        if (sect == NULL) {
-            return false;
-        }
-        sect->align = 8;
-        ctx->got = sect;
-    }
-
-    struct symbol *sym = symbol_alloc("_GLOBAL_OFFSET_TABLE_", SYMBOL_OBJECT, SYMBOL_GLOBAL);
+    struct symbol *sym = symbol_alloc(name, type, SYMBOL_GLOBAL);
     if (sym == NULL) {
         return false;
     }
+
     sym->visibility = SYMBOL_PRIVATE;
+    symbol_define(sym, sect, 0, 0);
 
-    symbol_define(sym, ctx->got, 0, 0);
-
-    fprintf(stderr, "%d\n", sym->refcnt);
     int status = globals_insert_symbol(&ctx->globals, sym, NULL);
-    fprintf(stderr, "%d\n", sym->refcnt);
     symbol_put(sym);
-    return status == 0 || status == EEXIST;
+    
+    if (status != 0 && status != EEXIST) {
+        return false;
+    }
+
+    return true;
 }
 
+
+bool linker_add_crt_markers(struct linkerctx *ctx)
+{
+    if (ctx->preinit_array == NULL) {
+        struct section *sect = section_alloc(NULL, ".preinit_array", SECTION_DATA, NULL, ctx->target_ptr_size);
+        if (sect == NULL) {
+            return false;
+        }
+        sect->align = ctx->target_ptr_size;
+        ctx->preinit_array = sect;
+    }
+
+    if (!linker_add_marker_symbol(ctx, "__preinit_array_start", ctx->preinit_array, SYMBOL_OBJECT)) {
+        return false;
+    }
+
+    if (!linker_add_marker_symbol(ctx, "__preinit_array_end", ctx->preinit_array, SYMBOL_OBJECT)) {
+        return false;
+    }
+
+    if (ctx->init_array == NULL) {
+        ctx->init_array = section_alloc(NULL, ".init_array", SECTION_DATA, NULL, ctx->target_ptr_size);
+        if (ctx->init_array == NULL) {
+            return false;
+        }
+        ctx->init_array->align = ctx->target_ptr_size;
+    }
+
+    if (!linker_add_marker_symbol(ctx, "__init_array_start", ctx->init_array, SYMBOL_OBJECT)) {
+        return false;
+    }
+
+    if (!linker_add_marker_symbol(ctx, "__init_array_end", ctx->init_array, SYMBOL_OBJECT)) {
+        return false;
+    }
+
+    if (ctx->fini_array == NULL) {
+        ctx->fini_array = section_alloc(NULL, ".fini_array", SECTION_DATA, NULL, ctx->target_ptr_size);
+        if (ctx->fini_array == NULL) {
+            return false;
+        }
+        ctx->fini_array->align = ctx->target_ptr_size;
+    }
+
+    if (!linker_add_marker_symbol(ctx, "__fini_array_start", ctx->fini_array, SYMBOL_OBJECT)) {
+        return false;
+    }
+
+    if (!linker_add_marker_symbol(ctx, "__fini_array_end", ctx->fini_array, SYMBOL_OBJECT)) {
+        return false;
+    }
+
+    // FIXME hack
+    linker_add_marker_symbol(ctx, "_init", NULL, SYMBOL_FUNCTION);
+    linker_add_marker_symbol(ctx, "_fini", NULL, SYMBOL_FUNCTION);
+    linker_add_marker_symbol(ctx, "__rela_iplt_start", NULL, SYMBOL_FUNCTION);
+    linker_add_marker_symbol(ctx, "__rela_iplt_end", NULL, SYMBOL_FUNCTION);
+    linker_add_marker_symbol(ctx, "_DYNAMIC", NULL, SYMBOL_NOTYPE);
+
+    if (!linker_add_marker_symbol(ctx, "__ehdr_start", NULL, SYMBOL_OBJECT)) {
+        return false;
+    }
+
+    return true;
+}
+
+
+bool linker_add_got_section(struct linkerctx *ctx)
+{
+    if (ctx->got == NULL) {
+        struct section *sect = section_alloc(NULL, ".got", SECTION_DATA, NULL, ctx->target_got_entry_size);
+        if (sect == NULL) {
+            return false;
+        }
+        sect->align = ctx->target_got_entry_size;
+        ctx->got = sect;
+    }
+
+    if (linker_add_marker_symbol(ctx, "_GLOBAL_OFFSET_TABLE_", ctx->got, SYMBOL_OBJECT)) {
+        sections_push(&ctx->sections, ctx->got);
+        return true;
+    }
+
+    return false;
+
+}
+
+
+void linker_dce_mark(struct linkerctx *ctx, const struct symbols *keep)
+{
+    struct sections wl = {0};
+    struct section *sect;
+
+    uint64_t nkept = 0;
+    sections_reserve(&wl, sections_size(&ctx->sections));
+
+    // Start with root symbols
+    for (uint64_t i = 0; i < keep->q.size; ++i) {
+        struct symbol *sym = symbols_at(keep, i);
+        if (sym == NULL) {
+            // this should not happen
+            continue;
+        }
+
+        if (sym->section != NULL) {
+            sym->section->is_alive = true;
+            sections_push(&wl, sym->section);
+        }
+    }
+
+    // Follow relocations and mark sections as alive
+    while ((sect = sections_pop(&wl)) != NULL) {
+        assert(sect->is_alive);
+        ++nkept;
+
+        list_for_each_entry(reloc, &sect->relocs, struct reloc, list_entry) {
+            const struct symbol *sym = reloc->symbol;
+            struct section *target = sym->section;
+
+            if (target != NULL && !target->is_alive) {
+                target->is_alive = true;
+                sections_push(&wl, target);
+            }
+        }
+
+        section_put(sect);
+    }
+
+    sections_clear(&wl);
+    log_debug("DCE: Marked %lu sections as alive", nkept);
+}
+
+
+void linker_dce_sweep(struct linkerctx *ctx)
+{
+    uint64_t total_sections = sections_size(&ctx->sections);
+    uint64_t kept_sections = 0;
+    struct sections live = {0};
+    sections_reserve(&live, total_sections);
+
+    struct section *sect;
+    while ((sect = sections_pop(&ctx->sections)) != NULL) {
+        if (sect->is_alive) {
+            sections_push(&live, sect);
+            ++kept_sections;
+        } 
+        section_put(sect);
+    }
+
+    sections_clear(&ctx->sections);
+    ctx->sections = live;
+
+    log_debug("DCE: Kept %lu sections out of %lu total sections",
+            kept_sections, total_sections);
+}
 
 
 //

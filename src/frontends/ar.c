@@ -160,7 +160,7 @@ static int parse_gnu_ranlib_64(struct archive *archive, struct archives *index, 
 
     const char *symtab = (const char*) (offsets + num_entries + 1);
 
-    log_debug("Parsing GNU/SysV style ranlib index (%lu symbols)", num_entries);
+    log_trace("Parsing GNU/SysV style ranlib index (%lu symbols)", num_entries);
     for (uint64_t i = 0; i < num_entries; ++i, symtab += strlen(symtab) + 1) {
         const char *name = symtab;
         uint64_t offset = read_be64((const uint8_t*) &offsets[i + 1]) + sizeof(struct ar_header);
@@ -192,7 +192,7 @@ static int parse_gnu_ranlib_32(struct archive *archive, struct archives *index, 
 
     const char *symtab = (const char*) (offsets + num_entries + 1);
 
-    log_debug("Parsing GNU/SysV style ranlib index (%lu symbols)", num_entries);
+    log_trace("Parsing GNU/SysV style ranlib index (%lu symbols)", num_entries);
     for (uint32_t i = 0; i < num_entries; ++i, symtab += strlen(symtab) + 1) {
         const char *name = symtab;
         uint32_t offset = read_be32((const uint8_t*) &offsets[i + 1]) + sizeof(struct ar_header);
@@ -254,7 +254,7 @@ static int parse_bsd_ranlib_64(struct archive *archive, struct archives *index,
     struct bsd_ranlib_entry_64 *entries = (struct bsd_ranlib_entry_64*) (start + sizeof(uint64_t));
     const char *strtab = start + sizeof(uint64_t) + bytes + sizeof(uint64_t);
     
-    log_debug("Parsing BSD style ranlib index (%u symbols)", num_entries);
+    log_trace("Parsing BSD style ranlib index (%u symbols)", num_entries);
 
     for (uint64_t i = 0; i < num_entries; ++i) {
         const struct bsd_ranlib_entry_64 *entry = &entries[i];
@@ -313,7 +313,7 @@ static int parse_bsd_ranlib_32(struct archive *archive, struct archives *index,
     struct bsd_ranlib_entry_32 *entries = (struct bsd_ranlib_entry_32*) (start + sizeof(uint32_t));
     const char *strtab = start + sizeof(uint32_t) + bytes + sizeof(uint32_t);
 
-    log_debug("Parsing BSD style ranlib index (%u symbols)", num_entries);
+    log_trace("Parsing BSD style ranlib index (%u symbols)", num_entries);
 
     for (uint32_t i = 0; i < num_entries; ++i) {
         const struct bsd_ranlib_entry_32 *entry = &entries[i];
