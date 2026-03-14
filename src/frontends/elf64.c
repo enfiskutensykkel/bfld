@@ -396,18 +396,10 @@ static int parse_group(const Elf64_Ehdr *eh,
                        const struct section_table *sections,
                        struct groups *groups)
 {
-    // TODO: strategy for same signature, "first one wins", "largest one wins", "make sure all duplicates are same size", "make sure all duplicates have same content"
-    // contents: first entry is usually GRP_COMDAT, subsequent entries are indices of sections that belong in list
-    // need a seen group set
-    // if signature is new, keep all sections listed, add signature to seen set
-    // if signature is alreadyy seen, discard (do not extract) every section listed in that group
-    // discard the section itself
-    
     log_ctx_push(LOG_CTX_SECTION(elf_section_name(eh, sh)));
 
     const char *signature = elf_symbol_name(eh, elf_section(eh, sh->sh_link), sh->sh_info);
     const uint32_t *entries = (const uint32_t*) (((const uint8_t*) eh) + sh->sh_offset);
-    uint64_t group_id = groups_create_group(groups, signature);
     bool comdat = true;
 
     // First entry contains GRP_COMDAT in almost all cases
@@ -416,6 +408,8 @@ static int parse_group(const Elf64_Ehdr *eh,
         log_warning("Section group '%s' is not COMDAT", signature);
         comdat = false;
     }
+
+    uint64_t group_id = groups_create_group(groups, signature, comdat);
 
     for (uint32_t idx = 1; idx < sh->sh_size / sizeof(uint32_t); ++idx) {
         struct section *sect = section_table_at(sections, entries[idx]);
@@ -459,6 +453,26 @@ static int parse_symtab(const Elf64_Ehdr *eh,
 
         enum symbol_type type = SYMBOL_MAX_TYPES;
         enum symbol_binding binding = SYMBOL_LOCAL;
+        enum symbol_export visibility = SYMBOL_PUBLIC;
+
+        switch (ELF64_ST_VISIBILITY(sym->st_other)) {
+            case STV_HIDDEN:
+                visibility = SYMBOL_PRIVATE;
+                break;
+
+            case STV_INTERNAL:
+                visibility = SYMBOL_INTERNAL;
+                break;
+
+            case STV_PROTECTED:
+                visibility = SYMBOL_PROTECTED;
+                break;
+
+            case STV_DEFAULT:
+            default:
+                visibility = SYMBOL_PUBLIC;
+                break;
+        }
 
         switch (sym->st_shndx) {
             case SHN_UNDEF:
@@ -558,6 +572,7 @@ static int parse_symtab(const Elf64_Ehdr *eh,
             status = ENOMEM;
             goto out;
         }
+        symbol->visibility = visibility;
 
         bool defined = false;
         if (align > 0) {

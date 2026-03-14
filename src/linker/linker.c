@@ -3,7 +3,7 @@
 #include "archive_reader.h"
 #include "logging.h"
 #include "linker.h"
-#include "strpool.h"
+#include "groups.h"
 #include "objectfile.h"
 #include "utils/list.h"
 #include "utils/align.h"
@@ -12,7 +12,6 @@
 #include "symbols.h"
 #include "symbol.h"
 #include "globals.h"
-#include "groups.h"
 #include "mfile.h"
 #include "archive.h"
 #include "archives.h"
@@ -54,6 +53,8 @@ struct linkerctx * linker_alloc(const char *name, uint32_t target)
     memset(&ctx->unresolved, 0, sizeof(struct symbols));
     memset(&ctx->archives, 0, sizeof(struct archives));
 
+    memset(&ctx->groups, 0, sizeof(struct groups));
+
     ctx->target_march = target;
     ctx->target_cpu_align = backend->cpu_code_alignment;
     ctx->target_pgsz_min = backend->min_page_size;
@@ -63,6 +64,8 @@ struct linkerctx * linker_alloc(const char *name, uint32_t target)
 
     ctx->base_addr = 0;
     ctx->entry_addr = 0;
+
+    ctx->got = NULL;
 
     log_trace("Created linker context");
     return ctx;
@@ -82,6 +85,13 @@ void linker_put(struct linkerctx *ctx)
             section_clear_relocs(sect);
             section_put(sect);
         }
+
+        if (ctx->got != NULL) {
+            section_put(ctx->got);
+            ctx->got = NULL;
+        }
+
+        groups_clear(&ctx->groups);
 
         symbols_clear(&ctx->unresolved);
         globals_clear(&ctx->globals);
@@ -201,6 +211,19 @@ bool linker_load_objectfile(struct linkerctx *ctx,
         goto leave;
     }
 
+    // Create new section groups
+    groups_for_each_group(groupid, &groups) {
+        const char *name = group_name(&groups, groupid);
+        bool comdat = groups_is_comdat_group(&groups, groupid);
+
+        if (groups_lookup_group(&ctx->groups, name) == 0) {
+            log_debug("New section group %s", name);
+            groups_create_group(&ctx->groups, name, comdat);
+        } else if (!comdat) {
+            log_error("Multiple definitions for section group %s", name);
+        }
+    }
+
     // Add file's global symbols to the symbol queue
     uint64_t defined = 0;
     uint64_t undefined = 0;
@@ -212,13 +235,29 @@ bool linker_load_objectfile(struct linkerctx *ctx,
             continue;
         }
 
+        if (symbol_is_defined(sym)) {
+            const struct section *sect = sym->section;
+
+            if (sect != NULL && sect->group_id != 0) {
+                const char *name = group_name(&groups, sect->group_id);
+                uint64_t realgroup = groups_lookup_group(&ctx->groups, name);
+
+                if (realgroup == 0) {
+                    log_notice("Discarding symbol '%s' defined in seciton group %s", 
+                            sym->name, name);
+                    symbol_table_remove(&symtab, i);
+                    continue;
+                }
+            }
+        }
+
         struct symbol *existing = sym;
 
         if (symbol_is_defined(sym) || sym->is_common) {
             ++defined;
         }
 
-        if (symbol_is_defined(sym)) {
+        if (symbol_is_defined(sym) && sym->section != NULL) {
             if (strncmp(".text._", section_name(sym->section), 7) == 0) {
                 log_notice("Symbol '%s' is defined in section %s", 
                         symbol_name(sym), section_name(sym->section));
@@ -262,14 +301,21 @@ bool linker_load_objectfile(struct linkerctx *ctx,
             continue;
         }
 
+        if (sect->group_id != 0) {
+            const char *name = group_name(&groups, sect->group_id);
+            uint64_t realgroup = groups_lookup_group(&ctx->groups, name);
+            if (realgroup == 0) {
+                log_debug("Discarding section %s belonging to section group %s", 
+                        sect->name, name);
+                continue;
+            }
+
+            sect->group_id = realgroup;
+        }
+
         // Add section to the section worklist
         if (!sections_push(&ctx->sections, sect)) {
             goto leave;
-        }
-
-        // FIXME fixup global group ID
-        if (sect->group_id != 0) {
-            log_debug("Section group '%s'", group_name(&groups, sect->group_id));
         }
 
         // Fixup relocations that point to global symbols
@@ -360,6 +406,36 @@ bool linker_resolve_globals(struct linkerctx *ctx)
 
     return true;
 }
+
+
+bool linker_add_got_section(struct linkerctx *ctx)
+{
+    if (ctx->got == NULL) {
+        struct section *sect = section_alloc(NULL, ".got", SECTION_DATA, NULL, 8);
+        if (sect == NULL) {
+            return false;
+        }
+        sect->align = 8;
+        ctx->got = sect;
+    }
+
+    struct symbol *sym = symbol_alloc("_GLOBAL_OFFSET_TABLE_", SYMBOL_OBJECT, SYMBOL_GLOBAL);
+    if (sym == NULL) {
+        return false;
+    }
+    sym->visibility = SYMBOL_PRIVATE;
+
+    symbol_define(sym, ctx->got, 0, 0);
+
+    fprintf(stderr, "%d\n", sym->refcnt);
+    int status = globals_insert_symbol(&ctx->globals, sym, NULL);
+    fprintf(stderr, "%d\n", sym->refcnt);
+    symbol_put(sym);
+    return status == 0 || status == EEXIST;
+}
+
+
+
 //
 //
 //FIXME: maybe this is not the way to do it, maybe create a fake section of size X for each symbol

@@ -12,6 +12,7 @@ extern "C" {
 #include "symbols.h"
 #include "globals.h"
 #include "archives.h"
+#include "groups.h"
 
 /* Some forward declarations */
 struct objectfile;
@@ -33,6 +34,7 @@ struct linkerctx
     struct globals globals;         // global symbols
     struct sections sections;       // worklist of input sections
     struct symbols unresolved;      // queue of unresolved symbols
+    struct groups groups;           // section groups
 
     uint32_t target_march;          // target machine code architecture
     uint64_t target_cpu_align;      // minimum CPU code alignment requirement
@@ -40,9 +42,11 @@ struct linkerctx
     uint64_t target_pgsz_max;       // target maximum page size
     uint64_t target_sect_align;     // minimum boundary/alignment between sections with different attributes
     bool target_is_be;              // is target big endian?
-    
+
     uint64_t base_addr;             // base virtual address of the image
     uint64_t entry_addr;            // address of the image's entrypoint
+
+    struct section *got;            // GOT section reference
 };
 
 
@@ -81,7 +85,10 @@ bool linker_read_archive(struct linkerctx *ctx,
                          const struct archive_reader *reader);
 
 
-bool linker_create_synthetic_sections(struct linkerctx *ctx);
+/*
+ * Create synthetic section for the global offset table (GOT)
+ */
+bool linker_add_got_section(struct linkerctx *ctx);
 
 
 /*

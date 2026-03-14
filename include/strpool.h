@@ -276,6 +276,10 @@ uint64_t strpool_lookup(const struct strpool *pool, const char *string)
         return 0;
     }
 
+    if (pool->capacity == 0 || pool->count == 0) {
+        return 0;
+    }
+
     size_t length = strlen(string);
     uint32_t hash = hash_fnv1a_32(string, length);
     if (hash == 0) {

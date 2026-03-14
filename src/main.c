@@ -258,13 +258,15 @@ int main(int argc, char **argv)
         exit(1);
     }
 
+    linker_add_got_section(ctx);
+
     for (int i = start; i < argc; ++i) {
         bool success = load_file(ctx, argv[i]);
         if (!success) {
             linker_put(ctx);
             exit(1);
         }
-    }
+    } 
 
     if (sections_empty(&ctx->sections)) {
         log_error("No input files");

@@ -125,7 +125,7 @@ void globals_prune_dead_symbols(struct globals *g);
 /*
  * Build a string table consisting of all the symbols in the index.
  */
-struct string_table globals_build_string_table(struct globals *g);
+//struct strpool globals_build_string_table(struct globals *g);
 
 
 #ifdef __cplusplus

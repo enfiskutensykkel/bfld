@@ -39,6 +39,18 @@ enum symbol_binding
 };
 
 
+/*
+ * Symbol visibility.
+ */
+enum symbol_export
+{
+    SYMBOL_PUBLIC = 0,      // symbol is public (default for all global symbols, can be overridden)
+    SYMBOL_INTERNAL = 1,    // symbol is internal
+    SYMBOL_PROTECTED = 2,   // symbol is protected (visible outside unit, but can not be overridden)
+    SYMBOL_PRIVATE = 3      // symbol is hidden (stripped from global symbol table)
+};
+
+
 /* 
  * Symbol descriptor.
  */
@@ -53,6 +65,7 @@ struct symbol
     uint64_t size;                  // symbol size
     bool is_absolute;               // is the definition offset relative to a section base address or an absolute address
     bool is_common;                 // does the symbol refer to a common section?
+    enum symbol_export visibility;  // symbol visibility
     //bool is_used;                   // is the symbol used? set if forced kept, exported or used in a reloc
     struct section *section;        // strong reference to the section where the symbol is defined
     uint64_t offset;                // offset into the section to the definition or absolute address

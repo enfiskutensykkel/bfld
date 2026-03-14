@@ -78,6 +78,7 @@ struct symbol * symbol_alloc(const char *name, enum symbol_type type,
     //sym->is_used = false;
     sym->section = NULL;
     sym->offset = 0;
+    sym->visibility = SYMBOL_PUBLIC;
 
     return sym;
 }
@@ -194,6 +195,11 @@ bool symbol_merge(struct symbol *existing, const struct symbol *incoming)
 //        log_debug("Marking symbol '%s' as used", existing->name);
 //        existing->is_used = true;
 //    }
+
+    if (incoming->visibility > existing->visibility) {
+        log_debug("Strictening visibility for symbol '%s'", existing->name);
+        existing->visibility = incoming->visibility;
+    }
 
     if (existing->is_common && incoming->is_common) {
         if (incoming->align > existing->align) {
