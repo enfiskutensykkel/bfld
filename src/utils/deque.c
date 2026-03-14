@@ -6,7 +6,6 @@
 #include <stdint.h>
 #include <string.h>
 
-
 bool deque_reserve(struct deque *d, uint64_t capacity)
 {
     if (capacity <= d->capacity) {
@@ -31,10 +30,14 @@ bool deque_reserve(struct deque *d, uint64_t capacity)
     }
 
     // If the deque has wrapped, we need to move some entries to the new gap
-    if ((d->head + d->size) > d->capacity) {
-        uint64_t n = d->capacity - d->head;
-        uint64_t head = capacity - n;
-        memmove(&q[head], &q[d->head], n * sizeof(void*));
+    uint64_t head = d->head & (d->capacity - 1);
+    if ((head + d->size) > d->capacity) {
+        uint64_t n = d->capacity - head;
+        uint64_t new_head = capacity - n;
+        memmove(&q[new_head], &q[head], n * sizeof(void*));
+        d->head = new_head;
+    } else {
+        // normalize head to new capacity
         d->head = head;
     }
 
