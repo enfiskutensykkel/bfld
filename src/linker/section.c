@@ -2,28 +2,44 @@
 #include "section.h"
 #include "objectfile.h"
 #include "symbol.h"
+#include "strpool.h"
+#include "linker.h"
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
 
 
-struct section * section_alloc(struct objectfile *objfile,
-                               const char *name,
-                               enum section_type type,
-                               const uint8_t *content,
-                               uint64_t size)
+bool section_set_objectfile(struct section *section,
+                            struct objectfile *objfile)
 {
-    if (content != NULL) {
-        if (objfile == NULL) {
-            return NULL;
-        }
+    assert(section != NULL);
+    assert(objfile != NULL);
 
+    if (section->objfile != NULL) {
+        log_error("Section object file is already set");
+        return false;
+    }
+
+    const uint8_t *content = section->content;
+    uint64_t size = section->size;
+
+    if (content != NULL) {
         if (content < objfile->file_data || content + size > objfile->file_data + objfile->file_size) {
             log_error("Section content is outside valid range");
-            return NULL;
+            return false;
         }
     }
 
+    section->objfile = objectfile_get(objfile);
+    return true;
+}
+
+
+struct section * section_alloc(const struct linkerctx *ctx,
+                               const char *name,
+                               enum section_type type,
+                               uint64_t size)
+{
     switch (type) {
         case SECTION_LOADER:
         case SECTION_UNWIND:
@@ -51,18 +67,13 @@ struct section * section_alloc(struct objectfile *objfile,
         return NULL;
     }
 
-    sect->name = malloc(strlen(name) + 1);
-    if (sect->name == NULL) {
-        free(sect);
-        return NULL;
-    }
-    strcpy(sect->name, name);
-
-    sect->objfile = objfile != NULL ? objectfile_get(objfile) : NULL;
     sect->refcnt = 1;
+    sect->strings = strpool_get(ctx->strings);
+    sect->name_id = strpool_intern(sect->strings, name);
     sect->align = 0;
     sect->type = type;
-    sect->content = content;
+    sect->objfile = NULL;
+    sect->content = NULL;
     sect->size = size;
     sect->nrelocs = 0;
     list_head_init(&sect->relocs);
@@ -83,31 +94,27 @@ struct section * section_clone(const struct section *original, const char *name)
         return NULL;
     }
 
-    if (name == NULL) {
-        log_debug("Cloning section with original name");
-        name = original->name;
-    }
-
-    sect->name = malloc(strlen(name) + 1);
-    if (sect->name == NULL) {
-        free(sect);
-        return NULL;
-    }
-    strcpy(sect->name, name);
-
-    sect->objfile = (original->objfile != NULL ? 
-                     objectfile_get(original->objfile) : 
-                     NULL);
     sect->refcnt = 1;
+    sect->strings = strpool_get(original->strings);
+    sect->name_id = original->name_id;
     sect->align = original->align;
     sect->type = original->type;
-    sect->content = original->content;
     sect->size = original->size;
     sect->nrelocs = 0;
     sect->is_alive = false;
     sect->group_id = 0;
     sect->nsymbols = 0;
     sect->symbols = NULL;
+    sect->objfile = NULL;
+    sect->content = original->content;
+
+    if (original->objfile != NULL) {
+        sect->objfile = objectfile_get(original->objfile);
+    }
+
+    if (name != NULL) {
+        sect->name_id = strpool_intern(sect->strings, name);
+    } 
 
     // Copy relocations from the original
     list_head_init(&sect->relocs);
@@ -135,19 +142,17 @@ void section_put(struct section *sect)
     assert(sect->refcnt > 0);
 
     if (--(sect->refcnt) == 0) {
-        if (sect->objfile != NULL) {
-            objectfile_put(sect->objfile);
-        }
         section_clear_relocs(sect);
-
-        if (sect->name != NULL) {
-            free(sect->name);
-        }
 
         if (sect->symbols != NULL) {
             free(sect->symbols);
         }
 
+        if (sect->objfile != NULL) {
+            objectfile_put(sect->objfile);
+        }
+
+        strpool_put(sect->strings);
         free(sect);
     }
 }
@@ -205,7 +210,8 @@ bool section_add_symbol_reference(struct section *sect, struct symbol *sym)
             size_t mid = low + ((high - low) >> 1);
             
             if (sect->symbols[mid] == sym) {
-                log_warning("Reference to symbol '%s' was already added", sym->name);
+                log_warning("Reference to symbol '%s' was already added", 
+                        symbol_name(sym));
                 return true;
             } else if (sect->symbols[mid] < sym) {
                 low = mid + 1;

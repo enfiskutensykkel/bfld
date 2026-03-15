@@ -7,7 +7,6 @@ extern "C" {
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include "objectfile.h"
 #include "sectiontype.h"
 #include "section.h"
 #include "sections.h"
@@ -15,6 +14,12 @@ extern "C" {
 #include "symbols.h"
 #include "globals.h"
 #include "groups.h"
+
+
+/*
+ * Forward declaration of linker context.
+ */
+struct linkerctx;
 
 
 /*
@@ -45,9 +50,9 @@ struct objectfile_reader
      * If this function returns anything but 0, it is assumed
      * to mean that a fatal error occurred and parsing is aborted.
      */
-    int (*parse_file)(const uint8_t *file_data, 
+    int (*parse_file)(const struct linkerctx *ctx,
+                      const uint8_t *file_data, 
                       size_t file_size,
-                      struct objectfile *object_file,
                       struct groups *groups,
                       struct section_table *sections,
                       struct symbol_table *symbols);

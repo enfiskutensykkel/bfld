@@ -123,7 +123,8 @@ int globals_insert_symbol(struct globals *g,
 
 
 /*
- * Build a string table consisting of all the symbols in the index.
+ * Build a string table consisting of all the symbols in the index
+ * that are used.
  */
 //struct strpool globals_build_string_table(struct globals *g);
 

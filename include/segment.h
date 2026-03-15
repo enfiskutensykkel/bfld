@@ -1,5 +1,5 @@
-#ifndef BFLD_LAYOUT_H
-#define BFLD_LAYOUT_H
+#ifndef BFLD_LAYOUT_SEGMENT_H
+#define BFLD_LAYOUT_SEGMENT_H
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -16,31 +16,31 @@ struct section;
 
 
 /*
- * Layout section.
+ * Layout segment.
  *
- * Groups input sections together so that they can
- * be written as a single section in the output image.
+ * Groups input sections together so that they can 
+ * be written as a single output section in the output image,
+ * with a corresponding program header (segment).
  *
  * Input sections are ordered by alignment, so that the
  * sections with the highest alignment requirement go first.
  * Sections with the same alignment are ordered by first in-first out.
  */
-struct layout
+struct segment
 {
-    char *name;                 // output section name
     int refcnt;                 // reference counter
     uint32_t rank;              // order or rank of the output section
     enum section_type type;     // output section type
+    uint64_t vma;               // base virtual address of the output section
     uint64_t size;              // total size of the output section
     uint64_t align;             // the highest alignment requirement of all input sections
-    uint64_t base_addr;         // base virtual address of the output section
     uint64_t nsections;         // total number of sections, used primarily for debugging
     struct sections *sections;  // dynamic array of sections ordered by alignment
 };
 
 
 /*
- * Allocate a layout section.
+ * Allocate a layout seg
  * If rank is 0, the rank is inferred from section type.
  */
 struct layout * layout_alloc(const char *name, 

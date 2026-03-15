@@ -9,8 +9,11 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 #include "section.h"
+#include "strpool.h"
+
 
 /* Forward declarations */
+struct linkerctx;
 struct section;
 
 
@@ -59,7 +62,8 @@ struct symbol
 {
     int refcnt;                     // reference counter
     uint32_t hash;                  // precalculated hash of the symbol name
-    char *name;                     // symbol name
+    struct strpool *strings;        // global string pool reference
+    uint64_t name_id;               // name identifier
     enum symbol_binding binding;    // symbol binding type
     enum symbol_type type;          // symbol type
     uint64_t align;                 // symbol address alignment requirement (finalized address must be a multiple of align)
@@ -80,7 +84,7 @@ struct symbol
 static inline
 const char * symbol_name(const struct symbol *symbol)
 {
-    return symbol->name;
+    return strpool_at(symbol->strings, symbol->name_id);
 }
 
 
@@ -115,7 +119,8 @@ bool symbol_is_alive(const struct symbol *symbol)
 /*
  * Allocate a symbol descriptor.
  */
-struct symbol * symbol_alloc(const char *name,
+struct symbol * symbol_alloc(const struct linkerctx *ctx,
+                             const char *name,
                              enum symbol_type type,
                              enum symbol_binding binding);
 

@@ -13,13 +13,13 @@ extern "C" {
 #include "globals.h"
 #include "archives.h"
 #include "groups.h"
+#include "strpool.h"
 
 /* Some forward declarations */
 struct objectfile;
 struct objectfile_reader;
 struct archive;
 struct archive_reader;
-struct layout;
 
 
 /* 
@@ -29,6 +29,7 @@ struct linkerctx
 {
     char *name;                     // output file name
     int refcnt;                     // reference counter
+    struct strpool *strings;        // global string table
     struct archives archives;       // archive symbol index
     struct globals globals;         // global symbols
     struct sections sections;       // worklist of input sections
@@ -47,10 +48,10 @@ struct linkerctx
     uint64_t base_addr;             // base virtual address of the image
     uint64_t entry_addr;            // address of the image's entrypoint
 
-    struct section *got;            // .got section reference (global offset table)
+    struct section *got;
     struct section *preinit_array;
-    struct section *init_array;     // .init_array section
-    struct section *fini_array;     // .fini_array section
+    struct section *init_array;
+    struct section *fini_array;
     struct section *init;
     struct section *fini;
 };

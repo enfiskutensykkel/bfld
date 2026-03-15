@@ -47,7 +47,7 @@ add_library(linkerlib SHARED
     src/linker/symbol.c
     src/linker/symbols.c
     src/linker/globals.c
-    src/linker/layout.c
+    #src/linker/layout.c
     src/linker/posixcompat.c
     src/linker/groups.c
 )

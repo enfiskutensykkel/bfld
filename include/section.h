@@ -9,13 +9,13 @@ extern "C" {
 #include <stdint.h>
 #include "utils/list.h"
 #include "sectiontype.h"
+#include "strpool.h"
 
 
 /* Forward declarations */
+struct linkerctx;
 struct objectfile;
 struct symbol;
-struct group;
-struct layout;
 
 
 /* 
@@ -32,19 +32,20 @@ struct layout;
  */
 struct section
 {
-    struct objectfile *objfile;     // strong reference to the object file the section is defined in (NOTE: can be NULL if section is synthetic)
-    char *name;                     // name of the section (NOTE: can be NULL)
     int refcnt;                     // reference counter
+    struct strpool *strings;        // reference to string pool where names are stored
+    uint64_t name_id;               // name identifier
     enum section_type type;         // section type 
     uint64_t align;                 // section alignment requirements
     uint64_t size;                  // memory size of the section
+    struct objectfile *objfile;     // strong reference to the object file the section is defined in (NOTE: can be NULL if section is synthetic)
     const uint8_t *content;         // pointer to section content
     size_t nrelocs;                 // number of entries in the relocation list.
     struct list_head relocs;        // list of relocations
     bool is_alive;                  // used for dead-code elimination (DCE)
     uint64_t group_id;              // section group identifier
-    struct layout *layout;          // weak pointer to the layout (output section) this section belongs to
-    uint64_t offset;                // finalized section offset from the base output section address
+    //struct layout *layout;          // weak pointer to the layout (output section) this section belongs to
+    //uint64_t offset;                // finalized section offset from the base output section address
     struct symbol **symbols;        // dynamic array of weak references to symbols that are defined in this section
     size_t nsymbols;                // number of symbols that are defined in this section
 };
@@ -70,19 +71,27 @@ struct reloc
 static inline
 const char * section_name(const struct section *section)
 {
-    return section->name;
+    return strpool_at(section->strings, section->name_id);
 }
 
 
 /*
- * Allocate a section descriptor.
- * This will take a strong reference to the object file descriptor.
+ * Allocate a section.
  */
-struct section * section_alloc(struct objectfile *objectfile,
+struct section * section_alloc(const struct linkerctx *ctx,
                                const char *name,
                                enum section_type type,
-                               const uint8_t *content,
                                uint64_t size);
+
+
+/*
+ * Set object file reference for section.
+ * This takes a strong reference to the object file
+ * and also verifies that the content pointer is not
+ * outside the valid range.
+ */
+bool section_set_objectfile(struct section *section,
+                            struct objectfile *objectfile);
 
 
 /*

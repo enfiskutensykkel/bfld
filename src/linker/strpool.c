@@ -103,17 +103,17 @@ bool strpool_rehash(struct strpool *pool, uint64_t capacity)
     capacity = align_roundup(capacity);
 
     // Naive check for overflow
-    if (capacity * sizeof(struct intern) < pool->capacity * sizeof(struct intern)) {
+    if (capacity * sizeof(struct strintern) < pool->capacity * sizeof(struct strintern)) {
         return false;
     }
 
-    struct intern *index = (struct intern*) calloc(capacity, sizeof(struct intern));
+    struct strintern *index = (struct strintern*) calloc(capacity, sizeof(struct strintern));
     if (index == NULL) {
         return false;
     }
 
     for (uint64_t i = 0; i < pool->capacity; ++i) {
-        const struct intern *entry = &pool->index[i];
+        const struct strintern *entry = &pool->index[i];
 
         if (entry->hash == 0) {
             continue;
@@ -126,7 +126,7 @@ bool strpool_rehash(struct strpool *pool, uint64_t capacity)
         uint64_t slot = hash & (capacity - 1);
         
         while (hash != 0) {
-            struct intern *this = &index[slot];
+            struct strintern *this = &index[slot];
 
             if (this->hash == 0 || dfi > this->dfi) {
                 uint64_t tmp_offset = this->offset;
@@ -233,7 +233,7 @@ static bool insert_tail_merge_offset(struct strpool *pool, uint64_t base_offset,
     uint32_t dfi = 0;
 
     while (hash != 0) {
-        struct intern *this = &pool->index[slot];
+        struct strintern *this = &pool->index[slot];
 
         if (this->hash == 0 || dfi > this->dfi) {
             uint32_t tmp_hash = this->hash;

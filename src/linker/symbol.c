@@ -3,6 +3,7 @@
 #include "logging.h"
 #include "objectfile.h"
 #include "utils/hash.h"
+#include "linker.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -30,13 +31,15 @@ void symbol_put(struct symbol *sym)
         if (symbol_is_defined(sym)) {
             symbol_undefine(sym);
         }
-        free(sym->name);
+        strpool_put(sym->strings);
         free(sym);
     }
 }
 
 
-struct symbol * symbol_alloc(const char *name, enum symbol_type type, 
+struct symbol * symbol_alloc(const struct linkerctx *ctx,
+                             const char *name, 
+                             enum symbol_type type, 
                              enum symbol_binding binding)
 {
     switch (type) {
@@ -57,17 +60,15 @@ struct symbol * symbol_alloc(const char *name, enum symbol_type type,
         return NULL;
     }
 
-    sym->name = malloc(strlen(name) + 1);
-    if (sym->name == NULL) {
-        free(sym);
-        return NULL;
-    }
-    strcpy(sym->name, name);
-
-    sym->hash = hash_fnv1a_32(sym->name, strlen(name));
+    // must do this before interning the string, in case name is already interned
+    sym->hash = hash_fnv1a_32(name, strlen(name));
     if (sym->hash == 0) {
         sym->hash = 1;
     }
+    
+    sym->strings = strpool_get(ctx->strings);
+    sym->name_id = strpool_intern(ctx->strings, name);
+
     sym->binding = binding;
     sym->type = type;
     sym->refcnt = 1;
@@ -88,12 +89,12 @@ bool symbol_define_common(struct symbol *sym, uint64_t size, uint64_t align)
     assert(sym != NULL);
 
     if (symbol_is_defined(sym)) {
-        log_error("Redefinition of symbol '%s' as common symbol", sym->name);
+        log_error("Redefinition of symbol '%s' as common symbol", symbol_name(sym));
         return false;
     }
 
     if (sym->is_common) {
-        log_error("Redefinition of common symbol '%s', symbol was already defined", sym->name);
+        log_error("Redefinition of common symbol '%s', symbol was already defined", symbol_name(sym));
         return false;
     }
     
@@ -117,12 +118,12 @@ bool symbol_define(struct symbol *sym, struct section *section,
     if (symbol_is_defined(sym) && sym->binding != SYMBOL_WEAK && !sym->is_common) {
         if (sym->is_absolute) {
             log_error("Redefinition for absolute symbol '%s' at address 0x%llx, was already defined at address 0x%llx", 
-                    sym->name, offset, sym->offset);
+                    symbol_name(sym), offset, sym->offset);
         } else {
-            log_error("Redefinition for symbol '%s'", sym->name);
+            log_error("Redefinition for symbol '%s'", symbol_name(sym));
             const char *filename = sym->section->objfile != NULL ? sym->section->objfile->name : NULL;
-            log_ctx_push(LOG_CTX(.file = filename, .section = sym->section->name));
-            log_error("Symbol '%s' was previously defined here", sym->name);
+            log_ctx_push(LOG_CTX(.file = filename, .section = section_name(sym->section)));
+            log_error("Symbol '%s' was previously defined here", symbol_name(sym));
             log_ctx_pop();
         }
         return false;
@@ -138,8 +139,8 @@ bool symbol_define(struct symbol *sym, struct section *section,
         sym->is_absolute = true;
         sym->offset = offset;
         sym->align = 0;  
-        log_debug("Absolute symbol '%s' is defined at address 0x%lx", 
-                sym->name, sym->offset);
+        log_trace("Absolute symbol '%s' is defined at address 0x%lx", 
+                symbol_name(sym), sym->offset);
 
     } else {
         // This is a relative definition
@@ -186,7 +187,7 @@ bool symbol_merge(struct symbol *existing, const struct symbol *incoming)
     assert(existing->hash == incoming->hash && "Existing and incoming symbols are not the same symbol");
 
     if (incoming->visibility > existing->visibility) {
-        log_trace("Strictening visibility for symbol '%s'", existing->name);
+        log_trace("Strictening visibility for symbol '%s'", symbol_name(existing));
         existing->visibility = incoming->visibility;
     }
 
@@ -203,7 +204,7 @@ bool symbol_merge(struct symbol *existing, const struct symbol *incoming)
             existing->binding = SYMBOL_GLOBAL;
         }
 
-        log_debug("Updated alignment and size of common symbol '%s'", existing->name);
+        log_debug("Updated alignment and size of common symbol '%s'", symbol_name(existing));
         return true;
     }
 
@@ -213,7 +214,7 @@ bool symbol_merge(struct symbol *existing, const struct symbol *incoming)
         existing->size = incoming->size;
         existing->align = incoming->align;
         existing->type = incoming->type;
-        log_debug("Upgraded undefined symbol '%s' to common symbol", existing->name);
+        log_debug("Upgraded undefined symbol '%s' to common symbol", symbol_name(existing));
         return true;
     }
 
@@ -234,13 +235,13 @@ bool symbol_merge(struct symbol *existing, const struct symbol *incoming)
         if (symbol_is_defined(existing) && existing->binding != SYMBOL_WEAK) {
             if (existing->is_absolute) {
                 log_error("Multiple definitions for absolute symbol '%s', previously defined at address 0x%lx",
-                        existing->name, existing->offset);
+                        symbol_name(existing), existing->offset);
 
             } else {
-                log_error("Multiple definitions for symbol '%s'", existing->name);
+                log_error("Multiple definitions for symbol '%s'", symbol_name(existing));
                 const char *filename = existing->section->objfile != NULL ? existing->section->objfile->name : NULL;
-                log_ctx_push(LOG_CTX(.file = filename, .section = existing->section->name));
-                log_error("Symbol '%s' was previously defined here", existing->name);
+                log_ctx_push(LOG_CTX(.file = filename, .section = section_name(existing->section)));
+                log_error("Symbol '%s' was previously defined here", symbol_name(existing));
                 log_ctx_pop();
             }
             return false;

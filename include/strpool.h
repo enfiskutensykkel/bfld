@@ -8,6 +8,7 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <assert.h>
 #include "utils/hash.h"
 
 
@@ -17,7 +18,7 @@ extern "C" {
  * Contains the hash, distance from ideal (DFI) and the offset in
  * the underlying string table (to the actual string value).
  */
-struct intern
+struct strintern
 {
     uint32_t hash;      // computed hash of the string (0 means unused)
     uint32_t dfi;       // distance from ideal (for robin hood hashing)
@@ -48,13 +49,13 @@ struct intern
  */
 struct strpool
 {
-    int refcnt;                 // reference counter
+    uint64_t refcnt;            // reference counter
     char *strings;              // underlying string table
     uint64_t offset;            // current offset in the underlying string table
     uint64_t size;              // total size of the memory region holding the string table
     uint64_t count;             // number of strings in the pool (entries in the index)
     uint64_t capacity;          // capacity of the index (must be power of 2)
-    struct intern *index;       // hash table
+    struct strintern *index;    // hash table
     uint64_t rehash_threshold;  // threshold for when to expand and rehash (current capacity * load factor)
 };
 
@@ -110,6 +111,8 @@ uint64_t strpool_raw_intern(struct strpool *pool, const char *string, size_t len
         return 0;
     }
 
+    assert((string < pool->strings || string >= pool->strings + pool->size) && "Can not self-intern");
+
     if (pool->size - pool->offset <= length) {
         if (!strpool_extend(pool, length)) {
             return 0;
@@ -136,19 +139,24 @@ uint64_t strpool_intern(struct strpool *pool, const char *string)
         return 0;
     }
 
+    // Check if string is already interned
+    if (string >= pool->strings && string < pool->strings + pool->size) {
+        return (uint64_t) (string - pool->strings);
+    }
+
     size_t length = strlen(string) + 1;
     uint32_t hash = hash_fnv1a_32(string, length - 1);
     if (hash == 0) {
         hash = 1;  // hash == 0 means unused
     }
 
-    // Check if entry already exists
-    uint64_t mask = pool->capacity - 1;
-    uint64_t slot = hash & mask;
-    uint32_t dfi = 0;
-
+    // Check a similar string is already interned
     if (pool->count > 0) {
-        while (pool->index[slot].hash != 0 && pool->index[slot].dfi <= dfi) {
+        uint64_t mask = pool->capacity - 1;
+        uint64_t slot = hash & mask;
+        uint32_t dfi = 0;
+
+        while (pool->index[slot].hash != 0 && dfi <= pool->index[slot].dfi) {
             if (pool->index[slot].hash == hash) {
                 uint64_t offset = pool->index[slot].offset;
                 const char *value = &pool->strings[offset];
@@ -168,18 +176,18 @@ uint64_t strpool_intern(struct strpool *pool, const char *string)
         }
     }
 
-    mask = pool->capacity - 1;
-    slot = hash & mask;
-    dfi = 0;
+    uint64_t mask = pool->capacity - 1;
+    uint64_t slot = hash & mask;
+    uint32_t dfi = 0;
 
     uint64_t result = 0;
     uint64_t offset = 0;
 
     while (hash != 0) {
-        struct intern *this = &pool->index[slot];
+        struct strintern *this = &pool->index[slot];
 
         if (this->hash == 0 || dfi > this->dfi) {
-            struct intern tmp = *this;
+            struct strintern tmp = *this;
 
             // Found an available slot or the start of a new bucket
             if (result == 0) {
@@ -228,7 +236,7 @@ void strpool_unintern(struct strpool *pool, const char *string)
     uint64_t mask = pool->capacity - 1;
     uint64_t slot = hash & mask;
     uint32_t dfi = 0;
-    struct intern *this = &pool->index[slot];
+    struct strintern *this = &pool->index[slot];
 
     while (this->hash != 0 && dfi <= this->dfi) {
 
@@ -248,7 +256,7 @@ void strpool_unintern(struct strpool *pool, const char *string)
     if (this->hash != 0 && dfi <= this->dfi) {
         pool->count--;
 
-        struct intern *next = &pool->index[(slot + 1) & mask];
+        struct strintern *next = &pool->index[(slot + 1) & mask];
         while (next->hash != 0 && next->dfi != 0) {
             *this = *next;
             this->dfi--;
@@ -289,7 +297,7 @@ uint64_t strpool_lookup(const struct strpool *pool, const char *string)
     uint64_t mask = pool->capacity - 1;
     uint64_t slot = hash & mask;
     uint32_t dfi = 0;
-    const struct intern *this = &pool->index[slot];
+    const struct strintern *this = &pool->index[slot];
 
     while (this->hash != 0 && dfi <= this->dfi) {
         if (this->hash == hash) {

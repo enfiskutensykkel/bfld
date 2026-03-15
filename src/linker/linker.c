@@ -39,8 +39,15 @@ struct linkerctx * linker_alloc(const char *name, uint32_t target)
         return NULL;
     }
 
+    ctx->strings = strpool_alloc();
+    if (ctx->strings == NULL) {
+        free(ctx);
+        return NULL;
+    }
+
     ctx->name = malloc(strlen(name) + 1);
     if (ctx->name == NULL) {
+        strpool_put(ctx->strings);
         free(ctx);
         return NULL;
     }
@@ -88,6 +95,8 @@ void linker_put(struct linkerctx *ctx)
         log_trace("Destroying linker context");
 
         while ((sect = sections_pop(&ctx->sections)) != NULL) {
+            // FIXME: this is necessary because of circular ownership (sect -> reloc -> sym -> sect)
+            // FIXME: in a future version, use arena allocator on linkerctx for sections and symbols
             section_clear_relocs(sect);
             section_put(sect);
         }
@@ -129,6 +138,8 @@ void linker_put(struct linkerctx *ctx)
 
         sections_clear(&ctx->sections);
         archives_clear_symbols(&ctx->archives);
+
+        strpool_put(ctx->strings);
 
         if (ctx->name != NULL) {
             free(ctx->name);
@@ -230,8 +241,8 @@ bool linker_load_objectfile(struct linkerctx *ctx,
 
     log_trace("Loading object file using front-end '%s'", reader->name);
 
-    status = reader->parse_file(objfile->file_data, objfile->file_size,
-                                objfile, &groups, &secttab, &symtab);
+    status = reader->parse_file(ctx, objfile->file_data, objfile->file_size,
+                                &groups, &secttab, &symtab);
     while (log_ctx > current_log_ctx) {
         log_warning("Unwinding log context stack");
         log_ctx_pop();
@@ -337,11 +348,16 @@ bool linker_load_objectfile(struct linkerctx *ctx,
             uint64_t realgroup = groups_lookup_group(&ctx->groups, name);
             if (realgroup == 0) {
                 log_debug("Discarding section %s belonging to section group %s", 
-                        sect->name, name);
+                        section_name(sect), name);
                 continue;
             }
 
             sect->group_id = realgroup;
+        }
+
+        // Make sure that sections have a reference to the object file
+        if (!section_set_objectfile(sect, objfile)) {
+            goto leave;
         }
 
         // Add section to the section worklist
@@ -450,7 +466,7 @@ bool linker_add_marker_symbol(struct linkerctx *ctx,
                               struct section *sect,
                               enum symbol_type type)
 {
-    struct symbol *sym = symbol_alloc(name, type, SYMBOL_GLOBAL);
+    struct symbol *sym = symbol_alloc(ctx, name, type, SYMBOL_GLOBAL);
     if (sym == NULL) {
         return false;
     }
@@ -472,7 +488,7 @@ bool linker_add_marker_symbol(struct linkerctx *ctx,
 bool linker_add_crt_markers(struct linkerctx *ctx)
 {
     if (ctx->preinit_array == NULL) {
-        struct section *sect = section_alloc(NULL, ".preinit_array", SECTION_DATA, NULL, ctx->target_ptr_size);
+        struct section *sect = section_alloc(ctx, ".preinit_array", SECTION_DATA, ctx->target_ptr_size);
         if (sect == NULL) {
             return false;
         }
@@ -489,7 +505,7 @@ bool linker_add_crt_markers(struct linkerctx *ctx)
     }
 
     if (ctx->init_array == NULL) {
-        ctx->init_array = section_alloc(NULL, ".init_array", SECTION_DATA, NULL, ctx->target_ptr_size);
+        ctx->init_array = section_alloc(ctx, ".init_array", SECTION_DATA, ctx->target_ptr_size);
         if (ctx->init_array == NULL) {
             return false;
         }
@@ -505,7 +521,7 @@ bool linker_add_crt_markers(struct linkerctx *ctx)
     }
 
     if (ctx->fini_array == NULL) {
-        ctx->fini_array = section_alloc(NULL, ".fini_array", SECTION_DATA, NULL, ctx->target_ptr_size);
+        ctx->fini_array = section_alloc(ctx, ".fini_array", SECTION_DATA, ctx->target_ptr_size);
         if (ctx->fini_array == NULL) {
             return false;
         }
@@ -538,7 +554,7 @@ bool linker_add_crt_markers(struct linkerctx *ctx)
 bool linker_add_got_section(struct linkerctx *ctx)
 {
     if (ctx->got == NULL) {
-        struct section *sect = section_alloc(NULL, ".got", SECTION_DATA, NULL, ctx->target_got_entry_size);
+        struct section *sect = section_alloc(ctx, ".got", SECTION_DATA, ctx->target_got_entry_size);
         if (sect == NULL) {
             return false;
         }
@@ -604,24 +620,29 @@ void linker_dce_mark(struct linkerctx *ctx, const struct symbols *keep)
 void linker_dce_sweep(struct linkerctx *ctx)
 {
     uint64_t total_sections = sections_size(&ctx->sections);
-    uint64_t kept_sections = 0;
-    struct sections live = {0};
-    sections_reserve(&live, total_sections);
+    struct sections keep = {0};
+
+    sections_reserve(&keep, total_sections);
 
     struct section *sect;
     while ((sect = sections_pop(&ctx->sections)) != NULL) {
         if (sect->is_alive) {
-            sections_push(&live, sect);
-            ++kept_sections;
-        } 
+            sections_push(&keep, sect);
+        } else {
+            // FIXME: this is necessary because of circular ownership sect -> reloc -> sym -> sect
+            // FIXME: in a future version, use arena allocator on linkerctx for sections and symbols
+            section_clear_relocs(sect);
+        }
         section_put(sect);
     }
 
+    assert(sections_empty(&ctx->sections));
+
     sections_clear(&ctx->sections);
-    ctx->sections = live;
+    ctx->sections = keep;
 
     log_debug("DCE: Kept %lu sections out of %lu total sections",
-            kept_sections, total_sections);
+            sections_size(&keep), total_sections);
 }
 
 

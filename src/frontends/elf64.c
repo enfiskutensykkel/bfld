@@ -139,7 +139,7 @@ static inline int add_section(struct list_head *list, const Elf64_Shdr *sh)
  * Parse ELF file and create sections
  */
 static int parse_sections(const Elf64_Ehdr *eh, 
-                          struct objectfile *objfile, 
+                          const struct linkerctx *ctx,
                           struct section_table *sections,
                           struct list_head *groups,
                           struct list_head *reltabs,
@@ -282,13 +282,14 @@ static int parse_sections(const Elf64_Ehdr *eh,
             //log_info("Merge sections are not supported yet");
         }
 
-        const uint8_t *content = sh->sh_type != SHT_NOBITS ? ((const uint8_t*) eh) + sh->sh_offset : NULL;
-        struct section *section = section_alloc(objfile, shname, type,
-                                                content,
-                                                sh->sh_size);
+        struct section *section = section_alloc(ctx, shname, type, sh->sh_size);
         if (section == NULL) {
             log_ctx_pop();
             return ENOMEM;
+        }
+
+        if (sh->sh_type != SHT_NOBITS) {
+            section->content = ((const uint8_t*) eh) + sh->sh_offset;
         }
 
         bool added = section_table_insert(sections, shndx, section, NULL);
@@ -430,6 +431,7 @@ static int parse_group(const Elf64_Ehdr *eh,
  */
 static int parse_symtab(const Elf64_Ehdr *eh, 
                         const Elf64_Shdr *sh, 
+                        const struct linkerctx *ctx,
                         const struct section_table *sections, 
                         struct symbol_table *symbols)
 {
@@ -531,7 +533,7 @@ static int parse_symtab(const Elf64_Ehdr *eh,
                 break;
 
             case STT_SECTION:
-                name = section->name;
+                name = section_name(section);
                 type = SYMBOL_SECTION;
                 break;
 
@@ -569,7 +571,7 @@ static int parse_symtab(const Elf64_Ehdr *eh,
             continue;
         }
 
-        struct symbol *symbol = symbol_alloc(name, type, binding);
+        struct symbol *symbol = symbol_alloc(ctx, name, type, binding);
         if (symbol == NULL) {
             status = ENOMEM;
             goto out;
@@ -605,9 +607,9 @@ out:
     return status;
 }
 
-static int parse_elf_file(const uint8_t *file_data, 
+static int parse_elf_file(const struct linkerctx *ctx,
+                          const uint8_t *file_data, 
                           size_t file_size,
-                          struct objectfile *objfile, 
                           struct groups *groups,
                           struct section_table *sections, 
                           struct symbol_table *symbols)
@@ -621,7 +623,7 @@ static int parse_elf_file(const uint8_t *file_data,
     (void) file_size; // unused parameter
     
     // Parse file and create sections
-    status = parse_sections(eh, objfile, sections, &groupsects, &reltabs, &symtabs);
+    status = parse_sections(eh, ctx, sections, &groupsects, &reltabs, &symtabs);
     if (status != 0) {
         goto cleanup;
     }
@@ -644,7 +646,7 @@ static int parse_elf_file(const uint8_t *file_data,
 
     // Parse symbol table
     list_for_each_entry_safe(s, &symtabs, struct elf_section, entry) {
-        status = parse_symtab(eh, s->sh, sections, symbols);
+        status = parse_symtab(eh, s->sh, ctx, sections, symbols);
         if (status != 0) {
             goto cleanup;
         }

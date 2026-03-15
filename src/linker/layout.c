@@ -23,13 +23,6 @@ struct layout * layout_alloc(const char *name, enum section_type type, uint32_t 
         return NULL;
     }
 
-    l->name = malloc(strlen(name) + 1);
-    if (l->name == NULL) {
-        free(l);
-        return NULL;
-    }
-    strcpy(l->name, name);
-
     l->refcnt = 1;
     l->rank = rank;
     l->type = type;
@@ -58,7 +51,6 @@ void layout_put(struct layout *l)
 
     if (--(l->refcnt) == 0) {
         layout_clear_sections(l, NULL);
-        free(l->name);
         free(l);
     }
 }
