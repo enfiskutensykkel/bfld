@@ -42,7 +42,7 @@ struct section
     const uint8_t *content;         // pointer to section content
     size_t nrelocs;                 // number of entries in the relocation list.
     struct list_head relocs;        // list of relocations
-    bool is_alive;                  // used for dead-code elimination (DCE)
+    bool discard;                   // used to mark sections that can be discarded (for example DCE)
     uint64_t group_id;              // section group identifier
     //struct layout *layout;          // weak pointer to the layout (output section) this section belongs to
     //uint64_t offset;                // finalized section offset from the base output section address

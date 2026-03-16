@@ -39,7 +39,7 @@ void strpool_put(struct strpool *pool)
     assert(atomic_load(&pool->rwlock) == 0);
 
     if (--(pool->refcnt) == 0) {
-        struct strslab *current = atomic_load(&pool->head), *next = NULL;
+        struct strslab *current = pool->head, *next = NULL;
         while (current != NULL) {
             next = current->next;
             free(current);
@@ -55,12 +55,13 @@ void strpool_put(struct strpool *pool)
 
 /*
  * Allocate a string slab with enough space for at least min_size.
+ * Will allocate a new slab with size max(min_size, STRPOOL_SLAB_SIZE)
  */
-static struct strslab * strpool_slab_alloc(size_t used)
+static struct strslab * strpool_slab_alloc(size_t min_size)
 {
-    size_t size = STRING_POOL_MIN_SLAB_SIZE - sizeof(struct strslab);
-    if (size < used) {
-        size = used;
+    size_t size = STRPOOL_SLAB_SIZE - sizeof(struct strslab);
+    if (size < min_size) {
+        size = min_size;
     }
     size = align_roundup(size) - sizeof(struct strslab);
 
@@ -69,78 +70,67 @@ static struct strslab * strpool_slab_alloc(size_t used)
         return NULL;
     }
 
+    for (size_t i = 0; i < size; ++i) {
+        slab->data[i] = 0;
+    }
     slab->next = NULL;
-    atomic_init(&slab->used, used);
     slab->size = size;
+    atomic_init(&slab->used, 0);
     return slab;
 }
 
 
-const char * strpool_slab_intern(struct strpool *pool, const char *string, size_t length)
+const char * strpool_slab_intern_unlocked(struct strpool *pool, const char *string, size_t length)
 {
     size_t pos;
     size_t len = length + 1;  // include NUL-terminator
+    size_t aligned = align_to(len, 16);  // align strings to 16 bytes
 
     while (true) {
-        strpool_rdlock(pool);
-        struct strslab *slab = atomic_load(&pool->head);
-        strpool_rdunlock(pool);
+        struct strslab *slab = atomic_load_explicit(&pool->head, memory_order_acquire);
 
         if (slab != NULL) {
-            pos = atomic_load(&slab->used);
+            pos = atomic_load_explicit(&slab->used, memory_order_acquire);
 
             // Try to fit the string into the current slab
-            while (pos + len <= slab->size) {
-                if (atomic_compare_exchange_weak(&slab->used, &pos, pos + len)) {
+            while (pos + aligned <= slab->size) {
+                if (atomic_compare_exchange_weak_explicit(&slab->used, &pos, pos + aligned,
+                                                          memory_order_acq_rel,
+                                                          memory_order_acquire)) {
                     memcpy(&slab->data[pos], string, len);
                     return &slab->data[pos];
                 }
             }
         }
 
-        // Current slab is full, we need to allocate a new one
-        struct strslab *new_slab = strpool_slab_alloc(len);
+        // Current slab is full, lets try to allocate a new one
+        struct strslab *new_slab = strpool_slab_alloc(aligned);
         if (new_slab == NULL) {
             return NULL;
         }
 
-        // FIXME
-        strpool_wrlock(pool);
+        // Try to insert the new slab as the head
+        // We immediately reservespace in the new slab
         new_slab->next = slab;
-        if (pool->head == slab) {
-            pool->head = slab;
-            strpool_wrunlock(pool);
-            memcpy(new_slab->data, string, len);
-            return new_slab->data;
-        }
-        strpool_wrunlock(pool);
-        free(new_slab);
-
-#if 0
-        memcpy(new_slab->data, string, len);  // safe because we don't export data before it is in the hash table
-        atomic_thread_fence(memory_order_release);
+        atomic_store_explicit(&new_slab->used, aligned, memory_order_release);
 
         do {
-            atomic_store_explicit(&new_slab->next, slab, memory_order_release);
-
-            // Try to replace the pool's head slab with the new one
             if (atomic_compare_exchange_strong_explicit(&pool->head, &slab, new_slab,
-                                                        memory_order_release,
+                                                        memory_order_acq_rel,
                                                         memory_order_acquire)) {
-                //memcpy(new_slab->data, string, len);  // safe because we don't export data before it is in the hash table
-
+                // We were able to insert the new slab as the head
+                // write our data and move along
+                memcpy(new_slab->data, string, len);
                 return new_slab->data;
             }
 
-            atomic_thread_fence(memory_order_acquire);
-            pos = atomic_load_explicit(&slab->used, memory_order_acquire);
-            size = atomic_load_explicit(&slab->size, memory_order_acquire);
-        } while (pos + len > size);
+            if (slab != NULL) {
+                pos = atomic_load_explicit(&slab->used, memory_order_acquire);
+            }
+        } while (slab == NULL || pos + aligned > slab->size);
 
-        // We failed to insert our new slab as pool's head
-        // Release the allocated slab and try all over again
+        // All that work for nothing...
         free(new_slab);
-#endif
     }
 }
 
@@ -209,7 +199,7 @@ bool strpool_reserve_unlocked(struct strpool *pool, uint64_t capacity)
     free(pool->index);
     pool->index = index;
     pool->capacity = capacity;
-    pool->threshold = STRING_POOL_REHASH_THRESHOLD(capacity);
+    pool->threshold = STRPOOL_REHASH_THRESHOLD(capacity);
 
     return true;
 }
@@ -218,6 +208,9 @@ bool strpool_reserve_unlocked(struct strpool *pool, uint64_t capacity)
 void strpool_clear(struct strpool *pool)
 {
     strpool_wrlock(pool);
+
+    struct strslab *head = atomic_exchange_explicit(&pool->head, NULL, memory_order_acq_rel);
+
     if (pool->index != NULL) {
         free(pool->index);
     }
@@ -225,14 +218,12 @@ void strpool_clear(struct strpool *pool)
     pool->capacity = 0;
     pool->size = 0;
     pool->threshold = 0;
-
-    struct strslab *current = atomic_load(&pool->head), *next = NULL;
-    while (current != NULL) {
-        next = current->next;
-        free(current);
-        current = next;
-    }
-    atomic_store(&pool->head, NULL);
     strpool_wrunlock(pool);
+
+    while (head != NULL) {
+        struct strslab *next = head->next;
+        free(head);
+        head = next;
+    }
 }
 

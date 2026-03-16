@@ -131,17 +131,10 @@ bool linker_resolve_globals(struct linkerctx *ctx);
 
 
 /*
- * Mark reachable sections and symbols as alive.
- * Part of dead code elimination (DCE).
+ * Mark unreachable sections as dead (dead-code elminiation, DCE)
  */
 void linker_dce_mark(struct linkerctx *ctx, const struct symbols *keep);
 
-
-/*
- * Remove sections and symbols that aren't marked as alive.
- * Part of dead code elimination (DCE)
- */
-void linker_dce_sweep(struct linkerctx *ctx);
 
 
 /*

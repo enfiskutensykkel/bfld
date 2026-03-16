@@ -9,6 +9,7 @@ extern "C" {
 #include <stdbool.h>
 #include <string.h>
 #include <stdatomic.h>
+#include <stdalign.h>
 #include <threads.h>
 #include "utils/hash.h"
 
@@ -18,10 +19,10 @@ extern "C" {
  */
 struct strslab
 {
-    struct strslab *next;   // pointer to next slab
-    size_t size;            // size of the slab
-    _Atomic size_t used;    // number of bytes used
-    char data[];            // string data
+    struct strslab *next;       // pointer to next slab
+    size_t size;                // size of the slab
+    _Atomic size_t used;        // number of bytes used
+    alignas(16) char data[];    // string data
 };
 
 
@@ -48,13 +49,13 @@ struct strintern
  *
  * Capacity must be a power of two.
  */
-#define STRING_POOL_REHASH_THRESHOLD(capacity) (((capacity) / 4) * 3)
+#define STRPOOL_REHASH_THRESHOLD(capacity) (((capacity) / 4) * 3)
 
 
 /*
- * Minimum string slab size.
+ * String slab size (inclusive the struct size)
  */
-#define STRING_POOL_MIN_SLAB_SIZE 1024
+#define STRPOOL_SLAB_SIZE (2ULL << 20)
 
 
 /* 
@@ -73,13 +74,14 @@ struct strintern
  */
 struct strpool
 {
-    _Atomic int32_t rwlock;     // reader-writer lock (>0 readers, -1 writer)
-    uint64_t refcnt;            // reference counter
-    _Atomic(struct strslab *) head;       // pointer to the current slab
-    struct strintern *index;    // string index table (hash table)
-    uint64_t size;              // size of the index table (number of strings)
-    uint64_t capacity;          // capacity of the index table (must be power of 2)
-    uint64_t threshold;         // threshold for when to extend and rehash the index
+    _Atomic int32_t rwlock;         // reader-writer lock (>0 readers, 0 free, -1 writer)
+    //_Atomic bool waiting;           // writer waiting flag
+    struct strslab * _Atomic head;  // pointer to the current slab
+    uint64_t refcnt;                // reference counter
+    struct strintern *index;        // string index table (hash table)
+    uint64_t size;                  // size of the index table (number of strings)
+    uint64_t capacity;              // capacity of the index table (must be power of 2)
+    uint64_t threshold;             // threshold for when to extend and rehash the index
 };
 
 
@@ -87,8 +89,9 @@ static inline
 void strpool_init(struct strpool *pool)
 {
     atomic_init(&pool->rwlock, 0);
-    pool->refcnt = 0;
+    //atomic_init(&pool->waiting, false);
     atomic_init(&pool->head, NULL);
+    pool->refcnt = 0;
     pool->index = NULL;
     pool->size = 0;
     pool->capacity = 0;
@@ -130,8 +133,25 @@ static inline
 void strpool_rdlock(struct strpool *pool)
 {
     while (true) {
-        int32_t lock = atomic_load(&pool->rwlock);
-        if (lock >= 0 && atomic_compare_exchange_weak(&pool->rwlock, &lock, lock + 1)) {
+
+        /*
+        bool writer_waiting = atomic_load_explicit(&pool->waiting, memory_order_relaxed);
+        if (writer_waiting) {
+#if defined(__x86_64__) || defined(__i386__)
+            __asm__ __volatile__("pause");
+#elif defined(__aarch64__)
+            __asm__ __volatile__("yield");
+#else
+            thrd_yield();
+#endif
+            continue;
+        }
+        */
+
+        int32_t lock = atomic_load_explicit(&pool->rwlock, memory_order_acquire);
+        if (lock >= 0 && atomic_compare_exchange_weak_explicit(&pool->rwlock, &lock, lock + 1,
+                                                               memory_order_acq_rel,
+                                                               memory_order_acquire)) {
             return;
         }
     }
@@ -144,7 +164,7 @@ void strpool_rdlock(struct strpool *pool)
 static inline
 void strpool_rdunlock(struct strpool *pool)
 {
-    atomic_fetch_sub(&pool->rwlock, 1);
+    atomic_fetch_sub_explicit(&pool->rwlock, 1, memory_order_release);
 }
 
 
@@ -154,9 +174,12 @@ void strpool_rdunlock(struct strpool *pool)
 static inline
 void strpool_wrlock(struct strpool *pool)
 {
-    int32_t expected = 0;
+    //atomic_store_explicit(&pool->waiting, true, memory_order_relaxed);
 
-    while (!atomic_compare_exchange_weak(&pool->rwlock, &expected, -1)) {
+    int32_t expected = 0;
+    while (!atomic_compare_exchange_weak_explicit(&pool->rwlock, &expected, -1,
+                                                  memory_order_acq_rel,
+                                                  memory_order_relaxed)) {
         expected = 0;
 #if defined(__x86_64__) || defined(__i386__)
         __asm__ __volatile__("pause");
@@ -175,7 +198,8 @@ void strpool_wrlock(struct strpool *pool)
 static inline
 void strpool_wrunlock(struct strpool *pool)
 {
-    atomic_store(&pool->rwlock, 0);
+    //atomic_store_explicit(&pool->waiting, false, memory_order_relaxed);
+    atomic_store_explicit(&pool->rwlock, 0, memory_order_release);
 }
 
 
@@ -206,8 +230,28 @@ bool strpool_reserve(struct strpool *pool, uint64_t capacity)
  *
  * If there is not enough space in the current slab, this will 
  * allocate a new slab try to update the pool.
+ *
+ * Note that the caller should take the necessary lock before calling this.
  */
-const char * strpool_slab_intern(struct strpool *pool, const char *string, size_t length);
+const char * strpool_slab_intern_unlocked(struct strpool *pool, const char *string, size_t length);
+
+
+/*
+ * Helper function to appends the string to the most recent slab.
+ *
+ * If there is not enough space in the current slab, this will 
+ * allocate a new slab try to update the pool.
+ *
+ * Note that this takes the reader lock.
+ */
+static inline
+const char * strpool_slab_intern(struct strpool *pool, const char *string, size_t length)
+{
+    strpool_rdlock(pool);
+    const char *interned = strpool_slab_intern_unlocked(pool, string, length);
+    strpool_rdunlock(pool);
+    return interned;
+}
 
 
 /*
@@ -243,51 +287,21 @@ const char * strpool_lookup_unlocked(struct strpool *pool, uint32_t hash,
 
 
 /*
- * Add a string to the string pool and return a stable pointer.
- * If the string is already added, the existing stable pointer is returned.
- * Returns NULL on errors, for example if memory allocation fails.
+ * Helper function to do add an interned string to the index / hash table.
+ * Note that the writer lock must be held when calling this.
  */
 static inline
-const char * strpool_intern(struct strpool *pool, const char *string)
+bool strpool_intern_unlocked(struct strpool *pool, uint32_t hash,
+                             const char *string, size_t length)
 {
-    size_t length = strlen(string);
-    uint32_t hash = hash_fnv1a_32(string, length);
-    if (hash == 0) {
-        hash = 1;  // hash == 0 means unused entry
-    }
-
-    // Try to find string first
-    strpool_rdlock(pool);
-    const char *found = strpool_lookup_unlocked(pool, hash, string, length);
-    strpool_rdunlock(pool);
-    if (found != NULL) {
-        return found;
-    }
-
-    // String was not found, intern it into a slab
-    // There is a chance that multiple threads may simultaneously
-    // intern the same string here, but the chance is low
-    const char *interned = strpool_slab_intern(pool, string, length);
-
-    strpool_wrlock(pool);
-
-    // We need to check again if the string was already interned
-    found = strpool_lookup_unlocked(pool, hash, string, length);
-    if (found != NULL) {
-        strpool_wrunlock(pool);
-        return found;
-    }
-
     // Check if we need to resize and rehash the index
     if (pool->size >= pool->threshold) {
         if (!strpool_reserve_unlocked(pool, pool->capacity * 2)) {
             // Unable to extend the index
-            strpool_wrunlock(pool);
-            return NULL;
+            return false;
         }
     }
 
-    string = interned;
     uint64_t slot = hash & (pool->capacity - 1);
     uint32_t dfi = 0;
 
@@ -315,14 +329,71 @@ const char * strpool_intern(struct strpool *pool, const char *string)
     }
 
     pool->size++;
+    return true;
+}
+
+
+
+/*
+ * Add a string to the string pool and return a stable pointer.
+ * If the string is already added, the existing stable pointer is returned.
+ * Returns NULL on errors, for example if memory allocation fails.
+ *
+ * Note that this first takes the reader lock, then takes the writer lock.
+ */
+static inline
+const char * strpool_intern(struct strpool *pool, const char *string)
+{
+    size_t length = strlen(string);
+    uint32_t hash = hash_fnv1a_32(string, length);
+    if (hash == 0) {
+        hash = 1;  // hash == 0 means unused entry
+    }
+
+    // Try to find string first
+    strpool_rdlock(pool);
+    const char *found = strpool_lookup_unlocked(pool, hash, string, length);
+    if (found != NULL) {
+        strpool_rdunlock(pool);
+        return found;
+    }
+
+    // String was not found, intern it into a slab
+    // There is a chance that multiple threads may simultaneously
+    // intern the same string here, but the chance is low
+    const char *interned = strpool_slab_intern_unlocked(pool, string, length);
+
+    strpool_rdunlock(pool);
+
+    if (interned == NULL) {
+        // interning failed
+        return NULL;
+    }
+
+    strpool_wrlock(pool);
+
+    // We need to check again if the string was already interned
+    found = strpool_lookup_unlocked(pool, hash, string, length);
+    if (found != NULL) {
+        strpool_wrunlock(pool);
+        return found;
+    }
+
+    if (strpool_intern_unlocked(pool, hash, interned, length)) {
+        strpool_wrunlock(pool);
+        return interned;
+    }
+
     strpool_wrunlock(pool);
-    return interned;
+    return NULL;
 }
 
 
 /*
  * Look up a string in the pool and return a stable pointer.
  * Returns NULL if the string is not found.
+ *
+ * Note that this takes the reader lock.
  */
 static inline
 const char * strpool_lookup(struct strpool *pool, const char *string)

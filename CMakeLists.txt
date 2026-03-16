@@ -1,9 +1,18 @@
 cmake_minimum_required(VERSION 3.16...3.30)
 project(bfld)
 
+find_package(Threads REQUIRED)
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_EXTENSIONS ON)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+
+add_compile_options("$<$<CONFIG:TSan>:-fsanitize=thread;-g;-O1>")
+add_link_options("$<$<CONFIG:TSan>:-fsanitize=thread>")
+
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Set build type" FORCE)
+endif()
 
 
 file(GLOB_RECURSE BFLD_HEADER_FILES "include/*.h")
@@ -20,11 +29,20 @@ set_target_properties(utilslib PROPERTIES OUTPUT_NAME bfldutils)
 #file(GLOB UTILSLIB_HEADER_FILES "include/utils/*.h")
 #install(FILES ${UTILSLIB_HEADER_FILES} DESTINATION include/bfldutils)
 
+string(TOUPPER ${CMAKE_BUILD_TYPE} BUILD_TYPE_UPPER)
+
 # Should we build tests?
 option(BUILD_TESTING "Build tests for bfld" OFF)
+if ("${BUILD_TYPE_UPPER}" STREQUAL "DEBUG" OR "${BUILD_TYPE_UPPER}" STREQUAL "TSAN")
+    set(BUILD_TESTING ON FORCE)
+endif ()
+
 
 # Add test directory
 if (BUILD_TESTING)
+    if (NOT "${BUILD_TYPE_UPPER}" STREQUAL "DEBUG" AND NOT "${BUILD_TYPE_UPPER}" STREQUAL "TSAN")
+        message(STATUS "BUILD_TESTING is set but build type is '${CMAKE_BUILD_TYPE}'")
+    endif ()
     enable_testing()
     add_subdirectory(tests)
 endif ()

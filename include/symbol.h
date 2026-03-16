@@ -87,20 +87,21 @@ bool symbol_is_defined(const struct symbol *symbol)
 
 
 /*
- * Helper function to determine if a symbol is "alive".
+ * Helper function to determine if a symbol is 
+ * "alive" or if it can be discarded.
  */
 static inline
-bool symbol_is_alive(const struct symbol *symbol)
+bool symbol_can_discard(const struct symbol *symbol)
 {
     if (symbol->is_absolute) {
-        return true;
+        return false;
     }
 
-    if (symbol->section != NULL && symbol->section->is_alive) {
-        return true;
+    if (symbol->section != NULL && !symbol->section->discard) {
+        return false;
     }
 
-    return false;
+    return true;
 }
 
 

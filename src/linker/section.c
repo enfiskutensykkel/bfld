@@ -78,7 +78,7 @@ struct section * section_alloc(const struct linkerctx *ctx,
     sect->nrelocs = 0;
     list_head_init(&sect->relocs);
     sect->group_id = 0;
-    sect->is_alive = false;
+    sect->discard = false;
 
     sect->symbols = NULL;
     sect->nsymbols = 0;
@@ -101,7 +101,7 @@ struct section * section_clone(const struct section *original, const char *name)
     sect->type = original->type;
     sect->size = original->size;
     sect->nrelocs = 0;
-    sect->is_alive = false;
+    sect->discard = false;
     sect->group_id = 0;
     sect->nsymbols = 0;
     sect->symbols = NULL;

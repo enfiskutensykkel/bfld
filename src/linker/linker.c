@@ -566,34 +566,30 @@ void linker_dce_mark(struct linkerctx *ctx, const struct symbols *keep)
     struct sections wl = {0};
     struct section *sect;
 
-    uint64_t nkept = 0;
+    uint64_t alive = 0;
     sections_reserve(&wl, sections_size(&ctx->sections));
 
     // Start with root symbols
     for (uint64_t i = 0; i < keep->q.size; ++i) {
         struct symbol *sym = symbols_at(keep, i);
-        if (sym == NULL) {
-            // this should not happen
-            continue;
-        }
 
         if (sym->section != NULL) {
-            sym->section->is_alive = true;
+            sym->section->discard = false;
             sections_push(&wl, sym->section);
         }
     }
 
     // Follow relocations and mark sections as alive
     while ((sect = sections_pop(&wl)) != NULL) {
-        assert(sect->is_alive);
-        ++nkept;
+        assert(!sect->discard);
+        ++alive;
 
         list_for_each_entry(reloc, &sect->relocs, struct reloc, list_entry) {
             const struct symbol *sym = reloc->symbol;
             struct section *target = sym->section;
 
-            if (target != NULL && !target->is_alive) {
-                target->is_alive = true;
+            if (target != NULL && target->discard) {
+                target->discard = false;
                 sections_push(&wl, target);
             }
         }
@@ -602,36 +598,8 @@ void linker_dce_mark(struct linkerctx *ctx, const struct symbols *keep)
     }
 
     sections_clear(&wl);
-    log_debug("DCE: Marked %lu sections as alive", nkept);
-}
-
-
-void linker_dce_sweep(struct linkerctx *ctx)
-{
-    uint64_t total_sections = sections_size(&ctx->sections);
-    struct sections keep = {0};
-
-    sections_reserve(&keep, total_sections);
-
-    struct section *sect;
-    while ((sect = sections_pop(&ctx->sections)) != NULL) {
-        if (sect->is_alive) {
-            sections_push(&keep, sect);
-        } else {
-            // FIXME: this is necessary because of circular ownership sect -> reloc -> sym -> sect
-            // FIXME: in a future version, use arena allocator on linkerctx for sections and symbols
-            section_clear_relocs(sect);
-        }
-        section_put(sect);
-    }
-
-    assert(sections_empty(&ctx->sections));
-
-    sections_clear(&ctx->sections);
-    ctx->sections = keep;
-
-    log_debug("DCE: Kept %lu sections out of %lu total sections",
-            sections_size(&keep), total_sections);
+    log_debug("DCE: Marked %lu sections as alive out of %lu total sections", 
+            alive, sections_size(&ctx->sections));
 }
 
 

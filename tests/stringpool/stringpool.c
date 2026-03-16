@@ -4,9 +4,11 @@
 #include <assert.h>
 #include <stdio.h>
 #include <pthread.h>
+#include "utils/align.h"
 
 
-#define NUM_STRINGS 1000
+#define NUM_THREADS 32
+#define NUM_STRINGS 10000
 
 struct thread_data 
 {
@@ -14,6 +16,7 @@ struct thread_data
     int thread_id;
     const char **results;
     const char *shared;
+    const char **collisions;
 };
 
 
@@ -33,8 +36,13 @@ void * test_worker(void *arg)
         snprintf(buf, sizeof(buf), "unique_%d_%d", data->thread_id, i);
         data->results[i] = strpool_intern(pool, buf);
 
+        snprintf(buf, sizeof(buf), "common_%d", rand() % 100);
+        data->collisions[i] = strpool_intern(pool, buf);
+
+        snprintf(buf, sizeof(buf), "unique_%d_%d", data->thread_id, i);
         const char *lookup = strpool_lookup(pool, buf);
         assert(lookup == data->results[i]);
+
     }
 
     return NULL;
@@ -43,18 +51,24 @@ void * test_worker(void *arg)
 
 void test_contention(void)
 {
-    const int nthreads = 16;
+    const int nthreads = NUM_THREADS;
     struct strpool pool = {0};
     pthread_t threads[nthreads];
     struct thread_data data[nthreads];
 
     const char *results[nthreads][NUM_STRINGS];
+    const char *collisions[nthreads][NUM_STRINGS];
+
+    strpool_reserve(&pool, (1ULL << 20));
+
+    fprintf(stderr, "slab size %llu\n", STRPOOL_SLAB_SIZE);
 
     for (int i = 0; i < nthreads; ++i) {
         data[i].pool = &pool;
         data[i].thread_id = i;
         data[i].results = results[i];
         data[i].shared = NULL;
+        data[i].collisions = collisions[i];
         pthread_create(&threads[i], NULL, test_worker, &data[i]);
     }
 
@@ -69,10 +83,40 @@ void test_contention(void)
         for (int j = 0; j < NUM_STRINGS; ++j) {
             char buf[64];
             snprintf(buf, sizeof(buf), "unique_%d_%d", i, j);
-            assert(strpool_lookup(&pool, buf) == results[i][j]);
+
+            const char *found = strpool_lookup(&pool, buf);
+            assert(found == results[i][j]);
+
         }
     }
 
+    struct strpool unique_strings = {0};
+    uint64_t duplicates = 0;
+    uint64_t unique = 0;
+    const struct strslab *slab = pool.head;
+
+    while (slab != NULL && slab->used > 0) {
+        const char *s = slab->data;
+
+        while (s < slab->data + slab->used) {
+
+            if (strpool_lookup(&unique_strings, s) != NULL) {
+                ++duplicates;
+            } else {
+                strpool_intern(&unique_strings, s);
+                ++unique;
+            }
+
+            size_t len = strlen(s);
+            s += align_to(len + 1, 16);
+        }
+
+        slab = slab->next;
+    }
+    fprintf(stderr, "Number of unique %lu (%lu), number of duplicate %lu\n", 
+            pool.size, unique, duplicates);
+
+    strpool_clear(&unique_strings);
     strpool_clear(&pool);
 }
 
