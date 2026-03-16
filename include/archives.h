@@ -48,7 +48,7 @@ struct archive_symbol
 {
     uint32_t hash;                  // calculated hash of the symbol
     uint32_t dfi;                   // distance from ideal
-    uint64_t name;                  // symbol name (offset into the string pool)
+    const char *name;               // symbol name 
     struct archive_member *member;  // weak pointer to the archive member where the symbol is defined
 };
 

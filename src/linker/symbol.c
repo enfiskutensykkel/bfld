@@ -60,14 +60,9 @@ struct symbol * symbol_alloc(const struct linkerctx *ctx,
         return NULL;
     }
 
-    // must do this before interning the string, in case name is already interned
-    sym->hash = hash_fnv1a_32(name, strlen(name));
-    if (sym->hash == 0) {
-        sym->hash = 1;
-    }
-    
     sym->strings = strpool_get(ctx->strings);
-    sym->name_id = strpool_intern(ctx->strings, name);
+    sym->name = strpool_intern(ctx->strings, name);
+    sym->hash = hash_fnv1a_32(sym->name, strlen(sym->name));
 
     sym->binding = binding;
     sym->type = type;

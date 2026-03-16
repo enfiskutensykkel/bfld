@@ -45,16 +45,9 @@ struct linkerctx * linker_alloc(const char *name, uint32_t target)
         return NULL;
     }
 
-    ctx->name = malloc(strlen(name) + 1);
-    if (ctx->name == NULL) {
-        strpool_put(ctx->strings);
-        free(ctx);
-        return NULL;
-    }
-    strcpy(ctx->name, name);
-
+    ctx->name = strpool_intern(ctx->strings, name);
     ctx->refcnt = 1;
-    memset(&ctx->globals, 0, sizeof(struct globals));
+    globals_init(&ctx->globals);
     memset(&ctx->sections, 0, sizeof(struct sections));
     memset(&ctx->unresolved, 0, sizeof(struct symbols));
     memset(&ctx->archives, 0, sizeof(struct archives));
@@ -140,10 +133,6 @@ void linker_put(struct linkerctx *ctx)
         archives_clear_symbols(&ctx->archives);
 
         strpool_put(ctx->strings);
-
-        if (ctx->name != NULL) {
-            free(ctx->name);
-        }
         free(ctx);
     }
 }

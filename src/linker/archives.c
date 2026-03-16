@@ -19,13 +19,13 @@ struct archives * archives_alloc(void)
         return NULL;
     }
 
+    strpool_init(&index->names);
     index->archives = NULL;
     index->refcnt = 1;
     index->capacity = 0;
     index->entries = 0;
     index->rehash_threshold = 0;
     index->index = NULL;
-    memset(&index->names, 0, sizeof(struct strpool));
     index->narchives = 0;
     return index;
 }
@@ -47,6 +47,7 @@ void archives_put(struct archives *index)
 
     if (--(index->refcnt) == 0) {
         archives_clear_symbols(index);
+        strpool_clear(&index->names);
         free(index);
     }
 }
@@ -164,7 +165,7 @@ bool archives_insert_symbol(struct archives *index, struct archive_member *membe
     uint64_t mask = index->capacity - 1;
     uint64_t slot = hash & mask;
     uint32_t dfi = 0;
-    uint64_t name = 0;
+    const char *name = NULL;
 
     while (hash != 0) {
         struct archive_symbol *current = &index->index[slot];
@@ -177,7 +178,7 @@ bool archives_insert_symbol(struct archives *index, struct archive_member *membe
                 }
 
                 name = strpool_intern(&index->names, symbol_name);
-                if (name == 0) {
+                if (name == NULL) {
                     return false;
                 }
 
@@ -224,8 +225,7 @@ archives_find_symbol(const struct archives *index, const char *symbol_name)
 
     while (this->hash != 0 && dfi <= this->dfi) {
         if (this->hash == hash) {
-            const char *existing = strpool_at(&index->names, this->name);
-            if (strcmp(existing, symbol_name) == 0) {
+            if (strcmp(this->name, symbol_name) == 0) {
                 return this->member;
             }
         }

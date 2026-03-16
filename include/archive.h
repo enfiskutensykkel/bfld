@@ -7,8 +7,8 @@ extern "C" {
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
-#include "strpool.h"
 #include "utils/list.h"
+#include "strpool.h"
 
 
 /* Forward declarations */
@@ -25,7 +25,7 @@ struct archive_member;
  */
 struct archive
 {
-    char *name;                 // name of the archive
+    const char *name;           // name of the archive
     int refcnt;                 // reference counter
     struct mfile *file;         // strong reference to the underlying memory mapped file
     const uint8_t *file_data;   // pointer to file data
@@ -45,7 +45,7 @@ struct archive
 struct archive_member
 {
     struct archive *archive;    // weak reference to the archive 
-    uint64_t name;              // archive member name (offset in the string pool)
+    const char* name;           // archive member name (offset in the string pool)
     size_t offset;              // offset to the member file
     size_t size;                // size of the member file
     const uint8_t *content;     // pointer to member content
@@ -96,19 +96,6 @@ struct archive_member * archive_get_member(const struct archive *archive, size_t
  * so the caller must call objectfile_put() to relase it.
  */
 struct objectfile * archive_extract_member(struct archive_member *member);
-
-
-/*
- * Get the name of the archive member.
- *
- * Note that this string must NOT be stored, as its lifetime
- * depends on the underlying string pool used by the archive.
- */
-static inline
-const char * archive_member_name(struct archive_member *member)
-{
-    return strpool_at(&member->archive->names, member->name);
-}
 
 
 /*

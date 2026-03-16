@@ -9,13 +9,13 @@ extern "C" {
 #include <stdint.h>
 #include "utils/list.h"
 #include "sectiontype.h"
-#include "strpool.h"
 
 
 /* Forward declarations */
 struct linkerctx;
 struct objectfile;
 struct symbol;
+struct strpool;
 
 
 /* 
@@ -34,7 +34,7 @@ struct section
 {
     int refcnt;                     // reference counter
     struct strpool *strings;        // reference to string pool where names are stored
-    uint64_t name_id;               // name identifier
+    const char *name;               // section name
     enum section_type type;         // section type 
     uint64_t align;                 // section alignment requirements
     uint64_t size;                  // memory size of the section
@@ -67,12 +67,6 @@ struct reloc
     int64_t addend;                 // relocation addend
 };
 
-
-static inline
-const char * section_name(const struct section *section)
-{
-    return strpool_at(section->strings, section->name_id);
-}
 
 
 /*

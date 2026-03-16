@@ -31,26 +31,29 @@ endif ()
 
 
 # Create shared library of the linker code
-add_library(linkerlib SHARED 
-    src/utils/deque.c
-    src/utils/table.c
-    src/utils/rbtree.c
+add_library(linkerlib SHARED
     src/linker/strpool.c
-    src/linker/mfile.c 
-    src/linker/registry.c
-    src/linker/linker.c
-    src/linker/objectfile.c
-    src/linker/archive.c
-    src/linker/archives.c
-    src/linker/section.c
-    src/linker/sections.c
-    src/linker/symbol.c
-    src/linker/symbols.c
-    src/linker/globals.c
-    #src/linker/layout.c
-    src/linker/posixcompat.c
-    src/linker/groups.c
 )
+#add_library(linkerlib SHARED 
+#    src/linker/strpool.c
+#    src/utils/deque.c
+#    src/utils/table.c
+#    src/utils/rbtree.c
+#    src/linker/mfile.c 
+#    src/linker/registry.c
+#    src/linker/linker.c
+#    src/linker/objectfile.c
+#    src/linker/archive.c
+#    src/linker/archives.c
+#    src/linker/section.c
+#    src/linker/sections.c
+#    src/linker/symbol.c
+#    src/linker/symbols.c
+#    src/linker/globals.c
+#    #src/linker/layout.c
+#    src/linker/posixcompat.c
+#    src/linker/groups.c
+#)
 target_include_directories(linkerlib PUBLIC include)  # also includes "include/utils"
 target_include_directories(linkerlib PRIVATE include/utils)
 target_compile_options(linkerlib PRIVATE -Wall -Wextra -pedantic)

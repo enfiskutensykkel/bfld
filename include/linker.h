@@ -13,13 +13,13 @@ extern "C" {
 #include "globals.h"
 #include "archives.h"
 #include "groups.h"
-#include "strpool.h"
 
 /* Some forward declarations */
 struct objectfile;
 struct objectfile_reader;
 struct archive;
 struct archive_reader;
+struct strpool;
 
 
 /* 
@@ -27,7 +27,7 @@ struct archive_reader;
  */
 struct linkerctx
 {
-    char *name;                     // output file name
+    const char *name;               // output file name
     int refcnt;                     // reference counter
     struct strpool *strings;        // global string table
     struct archives archives;       // archive symbol index

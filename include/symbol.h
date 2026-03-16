@@ -9,12 +9,12 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 #include "section.h"
-#include "strpool.h"
 
 
 /* Forward declarations */
 struct linkerctx;
 struct section;
+struct strpool;
 
 
 /*
@@ -63,7 +63,7 @@ struct symbol
     int refcnt;                     // reference counter
     uint32_t hash;                  // precalculated hash of the symbol name
     struct strpool *strings;        // global string pool reference
-    uint64_t name_id;               // name identifier
+    const char *name;               // symbol name
     enum symbol_binding binding;    // symbol binding type
     enum symbol_type type;          // symbol type
     uint64_t align;                 // symbol address alignment requirement (finalized address must be a multiple of align)
@@ -74,18 +74,6 @@ struct symbol
     struct section *section;        // strong reference to the section where the symbol is defined
     uint64_t offset;                // offset into the section to the definition or absolute address
 };
-
-
-/*
- * Helper function to get the symbol name.
- * Note that the pointer returned by this function must not be stored,
- * as it points to the underlying string pool shared by all symbols.
- */
-static inline
-const char * symbol_name(const struct symbol *symbol)
-{
-    return strpool_at(symbol->strings, symbol->name_id);
-}
 
 
 /*

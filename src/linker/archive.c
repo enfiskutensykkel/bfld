@@ -17,7 +17,7 @@ struct objectfile * archive_extract_member(struct archive_member *member)
     if (member->objfile == NULL) {
         struct archive *ar = member->archive;
         char *name = NULL;
-        const char *member_name = archive_member_name(member);
+        const char *member_name = member->name;
 
         if (member_name[0] != '\0') {
             name = malloc(strlen(ar->name) + 2 + strlen(member_name) + 1);
@@ -146,7 +146,6 @@ void archive_put(struct archive *ar)
         
         mfile_put(ar->file);
         strpool_clear(&ar->names);
-        free(ar->name);
         free(ar);
     }
 }
@@ -187,14 +186,8 @@ struct archive * archive_alloc(struct mfile *file,
         return NULL;
     }
 
-    ar->name = malloc(strlen(name) + 1);
-    if (ar->name == NULL) {
-        free(ar);
-        return NULL;
-    }
-    strcpy(ar->name, name);
-
-    memset(&ar->names, 0, sizeof(struct strpool));
+    strpool_init(&ar->names);
+    ar->name = strpool_intern(&ar->names, name);
     ar->file = mfile_get(file);
     ar->refcnt = 1;
     ar->file_data = file_data;

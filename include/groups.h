@@ -11,37 +11,12 @@ extern "C" {
 
 
 /*
- * Helper structure to keep track of section groups such as COMDAT.
- */ 
+ * Helper structure to keep track of section groups;
+ */
 struct groups
 {
-    struct strpool signatures;  // string pool group signatures (offset = group_id)
-    uint64_t *comdat;           // keep track of which groups are COMDAT groups
-                                // (bitmap where group_id is index)
+    struct strpool signatures;  // internal string pool
 };
-
-
-/*
- * Get the group name.
- */
-static inline
-const char * group_name(const struct groups *groups, uint64_t group_id)
-{
-    return strpool_at(&groups->signatures, group_id);
-}
-
-
-/*
- * Check if group is a COMDAT group.
- */
-static inline
-bool groups_is_comdat_group(const struct groups *groups, uint64_t group_id)
-{
-    if (groups->comdat != NULL && group_id < groups->signatures.offset) {
-        return !!(groups->comdat[group_id >> 6] & (1ULL << (group_id & 63)));
-    }
-    return false;
-}
 
 
 /*
