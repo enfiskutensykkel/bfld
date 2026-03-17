@@ -1,5 +1,8 @@
-add_test_executable(rbtree FILES rbtree.c OUTPUT_NAME test_rbtree)
-target_link_libraries(rbtree utilslib)
+add_test_executable(test_rbtree FILES rbtree.c OUTPUT_NAME test_rbtree)
+target_link_libraries(test_rbtree utilslib)
 
-add_test_executable(deque FILES deque.c OUTPUT_NAME test_deque)
-target_link_libraries(deque utilslib)
+add_test_executable(test_deque FILES deque.c OUTPUT_NAME test_deque)
+target_link_libraries(test_deque utilslib)
+
+add_test_executable(test_arena FILES arena.c OUTPUT_NAME test_arena)
+target_link_libraries(test_arena utilslib Threads::Threads)

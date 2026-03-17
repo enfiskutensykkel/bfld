@@ -31,6 +31,17 @@
             default: ((type *) __containerof(ptr, type, member)) \
             )
 
+
+/*
+ * Expect the condition to be true
+ */
+#define likely(x)   __builtin_expect(!!(x), 1)
+
+/*
+ * Expect the condition to be false
+ */
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
 #else
 
 #undef offsetof
@@ -47,6 +58,11 @@
 
 
 #define containerof(ptr, type, member) __containerof(ptr, type, member)
+
+#define likely(x)   !!(x)
+
+#define unlikely(x) !!(x)
+
 
 #endif
 
