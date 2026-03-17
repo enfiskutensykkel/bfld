@@ -12,6 +12,13 @@ extern "C" {
 #include "cdefs.h"
 
 
+#if defined(HAS_VALGRIND) && !defined(NDEBUG)
+#include <valgrind/memcheck.h>
+#else
+#define VALGRIND_MAKE_MEM_UNDEFINED(addr, len) (void) 0
+#endif
+
+
 #define SLAB_SIZE   4096
 #define SLAB_ALIGN  16
 
@@ -78,14 +85,20 @@ size_t arena_slab_align(const struct arena *arena)
 
 
 /*
- * 
+ * Initialize an arena allocator with a given minimum slab size
+ * and minimum slab alignment.
+ *
+ * The alignment given by align MUST be a power of two.
  */
 #define ARENA_INIT(size, align) \
     (struct arena) { NULL, ((size) + ((align) - 1)) & ~((align) - 1), (align) }
 
 
 /*
- * Initialize an arena allocator.
+ * Initialize an arena allocator with a given minimum slab size
+ * and minimum slab alignment.
+ *
+ * The alignment given by align MUST be a power of two.
  */
 static inline
 void arena_init(struct arena *arena, size_t slab_size, size_t slab_align)
@@ -157,6 +170,7 @@ void * arena_alloc(struct arena *arena, size_t size, size_t align)
                     if (unlikely(new_slab != NULL)) {
                         slab_free(new_slab);
                     }
+                    VALGRIND_MAKE_MEM_UNDEFINED(&slab->data[offset], size);
                     return &slab->data[offset];
                 }
             }
@@ -190,6 +204,7 @@ void * arena_alloc(struct arena *arena, size_t size, size_t align)
             base = (uintptr_t) new_slab->data;
             addr = align_to(base, align);
             offset = (size_t) (addr - base);
+            VALGRIND_MAKE_MEM_UNDEFINED(&new_slab->data[offset], size);
             return &new_slab->data[offset];
         }
 

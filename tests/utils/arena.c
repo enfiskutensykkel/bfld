@@ -42,7 +42,7 @@ void test_arena_contention(void)
 {
     struct arena arena = {0};
 
-    arena_init(&arena, 1ULL << 20, 16);
+    //arena_init(&arena, 64ULL << 20, 16);
 
     pthread_t threads[NUM_THREADS];
     struct test_data data[NUM_THREADS];

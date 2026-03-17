@@ -2,10 +2,13 @@ cmake_minimum_required(VERSION 3.16...3.30)
 project(bfld)
 
 find_package(Threads REQUIRED)
+include(CheckIncludeFile)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_EXTENSIONS ON)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+
+check_include_file("valgrind/memcheck.h" HAVE_VALGRIND_MEMCHECK_H)
 
 add_compile_options("$<$<CONFIG:TSan>:-fsanitize=thread;-g;-O1>")
 add_link_options("$<$<CONFIG:TSan>:-fsanitize=thread>")
@@ -14,6 +17,10 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Set build type" FORCE)
 endif()
 
+if (HAVE_VALGRIND_MEMCHECK_H)
+    add_compile_definitions(HAS_VALGRIND)
+    message(STATUS "valgrind headers detected")
+endif ()
 
 file(GLOB_RECURSE BFLD_HEADER_FILES "include/*.h")
 
