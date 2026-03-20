@@ -20,7 +20,6 @@ extern "C" {
 
 
 #define PAGE_SIZE   4096            // system page size
-#define ARENA_SIZE  (4ULL << 20)    // default arena size of 4 MB
 
 
 /*
@@ -55,17 +54,23 @@ struct arena_list
 };
 
 
+/*
+ * Get the default arena size.
+ */
 static inline
 size_t arena_size(const struct arena_list *list)
 {
     if (list->size == 0) {
-        return ARENA_SIZE;
+        return 2ULL << 20;  // default size = 2 MB
     }
 
     return list->size;
 }
 
 
+/*
+ * Initialize the arena list with a default arena size.
+ */
 static inline
 void arena_list_init(struct arena_list *list, size_t size)
 {
@@ -84,7 +89,9 @@ void arena_list_init(struct arena_list *list, size_t size)
  * a power of two). On failure, this function returns NULL.
  *
  * This function is thread-safe, allowing two or more threads/tasks
- * to use the same arena under contention.
+ * to use the same arena under contention. However, the user should
+ * beware of problems related to contention, particularly cache 
+ * contention.
  */
 static inline
 void * arena_alloc_block_threadsafe(struct arena *arena, size_t size, size_t align)
@@ -128,8 +135,8 @@ void * arena_alloc_block_threadsafe(struct arena *arena, size_t size, size_t ali
  * The pointer is aligned to the specified alignment (which must be 
  * a power of two). On failure, this function returns NULL.
  *
- * Unlike arena_alloc_block_threadsafe, this function should not
- * be used when the arena is shared between multiple threads.
+ * Unlike arena_alloc_block_threadsafe, this function should NOT be
+ * used when the arena is shared between multiple threads.
  */
 static inline
 void * arena_alloc_block(struct arena *arena, size_t size, size_t align)
@@ -177,14 +184,13 @@ void arena_destroy(struct arena_list *list);
  * Tries to reserve a block of the specified size. On success, this function 
  * returns a non-NULL pointer to the reserved memory block. The pointer is 
  * aligned to the specified alignment (which must be  a power of two). 
+ * On failure, this function returns NULL.
  *
  * This function will attempt to reserve the block within the arena
  * specified by the current pointer. If there is not enough space,
  * this function will create a new arena and allocate from this,
  * and update the current pointer. Each thread/task should use
- * its own current arena pointer.
- *
- * On failure, this function returns NULL.
+ * their own current arena pointer.
  */
 static inline
 void * arena_alloc_dynamic(struct arena_list *list, struct arena **current, size_t size, size_t align)
@@ -225,6 +231,10 @@ void * arena_alloc_dynamic(struct arena_list *list, struct arena **current, size
 }
 
 
+/*
+ * Identical to arena_alloc_dynamic, except that the allocated
+ * memory is guaranteed to be initialized to zero.
+ */
 #if defined(HAS_VALGRIND) && !defined(NDEBUG)
 static inline
 void * arena_alloc_dynamic_zeroed(struct arena_list *list, struct arena **current, size_t size, size_t align)
