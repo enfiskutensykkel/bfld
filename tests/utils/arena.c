@@ -134,6 +134,7 @@ void test_arena_contention(void)
         pthread_join(threads[i], NULL);
     }
 
+    fprintf(stderr, "test_arena_contention\n");
     print_time(&start, &end);
     print_list(&list);
 
@@ -143,7 +144,7 @@ void test_arena_contention(void)
 
 
 
-void test_arena_tls(void)
+void test_dynamic(void)
 {
     struct arena_list list = {0};
 
@@ -177,6 +178,7 @@ void test_arena_tls(void)
         pthread_join(threads[i], NULL);
     }
 
+    fprintf(stderr, "test_dynamic\n");
     print_time(&start, &end);
     print_list(&list);
 
@@ -189,6 +191,6 @@ int main(void)
 {
     test_arena_contention();
     fprintf(stderr, "\n");
-    test_arena_tls();
+    test_dynamic();
     return 0;
 }

@@ -4,7 +4,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <sys/mman.h>
+#include <signal.h>
 #include <assert.h>
+//#include <numaif.h>
 
 #if defined(HAS_VALGRIND) && !defined(NDEBUG)
 #include <valgrind/memcheck.h>
@@ -18,10 +20,13 @@
 
 struct arena * arena_create(struct arena_list *list, size_t size)
 {
+    if (size > SIZE_MAX - PAGE_SIZE) {
+        return NULL;
+    }
+
     size = align_to(size, PAGE_SIZE);
 
-
-    struct arena *arena = malloc(sizeof(struct arena));
+    struct arena *arena = aligned_alloc(sizeof(struct arena), CACHELINE_SIZE);
     if (arena == NULL) {
         return NULL;
     }
@@ -33,8 +38,16 @@ struct arena * arena_create(struct arena_list *list, size_t size)
         return NULL;
     }
 
+    // The following needs -lnuma:
+    // int cpu, node;
+    // getcpu(&cpu, node);
+    // mask = (1UL << node);
+    // mbind(memory, size, MPOL_PREFERRED, &mask, sizeof(mask) * 8, 0)
+
+#ifndef NDEBUG
     VALGRIND_MALLOCLIKE_BLOCK(memory, size, 0, 1);
     VALGRIND_MAKE_MEM_UNDEFINED(memory, size);
+#endif
 
     atomic_init(&arena->next, NULL);
     atomic_init(&arena->used, 0);
@@ -60,7 +73,12 @@ void arena_destroy(struct arena_list *list)
     while (head != NULL) {
         struct arena *next = atomic_load_explicit(&head->next, memory_order_relaxed);
 
+#ifndef NDEBUG
+        mprotect(head->data, head->size, PROT_NONE);
+        madvise(head->data, head->size, MADV_DONTNEED);
         VALGRIND_FREELIKE_BLOCK(head->data, 0);
+#endif
+
         munmap(head->data, head->size);
         free(head);
 

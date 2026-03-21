@@ -19,7 +19,9 @@ extern "C" {
 #endif
 
 
-#define PAGE_SIZE   4096            // system page size
+
+#define PAGE_SIZE       4096    // system page size, hard coded to avoid call to sysconf in critical path
+#define CACHELINE_SIZE  64
 
 
 /*
@@ -36,10 +38,11 @@ extern "C" {
  */
 struct arena
 {
-    struct arena * _Atomic next;    // pointer to the next memory region
-    size_t _Atomic used;            // number of bytes currently used
-    size_t size;                    // total size of the memory region
-    uint8_t *data;                  // pointer to the actual memory
+    alignas(CACHELINE_SIZE) size_t _Atomic used;    // number of bytes currently used
+    size_t size;                                    // total size of the memory region
+    uint8_t *data;                                  // pointer to the actual memory
+    struct arena * _Atomic next;                    // pointer to the next memory region
+    char pad[CACHELINE_SIZE - (sizeof(_Atomic size_t) + sizeof(size_t) + sizeof(void*) * 2)];
 };
 
 
@@ -49,8 +52,9 @@ struct arena
  */
 struct arena_list
 {
-    struct arena * _Atomic head;
+    alignas(CACHELINE_SIZE) struct arena * _Atomic head;
     size_t size;
+    char pad[CACHELINE_SIZE - sizeof(void*) - sizeof(size_t)];
 };
 
 
@@ -94,12 +98,18 @@ void arena_list_init(struct arena_list *list, size_t size)
  * contention.
  */
 static inline
-void * arena_alloc_block_threadsafe(struct arena *arena, size_t size, size_t align)
+void * arena_alloc_block_threadsafe(struct arena * restrict arena, size_t size, size_t align)
 {
     size_t used, offset;
     uintptr_t base, addr;
 
     if (unlikely(arena == NULL)) {
+        return NULL;
+    }
+
+    // Even though the correct check for overflow is
+    // using offset, we don't want to do that in the loop
+    if (unlikely(size > arena->size) || unlikely(arena->size > SIZE_MAX - size)) {
         return NULL;
     }
 
@@ -139,7 +149,7 @@ void * arena_alloc_block_threadsafe(struct arena *arena, size_t size, size_t ali
  * used when the arena is shared between multiple threads.
  */
 static inline
-void * arena_alloc_block(struct arena *arena, size_t size, size_t align)
+void * arena_alloc_block(struct arena * restrict arena, size_t size, size_t align)
 {
     if (unlikely(arena == NULL)) {
         return NULL;
@@ -150,8 +160,8 @@ void * arena_alloc_block(struct arena *arena, size_t size, size_t align)
 
     uintptr_t addr = align_to(base + used, align);
     size_t offset = (size_t) (addr - base);
-
-    if (unlikely(offset + size > arena->size)) {
+    
+    if (unlikely(size > SIZE_MAX - offset) || unlikely(offset + size > arena->size)) {
         return NULL;
     }
 
@@ -163,9 +173,12 @@ void * arena_alloc_block(struct arena *arena, size_t size, size_t align)
 
 /*
  * Create an arena of the specified size and allocate 
- * its underlying memory region.
+ * its underlying memory region. Uses mmap with MAP_ANONYMOUS 
+ * and MAP_PRIVATE under the hood, which allows memory to be 
+ * lazily paged in only when it is actually used. It also
+ * zeroes out the memory.
  *
- * This also adds the created arena to the specified list.
+ * The created arena is added to the specified list atomically.
  */
 struct arena * arena_create(struct arena_list *list, size_t size);
 
@@ -173,6 +186,9 @@ struct arena * arena_create(struct arena_list *list, size_t size);
 /*
  * Destroy all arenas tracked in the specified list,
  * and free their underlying memory regions.
+ *
+ * Note that arenas should only be destroyed once they
+ * are guaranteed to no longer be in use.
  */
 void arena_destroy(struct arena_list *list);
 
@@ -193,7 +209,7 @@ void arena_destroy(struct arena_list *list);
  * their own current arena pointer.
  */
 static inline
-void * arena_alloc_dynamic(struct arena_list *list, struct arena **current, size_t size, size_t align)
+void * arena_alloc_dynamic(struct arena_list * restrict list, struct arena ** restrict current, size_t size, size_t align)
 {
     void *ptr = NULL;
     struct arena *head = *current;
@@ -237,9 +253,12 @@ void * arena_alloc_dynamic(struct arena_list *list, struct arena **current, size
  */
 #if defined(HAS_VALGRIND) && !defined(NDEBUG)
 static inline
-void * arena_alloc_dynamic_zeroed(struct arena_list *list, struct arena **current, size_t size, size_t align)
+void * arena_alloc_dynamic_zeroed(struct arena_list * restrict list, struct arena ** restrict current, size_t size, size_t align)
 {
     void *ptr = arena_alloc_dynamic(list, current, size, align);
+    // No need for memset here
+    // mmap with MAP_ANONYMOUS fills with zeros, and we don't want to start paging in memory here
+    // NOTE: if we ever make a arena_reset, we would need to reset memory either there or here
     VALGRIND_MAKE_MEM_DEFINED(ptr, size);
     return ptr;
 }
