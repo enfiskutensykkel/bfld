@@ -94,6 +94,7 @@ void ht_write_begin(struct htable *ht)
     atomic_fetch_add_explicit(&ht->sequence, 1, memory_order_acquire);
 }
 
+
 static inline
 void ht_write_end(struct htable *ht)
 {
@@ -106,6 +107,9 @@ void ht_table_clear(struct htable *ht)
 {
     ht_lock(ht);
     ht_write_begin(ht);
+    ht->size = 0;
+    atomic_store_explicit(&ht->capacity, 0, memory_order_relaxed);
+    atomic_store_explicit(&ht->table, NULL, memory_order_relaxed);
     
     ht_write_end(ht);
     ht_unlock(ht);
@@ -136,8 +140,8 @@ struct ht_entry * ht_find_unlocked(const struct htable *ht, uint32_t hash,
     while (table[idx].hash != 0 && dfi <= table[idx].dfi) {
         struct ht_entry *this = &table[idx];
 
-        if (this->hash == hash && this->key_length == length) {
-            if (memcmp(key, this->key, length) == 0) {
+        if (this->hash == hash && this->key_length == key_length) {
+            if (memcmp(key, this->key, key_length) == 0) {
                 return this;
             }
         }
@@ -374,6 +378,41 @@ void * ht_remove_unlocked(struct htable *ht,
                           const void *key, 
                           size_t key_length)
 {
+    if (unlikely(ht->size == 0)) {
+        return NULL;
+    }
+
+    if (unlikely(hash == 0)) {
+        hash = 1;
+    }
+
+    void *value = NULL;
+
+    ht_lock(ht);
+    
+    size_t capacity = atomic_load_explicit(&ht->capacity, memory_order_relaxed);
+    struct ht_entry *table = atomic_load_explicit(&ht->table, memory_order_relaxed);
+    size_t idx = hash & (capacity - 1);
+    size_t dfi = 0;
+
+    while (table[idx].hash != 0 && dfi <= table[idx].dfi) {
+        struct ht_entry *this = &table[idx];
+
+        if (this->hash == hash && this->key_length == key_length) {
+            if (memcmp(key, this->key, key_length) == 0) {
+                value = this->value;
+                break;
+            }
+        }
+
+        idx = (idx + 1) & (capacity - 1);
+        ++dfi;
+    }
+
+
+
+    ht_unlock(ht);
+    return value;
 }
 
 
