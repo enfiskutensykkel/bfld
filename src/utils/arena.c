@@ -49,10 +49,10 @@ struct arena * arena_create(struct arena_list *list, size_t size)
     VALGRIND_MAKE_MEM_UNDEFINED(memory, size);
 #endif
 
-    atomic_init(&arena->next, NULL);
     atomic_init(&arena->used, 0);
     arena->size = size;
     arena->data = memory;
+    atomic_init(&arena->next, NULL);
 
     struct arena *head = atomic_load_explicit(&list->head, memory_order_acquire);
 

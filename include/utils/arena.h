@@ -38,11 +38,10 @@ extern "C" {
  */
 struct arena
 {
-    alignas(CACHELINE_SIZE) size_t _Atomic used;    // number of bytes currently used
-    size_t size;                                    // total size of the memory region
-    uint8_t *data;                                  // pointer to the actual memory
-    struct arena * _Atomic next;                    // pointer to the next memory region
-    char pad[CACHELINE_SIZE - (sizeof(_Atomic size_t) + sizeof(size_t) + sizeof(void*) * 2)];
+    size_t _Atomic used;            // number of bytes currently used
+    size_t size;                    // total size of the memory region
+    uint8_t *data;                  // pointer to the actual memory
+    struct arena * _Atomic next;    // pointer to the next memory region
 };
 
 
@@ -52,9 +51,8 @@ struct arena
  */
 struct arena_list
 {
-    alignas(CACHELINE_SIZE) struct arena * _Atomic head;
+    struct arena * _Atomic head;
     size_t size;
-    char pad[CACHELINE_SIZE - sizeof(void*) - sizeof(size_t)];
 };
 
 
@@ -169,6 +167,46 @@ void * arena_alloc_block(struct arena * restrict arena, size_t size, size_t alig
     VALGRIND_MAKE_MEM_UNDEFINED(&arena->data[offset], size);
     return &arena->data[offset];
 }
+
+
+/*
+ * Identical to arena_alloc_block_threadsafe except that the 
+ * allocated memory is guaranteed to be initialized to zero.
+ */
+#if defined(HAS_VALGRIND) && !defined(NDEBUG)
+static inline
+void * arena_alloc_block_threadsafe_zeroed(struct arena * restrict arena, size_t size, size_t align)
+{
+    void *ptr = arena_alloc_block_threadsafe(arena, size, align);
+    // No need for memset here
+    // mmap with MAP_ANONYMOUS fills with zeros, and we don't want to start paging in memory here
+    // NOTE: if we ever make a arena_reset, we would need to reset memory either there or here
+    VALGRIND_MAKE_MEM_DEFINED(ptr, size);
+    return ptr;
+}
+#else
+#define arena_alloc_block_threadsafe_zeroed(arena, size, align) arena_alloc_block_threadsafe(arena, size, align)
+#endif
+
+
+/*
+ * Identical to arena_alloc_block except that the allocated
+ * memory is guaranteed to be initialized to zero.
+ */
+#if defined(HAS_VALGRIND) && !defined(NDEBUG)
+static inline
+void * arena_alloc_block_zeroed(struct arena * restrict arena, size_t size, size_t align)
+{
+    void *ptr = arena_alloc_block(arena, size, align);
+    // No need for memset here
+    // mmap with MAP_ANONYMOUS fills with zeros, and we don't want to start paging in memory here
+    // NOTE: if we ever make a arena_reset, we would need to reset memory either there or here
+    VALGRIND_MAKE_MEM_DEFINED(ptr, size);
+    return ptr;
+}
+#else
+#define arena_alloc_block_zeroed(arena, size, align) arena_alloc_block(arena, size, align)
+#endif
 
 
 /*
