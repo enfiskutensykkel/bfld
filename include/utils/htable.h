@@ -37,7 +37,7 @@ struct ht_entry
 struct htable
 {
     atomic_uint_fast32_t sequence;      // sequence number for synchronization (seqlock)
-    struct arena_list arena_list;       // list of allocated arenas
+    struct arena_list *arena_list;      // list of allocated arenas
     struct ht_entry * _Atomic table;    // pointer to hash table memory
     size_t size;                        // number of entries in the hash table
     atomic_size_t capacity;             // capacity of the hash table
@@ -47,10 +47,11 @@ struct htable
 
 
 static inline
-void htable_init(struct htable *ht, uint8_t load_factor_shift)
+void ht_table_init(struct htable *ht, struct arena_list *arena_list, uint8_t load_factor_shift)
 {
     atomic_init(&ht->sequence, 0);
-    arena_list_init(&ht->arena_list, 0);
+    //arena_list_init(&ht->arena_list, 0);
+    ht->arena_list = arena_list;
     ht->current = NULL;
     atomic_init(&ht->table, NULL);
     atomic_init(&ht->capacity, 0);
@@ -97,6 +98,17 @@ static inline
 void ht_write_end(struct htable *ht)
 {
     atomic_fetch_add_explicit(&ht->sequence, 1, memory_order_release);
+}
+
+
+static inline
+void ht_table_clear(struct htable *ht)
+{
+    ht_lock(ht);
+    ht_write_begin(ht);
+    
+    ht_write_end(ht);
+    ht_unlock(ht);
 }
 
 
@@ -203,6 +215,10 @@ void * ht_get_value(const struct htable *ht,
 static inline
 bool ht_rehash_unlocked(struct htable *ht, size_t new_capacity)
 {
+    if (unlikely(ht->arena_list == NULL)) {
+        return false;
+    }
+
     size_t old_capacity = atomic_load_explicit(&ht->capacity, memory_order_relaxed);
     if (unlikely(new_capacity <= old_capacity)) {
         return true;
@@ -218,7 +234,7 @@ bool ht_rehash_unlocked(struct htable *ht, size_t new_capacity)
 
     struct ht_entry *old_table = atomic_load_explicit(&ht->table, memory_order_relaxed);
 
-    struct arena *arena = arena_create(&ht->arena_list, capacity * sizeof(struct ht_entry));
+    struct arena *arena = arena_create(ht->arena_list, capacity * sizeof(struct ht_entry));
     if (arena == NULL) {
         return false;
     }
