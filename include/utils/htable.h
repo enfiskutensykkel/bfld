@@ -22,7 +22,7 @@ struct ht_entry
 {
     uint32_t hash;      // computed hash entry (0 means unused)
     size_t dfi;         // distance from ideal (for Robin Hood hashing and linear probing)
-    size_t key_length;  // length of the associated key
+    size_t key_size;    // length of the associated key
     const void *key;    // pointer to the associated key
     void *value;        // pointer to the value
 };
@@ -41,19 +41,32 @@ struct htable
     struct ht_entry * _Atomic table;    // pointer to hash table memory
     size_t size;                        // number of entries in the hash table
     atomic_size_t capacity;             // capacity of the hash table
-    uint8_t lfs;                        // load factor shift (rehash threshold = capacity - (capacity >> lfs)
     atomic_uint_fast32_t mutex;         // spinlock ensuring only one writer at the time
 };
 
 
 static inline
-void ht_table_init(struct htable *ht, struct arena_list *arena_list, uint8_t load_factor_shift)
+size_t ht_size(const struct htable *ht)
+{
+    return ht->size;
+}
+
+
+static inline
+size_t ht_capacity(const struct htable *ht)
+{
+    return atomic_load_explicit(&ht->capacity, memory_order_relaxed);
+}
+
+
+static inline
+void ht_init(struct htable *ht, struct arena_list *arena_list)
 {
     atomic_init(&ht->sequence, 0);
     ht->arena_list = arena_list;
     atomic_init(&ht->table, NULL);
+    ht->size = 0;
     atomic_init(&ht->capacity, 0);
-    ht->lfs = load_factor_shift;
     atomic_init(&ht->mutex, 0);
 }
 
@@ -78,7 +91,6 @@ void ht_lock(struct htable *ht)
         thrd_yield();
 #endif
     }
-
 }
 
 
@@ -100,7 +112,7 @@ void ht_unlock(struct htable *ht)
 static inline
 void ht_write_begin(struct htable *ht)
 {
-    atomic_fetch_add_explicit(&ht->sequence, 1, memory_order_acq_rel);
+    atomic_fetch_add_explicit(&ht->sequence, 1, memory_order_release);
 }
 
 
@@ -129,10 +141,14 @@ void ht_write_end(struct htable *ht)
  */
 static inline
 size_t ht_find_unlocked(const struct htable *ht, uint32_t hash, 
-                        const void *key, size_t key_length)
+                        const void *key, size_t key_size)
 {
     size_t capacity = atomic_load_explicit(&ht->capacity, memory_order_relaxed);
     const struct ht_entry *table = atomic_load_explicit(&ht->table, memory_order_relaxed);
+
+    if (unlikely(capacity == 0)) {
+        return SIZE_MAX;
+    }
 
     size_t idx = hash & (capacity - 1);
     size_t dfi = 0;
@@ -140,8 +156,8 @@ size_t ht_find_unlocked(const struct htable *ht, uint32_t hash,
     while (table[idx].hash != 0 && dfi <= table[idx].dfi) {
         const struct ht_entry *this = &table[idx];
 
-        if (this->hash == hash && this->key_length == key_length) {
-            if (memcmp(this->key, key, key_length) == 0) {
+        if (this->hash == hash && this->key_size == key_size) {
+            if (memcmp(this->key, key, key_size) == 0) {
                 return idx;
             }
         }
@@ -164,7 +180,7 @@ size_t ht_find_unlocked(const struct htable *ht, uint32_t hash,
  */
 static inline
 void * ht_get(const struct htable *ht, uint32_t hash, 
-              const void *key, size_t key_length)
+              const void *key, size_t key_size)
 {
     void *value = NULL;
     uint32_t seq = atomic_load_explicit(&ht->sequence, memory_order_acquire);
@@ -197,14 +213,14 @@ retry:
     struct ht_entry curr = *((const volatile struct ht_entry*) &table[idx]);
 
     while (curr.hash != 0 && dfi <= curr.dfi) {
-        if (curr.hash == hash && curr.key_length == key_length) {
+        if (curr.hash == hash && curr.key_size == key_size) {
             next = atomic_load_explicit(&ht->sequence, memory_order_acquire);
             if (unlikely(next != seq)) {
                 seq = next;
                 goto retry;
             }
 
-            if (memcmp(curr.key, key, key_length) == 0) {
+            if (memcmp(curr.key, key, key_size) == 0) {
                 value = curr.value;
                 break;
             }
@@ -287,7 +303,7 @@ bool ht_resize_unlocked(struct htable *ht, size_t new_capacity)
 
     // Atomically overwrite table pointer and capacity
     // The order matters, capacity must be updated last to avoid a reader
-    // accidentally reading outside the arena memory of the previous arena
+    // accidentally reading outside the aGrena memory of the previous arena
     ht_write_begin(ht);
     atomic_store_explicit(&ht->table, table, memory_order_relaxed);
     atomic_store_explicit(&ht->capacity, capacity, memory_order_relaxed);
@@ -337,24 +353,22 @@ void ht_clear(struct htable *ht)
 static inline
 size_t ht_resize_threshold(const struct htable *ht)
 {
-    uint8_t shift = ht->lfs;
-    if (shift == 0) {
-        shift = 2;
-    }
-
     size_t capacity = atomic_load_explicit(&ht->capacity, memory_order_relaxed);
     if (unlikely(capacity == 0)) {
         return 0;
     }
 
-    return capacity - (capacity >> shift);
+    // load factor = .75 
+    return capacity - (capacity >> 2);
 }
-
 
 
 /* 
  * Helper function to insert an entry in the hash table.
  * 
+ * It is important that the pointer to key and value are stable,
+ * and have a lifetime of at least the same as the hash table.
+ *
  * This function will find a suitable index to insert the new
  * entry at. The caller is responsible for making sure
  * that the key does not exist in the table beforehand.
@@ -375,7 +389,7 @@ static inline
 size_t ht_insert_unlocked(struct htable *ht, 
                           uint32_t hash, 
                           const void *key, 
-                          size_t key_length,
+                          size_t key_size,
                           void *value)
 {
     size_t capacity = atomic_load_explicit(&ht->capacity, memory_order_relaxed);
@@ -387,7 +401,7 @@ size_t ht_insert_unlocked(struct htable *ht,
     size_t idx = hash & (capacity - 1);
 
     struct ht_entry entry = (struct ht_entry) {
-        hash, 0, key_length, key, value
+        hash, 0, key_size, key, value
     };
 
     size_t pos = capacity;
@@ -443,7 +457,7 @@ void ht_remove_unlocked(struct htable *ht, size_t idx)
     curr->hash = 0;
     curr->dfi = 0;
     curr->key = NULL;
-    curr->key_length = 0;
+    curr->key_size = 0;
     curr->value = NULL;
 
     ht_write_end(ht);
@@ -460,7 +474,7 @@ void ht_remove_unlocked(struct htable *ht, size_t idx)
  */
 static inline
 void * ht_remove(struct htable *ht, uint32_t hash, 
-                 const void *key, size_t key_length)
+                 const void *key, size_t key_size)
 {
     void *value = NULL;
 
@@ -469,7 +483,7 @@ void * ht_remove(struct htable *ht, uint32_t hash,
     }
 
     ht_lock(ht);
-    size_t idx = ht_find_unlocked(ht, hash, key, key_length);
+    size_t idx = ht_find_unlocked(ht, hash, key, key_size);
     if (unlikely(idx == SIZE_MAX)) {
         ht_unlock(ht);
         return NULL;
@@ -488,18 +502,22 @@ void * ht_remove(struct htable *ht, uint32_t hash,
 /*
  * Insert or update an entry in the hash table with the specified key.
  * Returns true if insertion was successful, or false if insertion failed.
+ * This version will intern the key by copying it into a key store.
+ * key_align must be a power of two.
  */
 static inline
-bool ht_insert(struct htable *ht, uint32_t hash, 
-               const void *key, size_t key_length, void *value)
+bool ht_insert_copy_key(struct htable *ht, uint32_t hash, 
+                        const void *key, size_t key_size, size_t key_align,
+                        void *value)
 {
+    static _Thread_local struct arena *key_store = NULL;
 
     if (unlikely(hash == 0)) {
         hash = 1; // hash == 0 means unused entry
     }
 
     ht_lock(ht);
-    size_t inserted = ht_find_unlocked(ht, hash, key, key_length);
+    size_t inserted = ht_find_unlocked(ht, hash, key, key_size);
 
     // Check if entry was already inserted and simply update value if it was
     if (likely(inserted != SIZE_MAX)) {
@@ -520,13 +538,66 @@ bool ht_insert(struct htable *ht, uint32_t hash,
             return false;
         }
     }
+
+    // Copy key data in order to place it in stable memory
+    void *ptr = arena_alloc_dynamic(ht->arena_list, &key_store, key_size, key_align);
+    if (ptr == NULL) {
+        ht_unlock(ht);
+        return false;
+    }
+    memcpy(ptr, key, key_size);
     
     // Do the actual insertion
-    ht_insert_unlocked(ht, hash, key, key_length, value);
+    ht_insert_unlocked(ht, hash, ptr, key_size, value);
+
     ht_unlock(ht);
     return true;
 }
 
+
+/*
+ * Insert or update an entry in the hash table with the specified key.
+ * Returns true if insertion was successful, or false if insertion failed.
+ * This version requires a stable pointer to the key.
+ */
+static inline
+bool ht_insert_stable_key(struct htable *ht, uint32_t hash, 
+                          const void *key, size_t key_size,
+                          void *value)
+{
+    if (unlikely(hash == 0)) {
+        hash = 1; // hash == 0 means unused entry
+    }
+
+    ht_lock(ht);
+    size_t inserted = ht_find_unlocked(ht, hash, key, key_size);
+
+    // Check if entry was already inserted and simply update value if it was
+    if (likely(inserted != SIZE_MAX)) {
+        struct ht_entry *table = atomic_load_explicit(&ht->table, memory_order_relaxed);
+
+        ht_write_begin(ht);
+        table[inserted].value = value;
+        ht_write_end(ht);
+        ht_unlock(ht);
+        return true;
+    }
+    
+    // Do we need to resize the hash table?
+    if (ht->size >= ht_resize_threshold(ht)) {
+        size_t capacity = atomic_load_explicit(&ht->capacity, memory_order_relaxed);
+        if (!ht_resize_unlocked(ht, capacity > 0 ? capacity * 2 : 128)) {
+            ht_unlock(ht);
+            return false;
+        }
+    }
+
+    // Do the actual insertion
+    ht_insert_unlocked(ht, hash, key, key_size, value);
+
+    ht_unlock(ht);
+    return true;
+}
 
 #ifdef __cplusplus
 }

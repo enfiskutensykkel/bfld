@@ -18,7 +18,6 @@ extern char * strdup(const char *s);
 extern int ftruncate(int fd, off_t length);
 
 
-
 int mfile_open_read(struct mfile **file, const char *pathname)
 {
     *file = NULL;
@@ -59,6 +58,8 @@ int mfile_open_read(struct mfile **file, const char *pathname)
                 return EBADF;
         }
     }
+
+    // TODO: use posix_fadvise(fd, 0, 0, POSIX_FADV_WILLNEED) and madvise
 
     // Memory-map the file
     void *p = mmap(NULL, s.st_size, PROT_READ, MAP_SHARED | MAP_POPULATE, fd, 0);
