@@ -121,18 +121,18 @@ void ht_table_clear(struct htable *ht)
  * Must be protected by mutex.
  */
 static inline
-struct ht_entry * ht_find_unlocked(const struct htable *ht, uint32_t hash, 
-                                   const void *key, size_t key_length)
+size_t ht_find_unlocked(const struct htable *ht, uint32_t hash, 
+                        const void *key, size_t key_length)
 {
+    size_t capacity = atomic_load_explicit(&ht->capacity, memory_order_relaxed);
     if (unlikely(ht->size == 0)) {
-        return NULL;
+        return capacity;
     }
 
     if (unlikely(hash == 0)) {
         hash = 1; // hash == 0 means that entry is not used
     }
 
-    size_t capacity = atomic_load_explicit(&ht->capacity, memory_order_relaxed);
     const struct ht_entry *table = atomic_load_explicit(&ht->table, memory_order_relaxed);
     size_t idx = hash & (capacity - 1);
     size_t dfi = 0;
@@ -142,13 +142,15 @@ struct ht_entry * ht_find_unlocked(const struct htable *ht, uint32_t hash,
 
         if (this->hash == hash && this->key_length == key_length) {
             if (memcmp(key, this->key, key_length) == 0) {
-                return this;
+                return idx;
             }
         }
 
         idx = (idx + 1) & (capacity - 1);
         ++dfi;
     }
+
+    return capacity;
 }
 
 
@@ -158,14 +160,7 @@ void * ht_get_value(const struct htable *ht,
                     const void *key, 
                     size_t key_length)
 {
-    if (unlikely(ht->size == 0)) {
-        return NULL;
-    }
-
-    if (unlikely(hash == 0)) {
-        hash = 1; // hash == 0 means that entry is not used
-    }
-
+    void *value = NULL;
     uint32_t seq = atomic_load_explicit(&ht->sequence, memory_order_acquire);
 
     for (;;) {
@@ -185,34 +180,21 @@ void * ht_get_value(const struct htable *ht,
         }
 
         size_t capacity = atomic_load_explicit(&ht->capacity, memory_order_relaxed);
-        const struct ht_entry *table = atomic_load_explicit(&ht->table, memory_order_relaxed);
-        size_t idx = hash & (capacity - 1);
-        size_t dfi = 0;
-        void *value = NULL;
-
-        while (table[idx].hash != 0 && dfi <= table[idx].dfi) {
-            const struct ht_entry *this = &table[idx];
-
-            if (this->hash == hash && this->key_length == length) {
-                if (memcmp(key, this->key, length) == 0) {
-                    value = this->value;
-                    break;
-                }
-            }
-
-            idx = (idx + 1) & (capacity - 1);
-            ++dfi;
+        struct ht_entry *table = atomic_load_explicit(&ht->table, memory_order_relaxed);
+        size_t idx = ht_find_unlocked(ht, hash, key, key_length);
+        if (idx != capacity) {
+            value = table[idx].value;
         }
 
         uint32_t check = atomic_load_explicit(&ht->sequence, memory_order_acquire);
         if (likely(check == seq)) {
-            return value;
+            break;
         } else {
             seq = check;
         }
     }
 
-    return NULL;
+    return value;
 }
 
 
@@ -321,15 +303,15 @@ size_t ht_resize_threshold(const struct htable *ht)
  * The caller should ensure that the mutex is held
  * before calling this function.
  *
- * Note that the returned pointer to the inserted entry
+ * Note that the returned index to the inserted entry
  * is only guaranteed to be stable until the mutex is released.
  */
 static inline
-struct ht_entry * ht_insert_unlocked(struct htable *ht, 
-                                     uint32_t hash, 
-                                     const void *key, 
-                                     size_t key_length,
-                                     void *value)
+size_t ht_insert_unlocked(struct htable *ht, 
+                          uint32_t hash, 
+                          const void *key, 
+                          size_t key_length,
+                          void *value)
 {
     if (unlikely(hash == 0)) {
         hash = 1;
@@ -340,6 +322,7 @@ struct ht_entry * ht_insert_unlocked(struct htable *ht,
         return NULL;
     }
 
+    size_t pos = capacity;
     struct ht_entry *table = atomic_load_explicit(&ht->table, memory_order_relaxed);
     size_t idx = hash & (capacity - 1);
 
@@ -351,10 +334,10 @@ struct ht_entry * ht_insert_unlocked(struct htable *ht,
         struct ht_entry *this = &table[idx];
 
         if (this->hash == 0 || entry.dfi > this->dfi) {
-            if (inserted == NULL) {
+            if (pos == capacity) {
                 ht_write_begin(ht);
                 ht->size++;
-                inserted = this;
+                pos = idx;
             }
 
             struct ht_entry tmp = *this;
@@ -368,15 +351,44 @@ struct ht_entry * ht_insert_unlocked(struct htable *ht,
 
     ht_write_end(ht);
 
-    return inserted;
+    return pos;
 }
 
 
 static inline
-void * ht_remove_unlocked(struct htable *ht, 
-                          uint32_t hash, 
-                          const void *key, 
-                          size_t key_length)
+void ht_remove_unlocked(struct htable *ht, size_t idx)
+{
+    size_t capacity = atomic_load_explicit(&ht->capacity, memory_order_relaxed);
+    struct ht_entry *curr = &table[idx];
+    struct ht_entry *next = &table[(idx + 1) & (capacity - 1)];
+
+    ht_write_begin(ht);
+    ht->size--;
+
+    // Backwards shift deletion
+    while (next->hash != 0 && next->dfi != 0) {
+        *curr = *next;
+        curr->dfi--;
+        curr = next;
+        idx = (idx + 1) & (capacity - 1);
+        next = table[idx];
+    }
+
+    curr->hash = 0;
+    curr->dfi = 0;
+    curr->key = NULL;
+    curr->key_length = 0;
+    curr->value = NULL;
+
+    ht_write_end(ht);
+}
+
+
+static inline
+void * ht_remove(struct htable *ht, 
+                 uint32_t hash, 
+                 const void *key, 
+                 size_t key_length)
 {
     if (unlikely(ht->size == 0)) {
         return NULL;
@@ -386,30 +398,68 @@ void * ht_remove_unlocked(struct htable *ht,
         hash = 1;
     }
 
+    size_t capacity;
+    struct ht_entry *table;
     void *value = NULL;
+    size_t idx;
+    size_t dfi;
+    uint32_t seq = atomic_load_explicit(&ht->sequence, memory_order_acquire);
 
-    ht_lock(ht);
-    
-    size_t capacity = atomic_load_explicit(&ht->capacity, memory_order_relaxed);
-    struct ht_entry *table = atomic_load_explicit(&ht->table, memory_order_relaxed);
-    size_t idx = hash & (capacity - 1);
-    size_t dfi = 0;
+    for (;;) {
+        capacity = atomic_load_explicit(&ht->capacity, memory_order_relaxed);
+        table = atomic_load_explicit(&ht->table, memory_order_relaxed);
+        idx = hash & (capacity - 1);
+        dfi = 0;
 
-    while (table[idx].hash != 0 && dfi <= table[idx].dfi) {
-        struct ht_entry *this = &table[idx];
+        while (table[idx].hash != 0 && dfi <= table[idx].dfi) {
+            struct ht_entry *this = &table[idx];
 
-        if (this->hash == hash && this->key_length == key_length) {
-            if (memcmp(key, this->key, key_length) == 0) {
-                value = this->value;
-                break;
+            if (this->hash == hash && this->key_length == key_length) {
+                if (memcmp(key, this->key, key_length) == 0) {
+                    break;
+                }
             }
+
+            idx = (idx + 1) & (capacity - 1);
+            ++dfi;
         }
 
-        idx = (idx + 1) & (capacity - 1);
-        ++dfi;
+        ht_lock(ht);
+        uint32_t check = atomic_load_explicit(&ht->sequence, memory_order_acquire);
+        if (likely(check == seq)) {
+            break;
+        } else {
+            ht_unlock(ht);
+            seq = check;
+        }
     }
 
+    if (table[idx].hash != 0 && dfi <= table[idx].dfi) {
+        struct ht_entry *curr = &table[idx];
+        struct ht_entry *next = &table[(idx + 1) & (capacity - 1)];
 
+        value = curr->value;
+
+        ht_write_begin(ht);
+        ht->size--;
+
+        // backwards shift delition
+        while (next->hash != 0 && next->dfi != 0) {
+            *curr = *next;
+            curr->dfi--;
+            curr = next;
+            idx = (idx + 1) & (capacity - 1);
+            next = table[idx];
+        }
+
+        curr->hash = 0;
+        curr->dfi = 0;
+        curr->key = NULL;
+        curr->key_length = 0;
+        curr->value = NULL;
+
+        ht_write_end(ht);
+    }
 
     ht_unlock(ht);
     return value;
@@ -423,7 +473,10 @@ bool ht_insert(struct htable *ht,
                size_t key_length, 
                void *value)
 {
-    struct ht_entry *inserted = NULL;
+    size_t inserted, capacity;
+    void *value = NULL;
+
+    // TODO: try to look up element first using sequence?
 
     ht_lock(ht);
     if (ht->size >= ht_rehash_threshold(ht)) {
@@ -433,10 +486,14 @@ bool ht_insert(struct htable *ht,
         }
     }
     
+    capacity = atomic_load_explicit(&ht->capacity, memory_order_relaxed);
     inserted = ht_insert_unlocked(ht, hash, key, key_length, value);
+    if (inserted < capacity) {
+        value = ht->table[inserted].value;
+    }
 
     ht_unlock(ht);
-    return inserted->value == value;
+    return value != NULL;
 }
 
 
