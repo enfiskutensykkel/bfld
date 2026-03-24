@@ -82,6 +82,17 @@ void arena_list_init(struct arena_list *list, size_t size)
 
 
 /*
+ * Get the remaining number of bytes in an arena.
+ */
+static inline
+size_t arena_remaining(const struct arena *arena)
+{
+    size_t used = atomic_load_explicit(&arena->used, memory_order_relaxed);
+    return arena->size - used;
+}
+
+
+/*
  * Allocate a memory block of (at least) the specified size within an arena,
  * using the specified alignment.
  *
@@ -96,7 +107,7 @@ void arena_list_init(struct arena_list *list, size_t size)
  * contention.
  */
 static inline
-void * arena_alloc_block_threadsafe(struct arena * restrict arena, size_t size, size_t align)
+void * arena_alloc_block_threadsafe(struct arena *arena, size_t size, size_t align)
 {
     size_t used, offset;
     uintptr_t base, addr;
@@ -147,7 +158,7 @@ void * arena_alloc_block_threadsafe(struct arena * restrict arena, size_t size, 
  * used when the arena is shared between multiple threads.
  */
 static inline
-void * arena_alloc_block(struct arena * restrict arena, size_t size, size_t align)
+void * arena_alloc_block(struct arena *arena, size_t size, size_t align)
 {
     if (unlikely(arena == NULL)) {
         return NULL;
@@ -175,7 +186,7 @@ void * arena_alloc_block(struct arena * restrict arena, size_t size, size_t alig
  */
 #if defined(HAS_VALGRIND) && !defined(NDEBUG)
 static inline
-void * arena_alloc_block_threadsafe_zeroed(struct arena * restrict arena, size_t size, size_t align)
+void * arena_alloc_block_threadsafe_zeroed(struct arena *arena, size_t size, size_t align)
 {
     void *ptr = arena_alloc_block_threadsafe(arena, size, align);
     // No need for memset here
@@ -195,7 +206,7 @@ void * arena_alloc_block_threadsafe_zeroed(struct arena * restrict arena, size_t
  */
 #if defined(HAS_VALGRIND) && !defined(NDEBUG)
 static inline
-void * arena_alloc_block_zeroed(struct arena * restrict arena, size_t size, size_t align)
+void * arena_alloc_block_zeroed(struct arena *arena, size_t size, size_t align)
 {
     void *ptr = arena_alloc_block(arena, size, align);
     // No need for memset here
@@ -247,23 +258,28 @@ void arena_destroy(struct arena_list *list);
  * their own current arena pointer.
  */
 static inline
-void * arena_alloc_dynamic(struct arena_list * restrict list, struct arena ** restrict current, size_t size, size_t align)
+void * arena_alloc_dynamic(struct arena_list *list, struct arena **current, size_t size, size_t align)
 {
     void *ptr = NULL;
     struct arena *head = *current;
+    size_t default_size = arena_size(list);
 
-    if (unlikely(size > arena_size(list))) {
+    if (unlikely(size >= default_size)) {
         // The specified size is larger than the default arena size
         // We need to create an oversized arena for this allocation
         if (align < PAGE_SIZE) {
             align = PAGE_SIZE;
         }
+
         head = arena_create(list, align_to(size, align));
         if (unlikely(head == NULL)) {
             return NULL;
         }
 
         ptr = arena_alloc_block(head, size, align);
+        if (unlikely(head->size - atomic_load_explicit(&head->used, memory_order_relaxed) >= default_size)) {
+            *current = head;
+        }
         return ptr;
     }
 
@@ -291,7 +307,7 @@ void * arena_alloc_dynamic(struct arena_list * restrict list, struct arena ** re
  */
 #if defined(HAS_VALGRIND) && !defined(NDEBUG)
 static inline
-void * arena_alloc_dynamic_zeroed(struct arena_list * restrict list, struct arena ** restrict current, size_t size, size_t align)
+void * arena_alloc_dynamic_zeroed(struct arena_list *list, struct arena **current, size_t size, size_t align)
 {
     void *ptr = arena_alloc_dynamic(list, current, size, align);
     // No need for memset here

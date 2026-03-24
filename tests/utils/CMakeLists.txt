@@ -7,5 +7,5 @@ target_link_libraries(test_deque utilslib)
 add_test_executable(test_arena FILES arena.c OUTPUT_NAME test_arena)
 target_link_libraries(test_arena utilslib Threads::Threads)
 
-add_test_executable(test_htable_basic FILES htable_basic.c OUTPUT_NAME test_htable_basic)
-target_link_libraries(test_htable_basic utilslib)
+add_test_executable(test_htable_basics FILES htable_basics.c OUTPUT_NAME test_htable_basics)
+target_link_libraries(test_htable_basics utilslib)
