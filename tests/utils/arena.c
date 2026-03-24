@@ -39,7 +39,7 @@ void * alloc_dynamic_wrapper(const struct test_data *data, size_t size, size_t a
 
 void * alloc_wrapper(const struct test_data *data, size_t size, size_t align)
 {
-    void *ptr = arena_alloc_block_threadsafe(data->arena, size, align);
+    void *ptr = arena_alloc_threadsafe(data->arena, size, align);
     assert(ptr != NULL);
     assert(((uintptr_t) ptr % align) == 0);
     return ptr;
@@ -109,7 +109,7 @@ void test_arena_contention(void)
 
     struct timespec start, end;
 
-    struct arena *arena = arena_create(&list, 128 * NUM_THREADS * ALLOCS_PER_THREAD + sizeof(int) * NUM_THREADS);
+    struct arena *arena = arena_list_add(&list, 128 * NUM_THREADS * ALLOCS_PER_THREAD + sizeof(int) * NUM_THREADS);
 
     pthread_barrier_init(&barrier, NULL, NUM_THREADS + 1);
 
@@ -139,7 +139,7 @@ void test_arena_contention(void)
     print_list(&list);
 
     pthread_barrier_destroy(&barrier);
-    arena_destroy(&list);
+    arena_list_free(&list);
 }
 
 
@@ -183,7 +183,7 @@ void test_dynamic(void)
     print_list(&list);
 
     pthread_barrier_destroy(&barrier);
-    arena_destroy(&list);
+    arena_list_free(&list);
 }
 
 

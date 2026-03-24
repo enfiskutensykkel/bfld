@@ -27,12 +27,15 @@ struct ht_entry
     void *value;        // pointer to the value
 };
 
-
+// FIXME rename size to count
 /*
  * Hash table implementation.
  *
+ * This implementation uses a distance from ideal counter (DFI)
+ * and a Robin Hood mechanism to do linear probing on collisions.
+ * 
  * Uses a sequence lock for reader-writer consistency, and a spinlock
- * to ensure that only one thread writes at the time.
+ * to ensure that only one thread writes at the time (writer mutex).
  */
 struct htable
 {
@@ -44,10 +47,13 @@ struct htable
     atomic_size_t capacity;             // capacity of the hash table
     atomic_uint_fast32_t wrlock;        // spinlock ensuring only one writer at the time (writer lock, mutex)
     uint8_t load_factor;                // desired load factor (in percent)
-    size_t resize_threshold;            // threshold for when we need to resize the hash table
+    size_t limit;                       // threshold for when we need to resize the hash table
 };
 
 
+/*
+ * Helper function 
+ */
 static inline
 size_t ht_size(const struct htable *ht)
 {
@@ -62,12 +68,13 @@ size_t ht_capacity(const struct htable *ht)
 }
 
 
+// FIXME: do this directly in resize instead
 /*
  * Helper functioin to calculate the limit for a capacity
  * given the desired load factor of the hash table.
  */
 static inline
-size_t ht_limit(const struct htable *ht, size_t capacity)
+size_t ht_calculate_limit(const struct htable *ht, size_t capacity)
 {
     uint8_t p = ht->load_factor;
 
@@ -124,7 +131,7 @@ void ht_init(struct htable *ht, struct arena_list *arena_list, uint8_t load_fact
     atomic_init(&ht->capacity, 0);
     atomic_init(&ht->wrlock, 0);
     ht->load_factor = load_factor;
-    ht->resize_threshold = 0;
+    ht->limit = 0;
 }
 
 
@@ -163,7 +170,6 @@ void ht_unlock(struct htable *ht)
 
 /*
  * Helper function to notify readers that a change is in progress.
- *
  * Sets the sequence counter to an odd number.
  */
 static inline
@@ -302,6 +308,10 @@ retry:
 }
 
 
+// FIXME: this should instead return the old memory so that the caller can pass this to a deferred_free
+// "limbo" list
+
+
 /*
  * Helper function to resize and rehash the hash table to a given capacity.
  * The caller is responsible for taking the writer mutex before calling
@@ -364,9 +374,9 @@ bool ht_resize_unlocked(struct htable *ht, size_t new_capacity)
     // accidentally reading outside the aGrena memory of the previous arena
     ht_write_begin(ht);
     if (likely(capacity > 32)) {
-        ht->resize_threshold = ht_limit(ht, capacity);
+        ht->limit = ht_calculate_limit(ht, capacity);
     } else {
-        ht->resize_threshold = capacity - 1;
+        ht->limit = capacity - 1;
     }
     atomic_store_explicit(&ht->table, table, memory_order_relaxed);
     atomic_store_explicit(&ht->capacity, capacity, memory_order_relaxed);
@@ -375,6 +385,8 @@ bool ht_resize_unlocked(struct htable *ht, size_t new_capacity)
     return true;
 }
 
+
+// FIXME: find a suitable name, perhaps ht_reserve_capacity and ht_extend_capacity?
 
 /*
  * Make sure that the hash table is able to hold at least
@@ -387,7 +399,7 @@ bool ht_reserve(struct htable *ht, size_t capacity)
     
     // Pad the requested capacity with some extra entries
     // to account for the desired load factor
-    size_t pad = ht_limit(ht, capacity);
+    size_t pad = ht_calculate_limit(ht, capacity);
 
     if (capacity > SIZE_MAX - pad) {
         ht_unlock(ht);
@@ -401,8 +413,8 @@ bool ht_reserve(struct htable *ht, size_t capacity)
 
 
 /*
- * Extend the capacity to hold at least the specified number
- * of additional entries.
+ * Extend the capacity of the hash table so that it is able
+ * to hold 
  */
 static inline
 bool ht_extend(struct htable *ht, size_t capacity)
@@ -419,7 +431,8 @@ bool ht_extend(struct htable *ht, size_t capacity)
 
     // Pad the requested extra capacity with some extra entries
     // to account for the desired load factor
-    size_t pad = ht_limit(ht, capacity);
+    // FIXME: we don't need this here, we can simply do capacity - ht->limit to find the pad
+    size_t pad = ht_calculate_limit(ht, capacity);
 
     if (capacity > SIZE_MAX - pad) {
         ht_unlock(ht);
@@ -453,26 +466,29 @@ void ht_clear(struct htable *ht)
 
 
 /* 
- * Helper function to insert an entry in the hash table.
+ * Helper function to insert an entry in the hash table while
+ * holding the writer mutex.
  * 
- * It is important that the pointer to key and value are stable,
- * and have a lifetime of at least the same as the hash table.
+ * Note that the pointer to key and value must be stable, and
+ * have a lifetime of at least the same as the hash table.
  *
  * This function will find a suitable index to insert the new
  * entry at. The caller is responsible for making sure
  * that the key does not exist in the table beforehand.
  *
- * This implementation uses a distance from ideal counter (DFI)
- * and a Robin Hood mechanism to do linear probing on collisions.
- * 
  * The caller must also ensure that the table is large enough
  * to hold a new, insterted value. Ideally, the table should
- * be resized if ht->size >= ht->resize_threshold
+ * be resized if ht->size >= ht->limit
  *
  * The caller should ensure that the writer mutex is held
  * before calling this function. Note that the returned index 
  * to the inserted entry is only guaranteed to be stable until 
  * the mutex is released.
+ *
+ * On success, this function returns the index to the inserted
+ * entry. On failure, this function returns SIZE_MAX. Note that
+ * the index is only guaranteed to be stable as long as the writer
+ * mutex is held.
  */
 static inline
 size_t ht_insert_unlocked(struct htable *ht, 
@@ -524,8 +540,11 @@ size_t ht_insert_unlocked(struct htable *ht,
 
 
 /*
- * Helper function to remove an entry from the hash table and 
- * do backwards shift deletion, to maintain distance from ideal (DFI).
+ * Helper function to remove an entry from the hash table while holding
+ * the writer mutex.
+ *
+ * Does backwards shift deletion from the specified index, 
+ * in order to maintain distance from ideal (DFI).
  */
 static inline
 void ht_remove_unlocked(struct htable *ht, size_t idx)
@@ -560,7 +579,8 @@ void ht_remove_unlocked(struct htable *ht, size_t idx)
 /*
  * Remove an entry from the hash table.
  *
- * Look up an entry from its key and delete it.
+ * This function tries to look up an entry from its key,
+ * and remove it from the table if it was found.
  *
  * Returns the associated value if the entry was found,
  * or NULL if there was no entry with the specified key.
@@ -590,10 +610,10 @@ void * ht_remove(struct htable *ht, uint32_t hash,
 
 /*
  * Insert or update an entry in the hash table with the specified key.
- * Returns true if insertion was successful, or false if insertion failed.
  *
- * Note that both the key and value must be stable pointers that have 
- * a lifetime of at least as long as the hash table.
+ * Note that the pointer to key and value must be stable, and
+ * have a lifetime of at least the same as the hash table.
+ *
  */
 static inline
 bool ht_insert(struct htable *ht, uint32_t hash, 
@@ -615,7 +635,7 @@ bool ht_insert(struct htable *ht, uint32_t hash,
     }
     
     // Do we need to resize the hash table?
-    if (ht->size >= ht->resize_threshold) {
+    if (ht->size >= ht->limit) {
         size_t capacity = atomic_load_explicit(&ht->capacity, memory_order_relaxed);
 
         if (!ht_resize_unlocked(ht, capacity > 0 ? capacity * 2 : 128)) {

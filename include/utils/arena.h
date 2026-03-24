@@ -4,11 +4,11 @@
 extern "C" {
 #endif
 
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdalign.h>
 #include <stdatomic.h>
+#include <string.h>
 #include "align.h"
 #include "cdefs.h"
 
@@ -20,8 +20,14 @@ extern "C" {
 
 
 
-#define PAGE_SIZE       4096    // system page size, hard coded to avoid call to sysconf in critical path
-#define CACHELINE_SIZE  64
+#define PAGE_SIZE       4096    // assumed system page size, hard coded to avoid call to sysconf or looking up a variable in critical path
+#define CACHELINE_SIZE  64      // assumed CPU cache line size, hard coded to avoid any calls in critical path
+
+
+/*
+ * Default arena size
+ */
+#define ARENA_DEFAULT_SIZE  (2ULL << 20)
 
 
 /*
@@ -63,7 +69,7 @@ static inline
 size_t arena_size(const struct arena_list *list)
 {
     if (list->size == 0) {
-        return 2ULL << 20;  // default size = 2 MB
+        return ARENA_DEFAULT_SIZE;
     }
 
     return list->size;
@@ -74,10 +80,10 @@ size_t arena_size(const struct arena_list *list)
  * Initialize the arena list with a default arena size.
  */
 static inline
-void arena_list_init(struct arena_list *list, size_t size)
+void arena_list_init(struct arena_list *list, size_t default_size)
 {
     atomic_init(&list->head, NULL);
-    list->size = align_to(size, PAGE_SIZE);
+    list->size = align_to(default_size, PAGE_SIZE);
 }
 
 
@@ -107,7 +113,7 @@ size_t arena_remaining(const struct arena *arena)
  * contention.
  */
 static inline
-void * arena_alloc_block_threadsafe(struct arena *arena, size_t size, size_t align)
+void * arena_alloc_threadsafe(struct arena *arena, size_t size, size_t align)
 {
     size_t used, offset;
     uintptr_t base, addr;
@@ -146,6 +152,19 @@ void * arena_alloc_block_threadsafe(struct arena *arena, size_t size, size_t ali
 
 
 /*
+ * Identical to arena_alloc_threadsafe except that the 
+ * allocated memory is guaranteed to be initialized to zero.
+ */
+static inline
+void * arena_alloc_threadsafe_zeroed(struct arena *arena, size_t size, size_t align)
+{
+    void *ptr = arena_alloc_threadsafe(arena, size, align);
+    memset(ptr, 0, size);
+    return ptr;
+}
+
+
+/*
  * Allocate a memory block of (at least) the specified size within an arena,
  * using the specified alignment.
  *
@@ -154,11 +173,11 @@ void * arena_alloc_block_threadsafe(struct arena *arena, size_t size, size_t ali
  * The pointer is aligned to the specified alignment (which must be 
  * a power of two). On failure, this function returns NULL.
  *
- * Unlike arena_alloc_block_threadsafe, this function should NOT be
+ * Unlike arena_alloc_threadsafe, this function should NOT be
  * used when the arena is shared between multiple threads.
  */
 static inline
-void * arena_alloc_block(struct arena *arena, size_t size, size_t align)
+void * arena_alloc(struct arena *arena, size_t size, size_t align)
 {
     if (unlikely(arena == NULL)) {
         return NULL;
@@ -181,55 +200,40 @@ void * arena_alloc_block(struct arena *arena, size_t size, size_t align)
 
 
 /*
- * Identical to arena_alloc_block_threadsafe except that the 
- * allocated memory is guaranteed to be initialized to zero.
+ * Reset the arena's used counter.
  */
-#if defined(HAS_VALGRIND) && !defined(NDEBUG)
 static inline
-void * arena_alloc_block_threadsafe_zeroed(struct arena *arena, size_t size, size_t align)
+void arena_reset(struct arena *arena)
 {
-    void *ptr = arena_alloc_block_threadsafe(arena, size, align);
-    // No need for memset here
-    // mmap with MAP_ANONYMOUS fills with zeros, and we don't want to start paging in memory here
-    // NOTE: if we ever make a arena_reset, we would need to reset memory either there or here
-    VALGRIND_MAKE_MEM_DEFINED(ptr, size);
-    return ptr;
+    if (likely(arena != NULL)) {
+        atomic_store_explicit(&arena->used, 0, memory_order_release);
+    }
 }
-#else
-#define arena_alloc_block_threadsafe_zeroed(arena, size, align) arena_alloc_block_threadsafe(arena, size, align)
-#endif
 
 
 /*
- * Identical to arena_alloc_block except that the allocated
+ * Identical to arena_alloc except that the allocated
  * memory is guaranteed to be initialized to zero.
  */
-#if defined(HAS_VALGRIND) && !defined(NDEBUG)
 static inline
-void * arena_alloc_block_zeroed(struct arena *arena, size_t size, size_t align)
+void * arena_alloc_zeroed(struct arena *arena, size_t size, size_t align)
 {
-    void *ptr = arena_alloc_block(arena, size, align);
-    // No need for memset here
-    // mmap with MAP_ANONYMOUS fills with zeros, and we don't want to start paging in memory here
-    // NOTE: if we ever make a arena_reset, we would need to reset memory either there or here
-    VALGRIND_MAKE_MEM_DEFINED(ptr, size);
+    void *ptr = arena_alloc(arena, size, align);
+    memset(ptr, 0, size);
     return ptr;
 }
-#else
-#define arena_alloc_block_zeroed(arena, size, align) arena_alloc_block(arena, size, align)
-#endif
 
 
 /*
- * Create an arena of the specified size and allocate 
- * its underlying memory region. Uses mmap with MAP_ANONYMOUS 
- * and MAP_PRIVATE under the hood, which allows memory to be 
- * lazily paged in only when it is actually used. It also
- * zeroes out the memory.
+ * Create an arena of the specified size and add it to the arena list
  *
- * The created arena is added to the specified list atomically.
+ * This function allocates the underlying memory region used by the arena
+ * using mmap() with the MAP_ANONYMOUS and MAP_PRIVATE flags. This allows 
+ * memory to be lazily paged in only when it is actually used. 
+ *
+ * Returns the newly created arena, or NULL if allocation failed.
  */
-struct arena * arena_create(struct arena_list *list, size_t size);
+struct arena * arena_list_add(struct arena_list *list, size_t size);
 
 
 /*
@@ -239,7 +243,7 @@ struct arena * arena_create(struct arena_list *list, size_t size);
  * Note that arenas should only be destroyed once they
  * are guaranteed to no longer be in use.
  */
-void arena_destroy(struct arena_list *list);
+void arena_list_free(struct arena_list *list);
 
 
 /*
@@ -271,12 +275,12 @@ void * arena_alloc_dynamic(struct arena_list *list, struct arena **current, size
             align = PAGE_SIZE;
         }
 
-        head = arena_create(list, align_to(size, align));
+        head = arena_list_add(list, align_to(size, align));
         if (unlikely(head == NULL)) {
             return NULL;
         }
 
-        ptr = arena_alloc_block(head, size, align);
+        ptr = arena_alloc(head, size, align);
         if (unlikely(head->size - atomic_load_explicit(&head->used, memory_order_relaxed) >= default_size)) {
             *current = head;
         }
@@ -284,18 +288,18 @@ void * arena_alloc_dynamic(struct arena_list *list, struct arena **current, size
     }
 
     // Try to reserve block in the current arena
-    ptr = arena_alloc_block(head, size, align);
+    ptr = arena_alloc(head, size, align);
     if (likely(ptr != NULL)) {
         return ptr;
     }
 
     // We could not fit the block in the current arena
-    head = arena_create(list, arena_size(list));
+    head = arena_list_add(list, arena_size(list));
     if (unlikely(head == NULL)) {
         return NULL;
     }
     
-    ptr = arena_alloc_block(head, size, align);
+    ptr = arena_alloc(head, size, align);
     *current = head;
     return ptr;
 }
@@ -305,20 +309,13 @@ void * arena_alloc_dynamic(struct arena_list *list, struct arena **current, size
  * Identical to arena_alloc_dynamic, except that the allocated
  * memory is guaranteed to be initialized to zero.
  */
-#if defined(HAS_VALGRIND) && !defined(NDEBUG)
 static inline
 void * arena_alloc_dynamic_zeroed(struct arena_list *list, struct arena **current, size_t size, size_t align)
 {
     void *ptr = arena_alloc_dynamic(list, current, size, align);
-    // No need for memset here
-    // mmap with MAP_ANONYMOUS fills with zeros, and we don't want to start paging in memory here
-    // NOTE: if we ever make a arena_reset, we would need to reset memory either there or here
-    VALGRIND_MAKE_MEM_DEFINED(ptr, size);
+    memset(ptr, 0, size);
     return ptr;
 }
-#else
-#define arena_alloc_dynamic_zeroed(list, current, size, align) arena_alloc_dynamic(list, current, size, align)
-#endif
 
 
 #ifdef __cplusplus

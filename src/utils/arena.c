@@ -18,7 +18,7 @@
 #endif
 
 
-struct arena * arena_create(struct arena_list *list, size_t size)
+struct arena * arena_list_add(struct arena_list *list, size_t size)
 {
     if (size > SIZE_MAX - PAGE_SIZE) {
         return NULL;
@@ -66,7 +66,7 @@ struct arena * arena_create(struct arena_list *list, size_t size)
 }
 
 
-void arena_destroy(struct arena_list *list)
+void arena_list_free(struct arena_list *list)
 {
     struct arena *head = atomic_exchange_explicit(&list->head, NULL, memory_order_acquire);
     
