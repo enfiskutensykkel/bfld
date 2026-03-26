@@ -6,7 +6,9 @@ extern "C" {
 
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
+#include <stdatomic.h>
+#include "spinlock.h"
+#include "cdefs.h"
 
 
 /*
@@ -27,16 +29,17 @@ extern "C" {
 struct deque
 {
     void **q;
-    uint64_t head;
-    uint64_t size;
-    uint64_t capacity;
+    size_t head;
+    _Atomic size_t size;
+    size_t capacity;
+    struct spinlock lock;
 };
 
 
 /*
  * Initialize an empty deque.
  */
-#define DEQUE_INIT (struct deque) {NULL, 0, 0, 0}
+#define DEQUE_INIT (struct deque) {NULL, 0, 0, 0, SPINLOCK_INIT}
 
 
 /*
@@ -47,8 +50,9 @@ void deque_init(struct deque *d)
 {
     d->q = NULL;
     d->head = 0;
-    d->size = 0;
+    atomic_store_explicit(&d->size, 0, memory_order_relaxed);
     d->capacity = 0;
+    spinlock_init(&d->lock);
 }
 
 
@@ -59,11 +63,45 @@ void deque_clear(struct deque *d);
 
 
 /*
+ * Helper function to reserve space in the internal deque buffer.
+ */
+bool deque_reserve_unlocked(struct deque *d, size_t capacity);
+
+
+/*
+ * Get the number of entries in the deque.
+ */
+static inline
+size_t deque_size(const struct deque *d)
+{
+    return atomic_load_explicit(&d->size, memory_order_relaxed);
+}
+
+
+/*
+ * Is the deque empty?
+ */
+static inline
+bool deque_empty(const struct deque *d)
+{
+    return deque_size(d) == 0;
+}
+
+
+/*
  * Reserve space in the internal deque buffer.
  * Returns true if the deque is able to hold at least
  * capacity entries, and false otherwise.
  */
-bool deque_reserve(struct deque *d, uint64_t capacity);
+static inline
+bool deque_reserve(struct deque *d, size_t capacity)
+{
+    bool status;
+    spinlock_lock(&d->lock);
+    status = deque_reserve_unlocked(d, capacity);
+    spinlock_unlock(&d->lock);
+    return status;
+}
 
 
 /*
@@ -73,15 +111,19 @@ bool deque_reserve(struct deque *d, uint64_t capacity);
 static inline
 bool deque_push_back(struct deque *d, void *entry)
 {
-    if (d->size == d->capacity) {
-        if (!deque_reserve(d, d->capacity != 0 ? d->capacity * 2 : 8)) {
+    spinlock_lock(&d->lock);
+    if (unlikely(deque_size(d) == d->capacity)) {
+        if (!deque_reserve_unlocked(d, d->capacity != 0 ? d->capacity * 2 : 8)) {
+            spinlock_unlock(&d->lock);
             return false;
         }
     }
 
-    uint64_t tail = (d->head + d->size) & (d->capacity - 1);
+    size_t size = atomic_load_explicit(&d->size, memory_order_relaxed);
+    size_t tail = (d->head + size) & (d->capacity - 1);
     d->q[tail] = entry;
-    d->size++;
+    atomic_store_explicit(&d->size, size + 1, memory_order_relaxed);
+    spinlock_unlock(&d->lock);
     return true;
 }
 
@@ -93,15 +135,19 @@ bool deque_push_back(struct deque *d, void *entry)
 static inline
 bool deque_push_front(struct deque *d, void *entry)
 {
-    if (d->size == d->capacity) {
-        if (!deque_reserve(d, d->capacity != 0 ? d->capacity * 2 : 8)) {
+    spinlock_lock(&d->lock);
+    if (unlikely(deque_size(d) == d->capacity)) {
+        if (!deque_reserve_unlocked(d, d->capacity != 0 ? d->capacity * 2 : 8)) {
+            spinlock_unlock(&d->lock);
             return false;
         }
     }
 
     d->head--;
     d->q[d->head & (d->capacity - 1)] = entry;
-    d->size++;
+    size_t size = atomic_load_explicit(&d->size, memory_order_relaxed);
+    atomic_store_explicit(&d->size, size + 1, memory_order_relaxed);
+    spinlock_unlock(&d->lock);
     return true;
 }
 
@@ -115,11 +161,14 @@ void * deque_pop_front(struct deque *d)
 {
     void *entry = NULL;
 
-    if (d->size != 0) {
+    spinlock_lock(&d->lock);
+    size_t size = deque_size(d);
+    if (likely(size != 0)) {
         entry = d->q[d->head & (d->capacity - 1)];
         d->head++;
-        d->size--;
+        atomic_store_explicit(&d->size, size - 1, memory_order_relaxed);
     }
+    spinlock_unlock(&d->lock);
 
     return entry;
 }
@@ -134,33 +183,16 @@ void * deque_pop_back(struct deque *d)
 {
     void *entry = NULL;
 
-    if (d->size != 0) {
-        uint64_t tail = d->head + d->size - 1;
+    spinlock_lock(&d->lock);
+    size_t size = deque_size(d);
+    if (likely(size != 0)) {
+        size_t tail = d->head + size - 1;
         entry = d->q[tail & (d->capacity - 1)];
-        d->size--;
+        atomic_store_explicit(&d->size, size - 1, memory_order_relaxed);
     }
+    spinlock_unlock(&d->lock);
 
     return entry;
-}
-
-
-/*
- * Get the number of entries in the deque.
- */
-static inline
-uint64_t deque_size(const struct deque *d)
-{
-    return d->size;
-}
-
-
-/*
- * Is the deque empty?
- */
-static inline
-bool deque_empty(const struct deque *d)
-{
-    return d->size == 0;
 }
 
 
@@ -168,13 +200,15 @@ bool deque_empty(const struct deque *d)
  * Peek at the first entry in the deque.
  */
 static inline
-void * deque_front(const struct deque *d)
+void * deque_front(struct deque *d)
 {
     void *entry = NULL;
 
-    if (d->size > 0) {
+    spinlock_lock(&d->lock);
+    if (likely(deque_size(d) > 0)) {
         entry = d->q[d->head & (d->capacity - 1)];
     }
+    spinlock_unlock(&d->lock);
 
     return entry;
 }
@@ -184,7 +218,7 @@ void * deque_front(const struct deque *d)
  * Peek at the first entry in the deque.
  */
 static inline
-void * deque_head(const struct deque *d)
+void * deque_head(struct deque *d)
 {
     return deque_front(d);
 }
@@ -194,14 +228,17 @@ void * deque_head(const struct deque *d)
  * Peek at the last entry in the deque.
  */
 static inline
-void * deque_back(const struct deque *d)
+void * deque_back(struct deque *d)
 {
     void *entry = NULL;
 
-    if (d->size > 0) {
-        uint64_t tail = d->head + d->size - 1;
+    spinlock_lock(&d->lock);
+    size_t size = deque_size(d);
+    if (likely(size > 0)) {
+        size_t tail = d->head + size - 1;
         entry = d->q[tail & (d->capacity - 1)];
     }
+    spinlock_unlock(&d->lock);
 
     return entry;
 }
@@ -211,7 +248,7 @@ void * deque_back(const struct deque *d)
  * Peek at the last entry in the deque.
  */
 static inline
-void * deque_tail(const struct deque *d)
+void * deque_tail(struct deque *d)
 {
     return deque_back(d);
 }
@@ -221,13 +258,15 @@ void * deque_tail(const struct deque *d)
  * Peek at the entry at the given position relative to the head/first entry.
  */
 static inline
-void * deque_peek(const struct deque *d, uint64_t position)
+void * deque_peek(struct deque *d, size_t position)
 {
     void *entry = NULL;
 
-    if (position < d->size) {
+    spinlock_lock(&d->lock);
+    if (likely(position < deque_size(d))) {
         entry = d->q[(d->head + position) & (d->capacity - 1)];
     }
+    spinlock_unlock(&d->lock);
 
     return entry;
 }
