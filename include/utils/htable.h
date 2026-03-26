@@ -27,7 +27,7 @@ struct ht_entry
     void *value;        // pointer to the value
 };
 
-// FIXME rename size to count
+
 /*
  * Hash table implementation.
  *

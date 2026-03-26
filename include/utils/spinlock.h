@@ -127,9 +127,9 @@ void rwlock_biased_read_lock(struct rwlock *lock)
         }
 
         uint32_t next = (expected & 0x0000ffffUL) + 1;
-        if (atomic_compare_exchange_weak(&lock->value, &expected, next,
-                                         memory_order_acquire,
-                                         memory_order_relaxed)) {
+        if (atomic_compare_exchange_weak_explicit(&lock->value, &expected, next,
+                                                  memory_order_acquire,
+                                                  memory_order_relaxed)) {
             break;
         }
     }
@@ -158,9 +158,9 @@ void rwlock_read_lock(struct rwlock *lock)
         }
 
         uint32_t next = (expected & 0x0000ffffUL) + 1;
-        if (atomic_compare_exchange_weak(&lock->value, &expected, next,
-                                         memory_order_acquire,
-                                         memory_order_relaxed)) {
+        if (atomic_compare_exchange_weak_explicit(&lock->value, &expected, next,
+                                                  memory_order_acquire,
+                                                  memory_order_relaxed)) {
             break;
         }
     }
