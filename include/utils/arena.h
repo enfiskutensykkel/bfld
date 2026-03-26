@@ -19,9 +19,11 @@ extern "C" {
 #endif
 
 
-
 #define PAGE_SIZE       4096    // assumed system page size, hard coded to avoid call to sysconf or looking up a variable in critical path
+
+#ifndef CACHELINE_SIZE
 #define CACHELINE_SIZE  64      // assumed CPU cache line size, hard coded to avoid any calls in critical path
+#endif
 
 
 /*
