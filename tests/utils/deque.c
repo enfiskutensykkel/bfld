@@ -5,6 +5,96 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <assert.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <time.h>
+
+#define NUM_PRODUCERS 4
+#define NUM_CONSUMERS 4
+#define ITEMS_PER_PRODUCER 10000000UL
+
+_Atomic long total_consumed = 0;
+
+struct deque shared = {0};
+
+
+void * producer(void *arg)
+{
+    uintptr_t id = (uintptr_t) arg;
+    uintptr_t seed = id;
+    uintptr_t i;
+
+    for (i = 1; i <= ITEMS_PER_PRODUCER; ++i) {
+        bool x = deque_push_back(&shared, (void*) (i + (id * ITEMS_PER_PRODUCER * 10UL)));
+        assert(x);
+        //usleep(rand_r(&seed) % 5);
+        //if (i % 5 == 0) {
+        //    sched_yield();
+        //}
+    }
+
+    fprintf(stderr, "producer done %lu\n", i);
+    return NULL;
+}
+
+
+void * consumer(void *arg)
+{
+    while (atomic_load_explicit(&total_consumed, memory_order_relaxed) <
+            NUM_PRODUCERS * ITEMS_PER_PRODUCER) {
+
+        void *item = deque_pop_front(&shared);
+        if (item != NULL) {
+            atomic_fetch_add_explicit(&total_consumed, 1, memory_order_relaxed);
+        } else {
+            fprintf(stderr, "%lu\n", atomic_load(&total_consumed));
+            sched_yield();
+            //break;
+        }
+
+    }
+    fprintf(stderr, "done\n");
+    return NULL;
+}
+
+
+void test_multithreaded()
+{
+    pthread_t producers[NUM_PRODUCERS];
+    pthread_t consumers[NUM_CONSUMERS];
+
+    deque_reserve(&shared, 1024);
+
+    struct timespec start, end;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    for (uintptr_t i = 0; i < NUM_PRODUCERS; ++i) {
+        pthread_create(&producers[i], NULL, producer, (void*) i);
+    }
+    for (uintptr_t i = 0; i < NUM_CONSUMERS; ++i) {
+        pthread_create(&consumers[i], NULL, consumer, (void*) i);
+    }
+
+    for (int i = 0; i < NUM_PRODUCERS; ++i) {
+        pthread_join(producers[i], NULL);
+    }
+    
+    for (int i = 0; i < NUM_CONSUMERS; ++i) {
+        pthread_join(consumers[i], NULL);
+    }
+    
+    fprintf(stderr, "%zu\n", deque_size(&shared));
+
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    double elapsed = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
+    fprintf(stderr, "Time: %.4f seconds\n", elapsed);
+    fprintf(stderr, "Total consumed %ld / %ld\n",
+            atomic_load(&total_consumed), NUM_PRODUCERS * ITEMS_PER_PRODUCER);
+    assert(atomic_load(&total_consumed) == (NUM_PRODUCERS * ITEMS_PER_PRODUCER));
+    assert(deque_empty(&shared));
+    deque_clear(&shared);
+}
+
 
 
 void test_resize_wrap()
@@ -127,5 +217,6 @@ int main(int argc, char **argv)
     test_resize_wrap();
     test_circular();
     test_realloc();
+    test_multithreaded();
     return 0;
 }
