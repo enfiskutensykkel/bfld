@@ -139,7 +139,6 @@ bool deque_push_back(struct deque *d, void *entry)
 }
 
 
-
 /*
  * Helper function to push an entry to the back of the deque (head insert).
  * Returns true if the entry was inserted, and false otherwise.
@@ -169,14 +168,15 @@ static inline
 bool deque_push_front(struct deque *d, void *entry)
 {
     spinlock_lock(&d->lock);
-    bool status = deque_push_front(d, entry);
+    bool status = deque_push_front_unlocked(d, entry);
     spinlock_unlock(&d->lock);
     return status;
 }
 
 
 /*
- * Helper function to pop off an entry from the front of the deque (head remove).
+ * Helper function to pop off an entry from the 
+ * front of the deque (head remove).
  * Returns the entry or NULL if size is 0.
  */
 static inline
@@ -184,14 +184,67 @@ void * deque_pop_front_unlocked(struct deque *d)
 {
     void *entry = NULL;
 
-    spinlock_lock(&d->lock);
     size_t size = deque_size(d);
     if (likely(size != 0)) {
         entry = d->q[d->head & (d->capacity - 1)];
         d->head++;
         atomic_store_explicit(&d->size, size - 1, memory_order_relaxed);
     }
+
+    return entry;
+}
+
+
+/*
+ * Pop off an entry from the front of the deque (head remove).
+ * Returns the entry or NULL if size is 0.
+ */
+static inline
+void * deque_pop_front(struct deque *d)
+{
+    spinlock_lock(&d->lock);
+    void *entry = deque_pop_front_unlocked(d);
     spinlock_unlock(&d->lock);
+    return entry;
+}
+
+
+/*
+ * Try to pop off an entry from the front of the deque
+ * if there is no contention for the deque.
+ */
+static inline
+void * deque_try_pop_front(struct deque *d)
+{
+    void *entry = NULL;
+
+    if (atomic_load_explicit(&d->size, memory_order_relaxed) > 0) {
+        if (spinlock_try_lock(&d->lock)) {
+            entry = deque_pop_front_unlocked(d);
+            spinlock_unlock(&d->lock);
+        }
+    }
+
+    return entry;
+}
+
+
+/*
+ * Helper function to pop off an entry from the 
+ * back of the deque (tail remove).
+ * Returns the entry or NULL if size is 0.
+ */
+static inline
+void * deque_pop_back_unlocked(struct deque *d)
+{
+    void *entry = NULL;
+
+    size_t size = deque_size(d);
+    if (likely(size != 0)) {
+        size_t tail = d->head + size - 1;
+        entry = d->q[tail & (d->capacity - 1)];
+        atomic_store_explicit(&d->size, size - 1, memory_order_relaxed);
+    }
 
     return entry;
 }
@@ -204,16 +257,44 @@ void * deque_pop_front_unlocked(struct deque *d)
 static inline
 void * deque_pop_back(struct deque *d)
 {
+    spinlock_lock(&d->lock);
+    void *entry = deque_pop_back_unlocked(d);
+    spinlock_unlock(&d->lock);
+    return entry;
+}
+
+
+/*
+ * Try to pop off an entry from the back of 
+ * the deque if there is no contention for the deque.
+ */
+static inline
+void * deque_try_pop_back(struct deque *d)
+{
+    void *entry = NULL;
+    
+    if (atomic_load_explicit(&d->size, memory_order_relaxed) > 0) {
+        if (spinlock_try_lock(&d->lock)) {
+            entry = deque_pop_back_unlocked(d);
+            spinlock_unlock(&d->lock);
+        }
+    }
+
+    return entry;
+}
+
+
+/*
+ * Helper function to peek at the first entry in the deque.
+ */
+static inline
+void * deque_front_unlocked(const struct deque *d)
+{
     void *entry = NULL;
 
-    spinlock_lock(&d->lock);
-    size_t size = deque_size(d);
-    if (likely(size != 0)) {
-        size_t tail = d->head + size - 1;
-        entry = d->q[tail & (d->capacity - 1)];
-        atomic_store_explicit(&d->size, size - 1, memory_order_relaxed);
+    if (likely(deque_size(d) > 0)) {
+        entry = d->q[d->head & (d->capacity - 1)];
     }
-    spinlock_unlock(&d->lock);
 
     return entry;
 }
@@ -225,14 +306,9 @@ void * deque_pop_back(struct deque *d)
 static inline
 void * deque_front(struct deque *d)
 {
-    void *entry = NULL;
-
     spinlock_lock(&d->lock);
-    if (likely(deque_size(d) > 0)) {
-        entry = d->q[d->head & (d->capacity - 1)];
-    }
+    void *entry = deque_front_unlocked(d);
     spinlock_unlock(&d->lock);
-
     return entry;
 }
 
@@ -248,21 +324,32 @@ void * deque_head(struct deque *d)
 
 
 /*
- * Peek at the last entry in the deque.
+ * Helper function to peek at the last entry in the deque.
  */
 static inline
-void * deque_back(struct deque *d)
+void * deque_back_unlocked(const struct deque *d)
 {
     void *entry = NULL;
 
-    spinlock_lock(&d->lock);
     size_t size = deque_size(d);
     if (likely(size > 0)) {
         size_t tail = d->head + size - 1;
         entry = d->q[tail & (d->capacity - 1)];
     }
-    spinlock_unlock(&d->lock);
 
+    return entry;
+}
+
+
+/*
+ * Peek at the last entry in the deque.
+ */
+static inline
+void * deque_back(struct deque *d)
+{
+    spinlock_lock(&d->lock);
+    void *entry = deque_back_unlocked(d);
+    spinlock_unlock(&d->lock);
     return entry;
 }
 
@@ -278,19 +365,31 @@ void * deque_tail(struct deque *d)
 
 
 /*
+ * Helper function to peek at the entry at the 
+ * given position relative to the head/first entry.
+ */
+static inline
+void * deque_peek_unlocked(const struct deque *d, size_t position)
+{
+    void *entry = NULL;
+
+    if (likely(position < deque_size(d))) {
+        entry = d->q[(d->head + position) & (d->capacity - 1)];
+    }
+
+    return entry;
+}
+
+
+/*
  * Peek at the entry at the given position relative to the head/first entry.
  */
 static inline
 void * deque_peek(struct deque *d, size_t position)
 {
-    void *entry = NULL;
-
     spinlock_lock(&d->lock);
-    if (likely(position < deque_size(d))) {
-        entry = d->q[(d->head + position) & (d->capacity - 1)];
-    }
+    void *entry = deque_peek_unlocked(d, position);
     spinlock_unlock(&d->lock);
-
     return entry;
 }
 
