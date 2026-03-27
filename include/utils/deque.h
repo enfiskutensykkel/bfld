@@ -105,16 +105,14 @@ bool deque_reserve(struct deque *d, size_t capacity)
 
 
 /*
- * Push an entry to the back of the deque (tail insert).
+ * Helper function to push an entry to the back of the deque (tail insert).
  * Returns true if the entry was inserted, and false otherwise.
  */
 static inline
-bool deque_push_back(struct deque *d, void *entry)
+bool deque_push_back_unlocked(struct deque *d, void *entry)
 {
-    spinlock_lock(&d->lock);
     if (unlikely(deque_size(d) == d->capacity)) {
         if (!deque_reserve_unlocked(d, d->capacity != 0 ? d->capacity * 2 : 8)) {
-            spinlock_unlock(&d->lock);
             return false;
         }
     }
@@ -123,7 +121,42 @@ bool deque_push_back(struct deque *d, void *entry)
     size_t tail = (d->head + size) & (d->capacity - 1);
     d->q[tail] = entry;
     atomic_store_explicit(&d->size, size + 1, memory_order_relaxed);
+    return true;
+}
+
+
+/*
+ * Push an entry to the back of the deque (tail insert).
+ * Returns true if the entry was inserted, and false otherwise.
+ */
+static inline
+bool deque_push_back(struct deque *d, void *entry)
+{
+    spinlock_lock(&d->lock);
+    bool status = deque_push_back_unlocked(d, entry);
     spinlock_unlock(&d->lock);
+    return status;
+}
+
+
+
+/*
+ * Helper function to push an entry to the back of the deque (head insert).
+ * Returns true if the entry was inserted, and false otherwise.
+ */
+static inline
+bool deque_push_front_unlocked(struct deque *d, void *entry)
+{
+    if (unlikely(deque_size(d) == d->capacity)) {
+        if (!deque_reserve_unlocked(d, d->capacity != 0 ? d->capacity * 2 : 8)) {
+            return false;
+        }
+    }
+
+    d->head--;
+    d->q[d->head & (d->capacity - 1)] = entry;
+    size_t size = atomic_load_explicit(&d->size, memory_order_relaxed);
+    atomic_store_explicit(&d->size, size + 1, memory_order_relaxed);
     return true;
 }
 
@@ -136,28 +169,18 @@ static inline
 bool deque_push_front(struct deque *d, void *entry)
 {
     spinlock_lock(&d->lock);
-    if (unlikely(deque_size(d) == d->capacity)) {
-        if (!deque_reserve_unlocked(d, d->capacity != 0 ? d->capacity * 2 : 8)) {
-            spinlock_unlock(&d->lock);
-            return false;
-        }
-    }
-
-    d->head--;
-    d->q[d->head & (d->capacity - 1)] = entry;
-    size_t size = atomic_load_explicit(&d->size, memory_order_relaxed);
-    atomic_store_explicit(&d->size, size + 1, memory_order_relaxed);
+    bool status = deque_push_front(d, entry);
     spinlock_unlock(&d->lock);
-    return true;
+    return status;
 }
 
 
 /*
- * Pop off an entry from the front of the deque (head remove).
+ * Helper function to pop off an entry from the front of the deque (head remove).
  * Returns the entry or NULL if size is 0.
  */
 static inline
-void * deque_pop_front(struct deque *d)
+void * deque_pop_front_unlocked(struct deque *d)
 {
     void *entry = NULL;
 

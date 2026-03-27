@@ -10,89 +10,143 @@
 #include <time.h>
 
 #define NUM_PRODUCERS 4
-#define NUM_CONSUMERS 4
-#define ITEMS_PER_PRODUCER 10000000UL
+#define NUM_CONSUMERS 6
 
-_Atomic long total_consumed = 0;
 
-struct deque shared = {0};
+struct thread_data
+{
+    uint64_t thread_id;
+    uint64_t num_items;
+    uint64_t num_producers;
+    struct deque *deque;
+    uint64_t produced;
+    uint64_t consumed;
+    _Atomic uint64_t *total_consumed;
+};
 
 
 void * producer(void *arg)
 {
-    uintptr_t id = (uintptr_t) arg;
-    uintptr_t seed = id;
-    uintptr_t i;
+    struct thread_data *data = arg;
+    uint64_t thread_id = data->thread_id;
+    uint64_t num_items = data->num_items;
+    uint64_t produced = 0;
+    struct deque *deque = data->deque;
 
-    for (i = 1; i <= ITEMS_PER_PRODUCER; ++i) {
-        bool x = deque_push_back(&shared, (void*) (i + (id * ITEMS_PER_PRODUCER * 10UL)));
-        assert(x);
-        //usleep(rand_r(&seed) % 5);
-        //if (i % 5 == 0) {
+    uint64_t seed = thread_id;
+
+    for (uint64_t i = 1; i <= num_items; ++i) {
+        uintptr_t value = i + (thread_id * num_items * 10UL);
+        bool x = false;
+
+        if (thread_id % 2 == 0) {
+            x = deque_push_back(deque, (void*) value);
+        } else {
+            x = deque_push_front(deque, (void*) value);
+        }
+
+        assert(x == true);
+
+        produced++;
+
+        //if (i % 10 == 0) {
         //    sched_yield();
         //}
     }
 
-    fprintf(stderr, "producer done %lu\n", i);
+    data->produced = produced;
+    assert(data->produced == num_items);
+
     return NULL;
 }
 
 
 void * consumer(void *arg)
 {
-    while (atomic_load_explicit(&total_consumed, memory_order_relaxed) <
-            NUM_PRODUCERS * ITEMS_PER_PRODUCER) {
+    struct thread_data *data = arg;
+    uint64_t thread_id = data->thread_id;
+    struct deque *deque = data->deque;
 
-        void *item = deque_pop_front(&shared);
-        if (item != NULL) {
-            atomic_fetch_add_explicit(&total_consumed, 1, memory_order_relaxed);
+    uint64_t consumed = 0;
+    _Atomic uint64_t *total_consumed = data->total_consumed;
+    uint64_t expected_total = data->num_items * data->num_producers;
+
+    while (atomic_load_explicit(total_consumed, memory_order_relaxed) < expected_total) {
+        
+        void *item = NULL;
+
+        if (thread_id % 2 == 0) {
+            item = deque_pop_front(deque);
         } else {
-            fprintf(stderr, "%lu\n", atomic_load(&total_consumed));
-            sched_yield();
-            //break;
+            item = deque_pop_back(deque);
         }
 
+        if (item != NULL) {
+            atomic_fetch_add_explicit(total_consumed, 1, memory_order_relaxed);
+            consumed++;
+        } else {
+            sched_yield();
+        }
     }
-    fprintf(stderr, "done\n");
+
+    data->consumed = consumed;
+
     return NULL;
 }
 
 
 void test_multithreaded()
 {
-    pthread_t producers[NUM_PRODUCERS];
-    pthread_t consumers[NUM_CONSUMERS];
+    pthread_t threads[NUM_PRODUCERS + NUM_CONSUMERS];
 
-    deque_reserve(&shared, 1024);
+    struct thread_data data[NUM_PRODUCERS + NUM_CONSUMERS];
+    const uint64_t num_items = 10000000UL;
+
+    _Atomic uint64_t total_consumed;
+    atomic_init(&total_consumed, 0);
+
+    struct deque deque = {0};
+    deque_reserve(&deque, 1024);
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
-    for (uintptr_t i = 0; i < NUM_PRODUCERS; ++i) {
-        pthread_create(&producers[i], NULL, producer, (void*) i);
-    }
-    for (uintptr_t i = 0; i < NUM_CONSUMERS; ++i) {
-        pthread_create(&consumers[i], NULL, consumer, (void*) i);
+    for (int i = 0; i < NUM_PRODUCERS + NUM_CONSUMERS; ++i) {
+        data[i].thread_id = i;
+        data[i].num_items = num_items;
+        data[i].num_producers = NUM_PRODUCERS;
+        data[i].deque = &deque;
+        data[i].produced = 0;
+        data[i].consumed = 0;
+        data[i].total_consumed = &total_consumed;
     }
 
     for (int i = 0; i < NUM_PRODUCERS; ++i) {
-        pthread_join(producers[i], NULL);
+        pthread_create(&threads[i], NULL, producer, &data[i]);
     }
-    
     for (int i = 0; i < NUM_CONSUMERS; ++i) {
-        pthread_join(consumers[i], NULL);
+        pthread_create(&threads[NUM_PRODUCERS + i], NULL, consumer, &data[NUM_PRODUCERS + i]);
+    }
+
+    for (int i = 0; i < NUM_PRODUCERS + NUM_CONSUMERS; ++i) {
+        pthread_join(threads[i], NULL);
     }
     
-    fprintf(stderr, "%zu\n", deque_size(&shared));
-
     clock_gettime(CLOCK_MONOTONIC, &end);
     double elapsed = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
     fprintf(stderr, "Time: %.4f seconds\n", elapsed);
     fprintf(stderr, "Total consumed %ld / %ld\n",
-            atomic_load(&total_consumed), NUM_PRODUCERS * ITEMS_PER_PRODUCER);
-    assert(atomic_load(&total_consumed) == (NUM_PRODUCERS * ITEMS_PER_PRODUCER));
-    assert(deque_empty(&shared));
-    deque_clear(&shared);
+            atomic_load(&total_consumed), NUM_PRODUCERS * num_items);
+
+    for (int i = 0; i < NUM_PRODUCERS + NUM_CONSUMERS; ++i) {
+        fprintf(stderr, "[thread %2lu] - %10lu produced / %10lu consumed\n",
+                data[i].thread_id, data[i].produced, data[i].consumed);
+    }
+
+    assert(atomic_load(&total_consumed) == (NUM_PRODUCERS * num_items));
+    assert(deque_empty(&deque));
+
+    deque_clear(&deque);
 }
 
 
@@ -134,14 +188,13 @@ void test_resize_wrap()
 
     // trigger resize
     deque_push_back(&d, (void*) 11);
-    fprintf(stderr, "head=%zu size=%zu capacity=%zu\n", d.head, deque_size(&d), d.capacity);
+    //fprintf(stderr, "head=%zu size=%zu capacity=%zu\n", d.head, deque_size(&d), d.capacity);
 
     for (uintptr_t i = 3; i <= 11; ++i) {
         uintptr_t v = (uintptr_t) deque_pop_front(&d);
         assert(v == i);
     }
 
-    fprintf(stderr, "test passed\n");
     deque_clear(&d);
 }
 

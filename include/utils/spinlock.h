@@ -7,8 +7,16 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdatomic.h>
-#include <threads.h>
 #include "cdefs.h"
+
+
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+#include <threads.h>
+#elif defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
+#include <sched.h>
+#define thrd_yield() sched_yield()
+#endif
+
 
 
 /*
@@ -56,6 +64,23 @@ void spinlock_lock(struct spinlock *lock)
         thrd_yield();
 #endif
     }
+}
+
+
+/*
+ * Try to acquire the spinlock if it is free.
+ */
+static inline
+bool spinlock_try_lock(struct spinlock *lock)
+{
+    if (atomic_load_explicit(&lock->value, memory_order_relaxed) != 0) {
+        return false;
+    }
+
+    uint_fast32_t expected = 0;
+    return atomic_compare_exchange_strong_explicit(&lock->value, &expected, 1,
+                                                   memory_order_acquire,
+                                                   memory_order_relaxed);
 }
 
 
