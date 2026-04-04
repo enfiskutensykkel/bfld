@@ -60,7 +60,7 @@ struct arena
 struct arena_list
 {
     struct arena * _Atomic head;
-    size_t size;
+    size_t size;        // FIXME : instead of setting a fixed size for all arenas in a list, calculate this in arena_alloc_dynamic and also take in align to arena_list_add
 };
 
 

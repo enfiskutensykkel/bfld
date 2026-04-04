@@ -15,3 +15,6 @@ target_link_libraries(test_locks utilslib Threads::Threads)
 
 add_test_executable(test_xxh FILES xxh.c OUTPUT_NAME test_xxh)
 target_link_libraries(test_xxh utilslib)
+
+add_test_executable(test_htable FILES htable.c OUTPUT_NAME test_htable)
+target_link_libraries(test_htable utilslib Threads::Threads)
