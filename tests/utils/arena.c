@@ -81,20 +81,25 @@ void print_time(struct timespec *start, struct timespec *end)
 
 void print_list(struct arena_list *list)
 {
-    uint64_t count = 0;
-    uint64_t total = 0;
+    size_t count = 0;
+    size_t total_size = 0;
+    size_t total_used = 0;
+    size_t total_unused = 0;
     struct arena *a = atomic_load(&list->head);
     while (a != NULL) {
         ++count;
-        total += a->size;
+        total_size += arena_size(a);
+        total_used += arena_used(a);
+        total_unused += arena_unused(a);
         a = atomic_load(&a->next);
     }
 
     fprintf(stderr, "num threads: %d\n", NUM_THREADS);
     fprintf(stderr, "allocs per thread: %d\n", ALLOCS_PER_THREAD);
-    fprintf(stderr, "size per arena: %zu\n", arena_size(list));
     fprintf(stderr, "number of arenas: %lu\n", count);
-    fprintf(stderr, "total size: %zu\n", total);
+    fprintf(stderr, "memory footprint\n- used: %zu\n- unused: %zu\n- size: %zu\n", 
+            total_used, total_unused, total_size);
+    fprintf(stderr, "utilization: %.2f%%\n", (double) total_used / total_size * 100.0);
 }
 
 
@@ -109,7 +114,7 @@ void test_arena_contention(void)
 
     struct timespec start, end;
 
-    struct arena *arena = arena_list_add(&list, 128 * NUM_THREADS * ALLOCS_PER_THREAD + sizeof(int) * NUM_THREADS);
+    struct arena *arena = arena_list_add(&list, 128 * NUM_THREADS * ALLOCS_PER_THREAD + sizeof(int) * NUM_THREADS, 64);
 
     pthread_barrier_init(&barrier, NULL, NUM_THREADS + 1);
 
@@ -134,7 +139,7 @@ void test_arena_contention(void)
         pthread_join(threads[i], NULL);
     }
 
-    fprintf(stderr, "test_arena_contention\n");
+    fprintf(stderr, "test name: test_arena_contention\n");
     print_time(&start, &end);
     print_list(&list);
 
@@ -178,7 +183,7 @@ void test_dynamic(void)
         pthread_join(threads[i], NULL);
     }
 
-    fprintf(stderr, "test_dynamic\n");
+    fprintf(stderr, "test name: test_dynamic\n");
     print_time(&start, &end);
     print_list(&list);
 
@@ -192,5 +197,6 @@ int main(void)
     test_arena_contention();
     fprintf(stderr, "\n");
     test_dynamic();
+    fprintf(stderr, "\n");
     return 0;
 }

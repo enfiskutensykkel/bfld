@@ -6,7 +6,6 @@
 #include <sys/mman.h>
 #include <signal.h>
 #include <assert.h>
-//#include <numaif.h>
 
 #if defined(HAS_VALGRIND) && !defined(NDEBUG)
 #include <valgrind/memcheck.h>
@@ -17,16 +16,68 @@
 #define VALGRIND_MAKE_MEM_UNDEFINED(addr, len) (void) 0
 #endif
 
+#if defined(_WIN32) || defined(_WIN64)
+#include <windows.h>
+#elif defined(__linux__) || defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__))
+#include <unistd.h>
+#endif
 
-struct arena * arena_list_add(struct arena_list *list, size_t size)
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#endif
+
+
+static size_t get_page_size(void)
 {
-    if (size > SIZE_MAX - PAGE_SIZE) {
+#if defined(_WIN32) || defined(_WIN64)
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    return (size_t) si.dwPageSize;
+#elif defined(_SC_PAGESIZE)
+    return (size_t) sysconf(_SC_PAGESIZE);
+#elif defined(_SC_PAGE_SIZE)
+    return (size_t) sysconf(_SC_PAGE_SIZE);
+#else
+    // Default fallback to 4096
+    return 4096;
+#endif
+}
+
+size_t get_cache_line_size(void)
+{
+#if defined(_SC_LEVEL1_DCACHE_LINESIZE)
+    return (size_t) sysconf(_SC_LEVEL1_DCACHE_LINESIZE);
+#elif defined(__APPLE__)
+    size_t line_size = 0;
+    size_t length = sizeof(line_size);
+    sysctlbyname("hw.cachelinesize", &line_size, &length, NULL, 0);
+    return line_size;
+#elif defined(_WIN32) || defined(_WIN64)
+    // FIXME: use GetLogicalProcessorInformation
+    return 64;
+#else
+    return 64; // default fallback for modern x86_64/ARM
+#endif
+}
+
+
+struct arena * arena_list_add(struct arena_list *list, size_t size, size_t align)
+{
+    align = align_roundup(align);
+    size_t page_size = get_page_size();
+    if (align < page_size) {
+        align = page_size;
+    }
+
+    if (size > SIZE_MAX - align) {
         return NULL;
     }
 
-    size = align_to(size, PAGE_SIZE);
+    size = align_to(size, align);
 
-    struct arena *arena = aligned_alloc(sizeof(struct arena), CACHELINE_SIZE);
+    size_t cacheline = get_cache_line_size();
+
+    struct arena *arena = aligned_alloc(cacheline, sizeof(struct arena));
     if (arena == NULL) {
         return NULL;
     }
@@ -38,12 +89,6 @@ struct arena * arena_list_add(struct arena_list *list, size_t size)
         return NULL;
     }
 
-    // The following needs -lnuma:
-    // int cpu, node;
-    // getcpu(&cpu, node);
-    // mask = (1UL << node);
-    // mbind(memory, size, MPOL_PREFERRED, &mask, sizeof(mask) * 8, 0)
-
 #ifndef NDEBUG
     VALGRIND_MALLOCLIKE_BLOCK(memory, size, 0, 1);
     VALGRIND_MAKE_MEM_UNDEFINED(memory, size);
@@ -54,6 +99,13 @@ struct arena * arena_list_add(struct arena_list *list, size_t size)
     arena->data = memory;
     atomic_init(&arena->next, NULL);
 
+    // Make sure the next allocation starts on the specified alignment
+    uintptr_t base = (uintptr_t) arena->data;
+    uintptr_t addr = align_to(base, align);
+    size_t offset = (size_t) (addr - base);
+    atomic_store_explicit(&arena->used, offset, memory_order_relaxed);
+
+    // Insert arena into arena list
     struct arena *head = atomic_load_explicit(&list->head, memory_order_acquire);
 
     do {
@@ -65,6 +117,14 @@ struct arena * arena_list_add(struct arena_list *list, size_t size)
     return arena;
 }
 
+
+// Not sure if we need the following, but
+//#include <numaif.h>
+// link with -lnuma:
+// int cpu, node;
+// getcpu(&cpu, node);
+// mask = (1UL << node);
+// mbind(memory, size, MPOL_PREFERRED, &mask, sizeof(mask) * 8, 0)
 
 void arena_list_free(struct arena_list *list)
 {

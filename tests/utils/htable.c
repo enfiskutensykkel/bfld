@@ -148,9 +148,6 @@ void test_stress()
     struct htable string_table;
     struct htable symbol_table;
 
-    //arena_list_init(&arenas, sizeof(struct symbol) * 4096);
-    arena_list_init(&arenas, 1ULL << 20);
-
     htable_init(&string_table, (NUM_SYMBOLS + 5) * 2);
     htable_init(&symbol_table, (NUM_SYMBOLS + 5) * 2);
 

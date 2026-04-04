@@ -116,7 +116,6 @@ void test_smash(void)
     fprintf(stderr, "Effective load factor: %.3g%%\n", load_factor * 100.0);
     fprintf(stderr, "Hash table memory size: %zu (%.3g MB)\n", size, size / (1024 * 1024.0));
     fprintf(stderr, "Number of arenas used for table memory: %zu\n", count);
-    fprintf(stderr, "Default arena size: %zu (%.3g MB)\n", arena_size(&tabledata), arena_size(&tabledata) / (1024 * 1024.0));
 
     free(inserted);
     free(keys);
@@ -173,7 +172,6 @@ void test_grow(void)
     fprintf(stderr, "Effective load factor: %.3g%%\n", load_factor * 100.0);
     fprintf(stderr, "Hash table memory size: %zu (%.3g MB)\n", size, size / (1024 * 1024.0));
     fprintf(stderr, "Number of arenas used for table memory: %zu\n", count);
-    fprintf(stderr, "Default arena size: %zu (%.3g MB)\n", arena_size(&arenas), arena_size(&arenas) / (1024 * 1024.0));
 
     arena_list_free(&keyarenas);
     arena_list_free(&arenas);
@@ -197,7 +195,7 @@ void test_basics(void)
     fprintf(stderr, "Needed size for array: %zu\n",
             capacity * sizeof(struct rht_entry));
 
-    tablestore = arena_list_add(&arenas, capacity * sizeof(struct rht_entry));
+    tablestore = arena_list_add(&arenas, capacity * sizeof(struct rht_entry), 64);
     assert(tablestore != NULL);
     struct rht_entry *table = arena_alloc(tablestore, capacity * sizeof(struct rht_entry), 1);
     assert(table != NULL);

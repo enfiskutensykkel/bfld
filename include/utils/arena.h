@@ -19,13 +19,6 @@ extern "C" {
 #endif
 
 
-#define PAGE_SIZE       4096    // assumed system page size, hard coded to avoid call to sysconf or looking up a variable in critical path
-
-#ifndef CACHELINE_SIZE
-#define CACHELINE_SIZE  64      // assumed CPU cache line size, hard coded to avoid any calls in critical path
-#endif
-
-
 /*
  * Default arena size
  */
@@ -54,50 +47,69 @@ struct arena
 
 
 /*
+ * Get the total memory size of the arena (number of bytes allocated).
+ */
+static inline
+size_t arena_size(const struct arena *arena)
+{
+    if (likely(arena != NULL)) {
+        return arena->size;
+    }
+
+    return 0;
+}
+
+
+/*
+ * Get the number of bytes currently used in the arena.
+ */
+static inline
+size_t arena_used(const struct arena *arena)
+{
+    if (likely(arena != NULL)) {
+        return atomic_load_explicit(&arena->used, memory_order_relaxed);
+    }
+
+    return 0;
+}
+
+
+/*
+ * Get the number of bytes remaining in an arena.
+ */
+static inline
+size_t arena_unused(const struct arena *arena)
+{
+    if (likely(arena != NULL)) {
+        size_t used = atomic_load_explicit(&arena->used, memory_order_relaxed);
+        return arena->size - used;
+    }
+
+    return 0;
+}
+
+
+/*
  * Track all arenas in a list, allowing arenas to be destroyed and
  * memory to be freed once at the end of the program.
  */
 struct arena_list
 {
     struct arena * _Atomic head;
-    size_t size;        // FIXME : instead of setting a fixed size for all arenas in a list, calculate this in arena_alloc_dynamic and also take in align to arena_list_add
 };
-
-
-/*
- * Get the default arena size.
- */
-static inline
-size_t arena_size(const struct arena_list *list)
-{
-    if (list->size == 0) {
-        return ARENA_DEFAULT_SIZE;
-    }
-
-    return list->size;
-}
 
 
 /*
  * Initialize the arena list with a default arena size.
  */
 static inline
-void arena_list_init(struct arena_list *list, size_t default_size)
+void arena_list_init(struct arena_list *list)
 {
     atomic_init(&list->head, NULL);
-    list->size = align_to(default_size, PAGE_SIZE);
 }
 
 
-/*
- * Get the remaining number of bytes in an arena.
- */
-static inline
-size_t arena_remaining(const struct arena *arena)
-{
-    size_t used = atomic_load_explicit(&arena->used, memory_order_relaxed);
-    return arena->size - used;
-}
+#define ARENA_LIST_INIT (struct arena_list) {NULL}
 
 
 /*
@@ -235,7 +247,7 @@ void * arena_alloc_zeroed(struct arena *arena, size_t size, size_t align)
  *
  * Returns the newly created arena, or NULL if allocation failed.
  */
-struct arena * arena_list_add(struct arena_list *list, size_t size);
+struct arena * arena_list_add(struct arena_list *list, size_t size, size_t align);
 
 
 /*
@@ -268,35 +280,28 @@ void * arena_alloc_dynamic(struct arena_list *list, struct arena **current, size
 {
     void *ptr = NULL;
     struct arena *head = *current;
-    size_t default_size = arena_size(list);
+    size_t arena_size;
 
-    if (unlikely(size >= default_size)) {
-        // The specified size is larger than the default arena size
-        // We need to create an oversized arena for this allocation
-        if (align < PAGE_SIZE) {
-            align = PAGE_SIZE;
-        }
-
-        head = arena_list_add(list, align_to(size, align));
-        if (unlikely(head == NULL)) {
-            return NULL;
-        }
-
-        ptr = arena_alloc(head, size, align);
-        if (unlikely(head->size - atomic_load_explicit(&head->used, memory_order_relaxed) >= default_size)) {
-            *current = head;
-        }
-        return ptr;
+    if (likely(head != NULL)) {
+        arena_size = head->size;
+    } else {
+        arena_size = ARENA_DEFAULT_SIZE;
     }
 
-    // Try to reserve block in the current arena
-    ptr = arena_alloc(head, size, align);
-    if (likely(ptr != NULL)) {
-        return ptr;
+    if (unlikely(align_to(size, align) > arena_size)) {
+        // The specified size is larger than the default arena size
+        arena_size = size;
+    } else {
+        // Try to reserve block in the current arena
+        ptr = arena_alloc(head, size, align);
+        if (likely(ptr != NULL)) {
+            return ptr;
+        }
     }
 
     // We could not fit the block in the current arena
-    head = arena_list_add(list, arena_size(list));
+    // Allocate a new arena with the same size as the previous arena
+    head = arena_list_add(list, arena_size, align);
     if (unlikely(head == NULL)) {
         return NULL;
     }
