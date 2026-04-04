@@ -21,19 +21,19 @@ struct rht_entry;
 
 
 /*
- * Robin-Hood hash table implementation.
+ * Robin Hood hash table implementation.
  *
- * Robin-Hood hashing uses a distance from ideal counter (DFI) to
+ * Robin Hood hashing uses a distance from ideal counter (DFI) to
  * do open addressing with linear probing on collisions (also sometimes
- * called probe sequence length). Robin-Hood refers to the fact that
- * it "steals" from the rich to give to the poor, by shifting elements
- * based on their DFI.
+ * called probe sequence length). The term Robin Hood refers to the fact 
+ * that it "steals" from the rich to give to the poor, by shifting elements
+ * based on their DFI in order to reduce the maximum DFI any one element has.
  *
- * This implementation supports concurrency; it uses a sequence number
- * for reader-writer consistency and a spinlock to ensure that only one
- * thread can write at the time (writer lock). This means that the ideal
- * use case for this is when there is one writer thread, as there otherwise
- * will be contention for insertion/deletion/rehashing.
+ * This implementation supports single writer, multiple readers concurrency; 
+ * it uses a sequence number for reader-writer consistency and a spinlock to 
+ * ensure that only one thread can write at the time (writer lock). This means 
+ * that the ideal use case for this is when there is one writer thread, 
+ * as otherwise there would be contention for insertion/deletion/rehashing.
  */
 struct rht
 {
