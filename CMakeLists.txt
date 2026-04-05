@@ -8,8 +8,10 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_EXTENSIONS ON)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+# Check if valgrind headers exist
 check_include_file("valgrind/memcheck.h" HAVE_VALGRIND_MEMCHECK_H)
 
+# Add compile and linker definitions for TSan profiling
 add_compile_options("$<$<CONFIG:TSan>:-fsanitize=thread;-g;-O1>")
 add_link_options("$<$<CONFIG:TSan>:-fsanitize=thread>")
 
@@ -17,42 +19,14 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Set build type" FORCE)
 endif()
 
+string(TOUPPER ${CMAKE_BUILD_TYPE} BUILD_TYPE_UPPER)
+
+# Indicate that valgrind headers were found
 if (HAVE_VALGRIND_MEMCHECK_H)
     add_compile_definitions(HAS_VALGRIND)
-    message(STATUS "valgrind headers detected")
+    message(STATUS "Detected valgrind headers")
 endif ()
 
-file(GLOB_RECURSE BFLD_HEADER_FILES "include/*.h")
-
-
-# Compile a utility library for (maybe useful for other projects)?
-add_library(utilslib SHARED EXCLUDE_FROM_ALL 
-    #src/utils/rbtree.c 
-    #src/utils/deque.c 
-    #src/utils/table.c 
-    src/utils/arena.c
-    src/utils/htable.c
-)
-target_sources(utilslib INTERFACE 
-    #include/utils/rht.h
-    #include/utils/list.h 
-    #include/utils/rbtree.h 
-    #include/utils/deque.h 
-    #include/utils/table.h 
-    include/utils/spinlock.h 
-    include/utils/hash.h 
-    include/utils/arena.h 
-    include/utils/htable.h
-)
-target_include_directories(utilslib PUBLIC include/utils)
-target_compile_options(utilslib PRIVATE -Wall -Wextra -pedantic)
-set_target_properties(utilslib PROPERTIES OUTPUT_NAME bfldutils)
-
-#install(TARGETS utilslib DESTINATION lib)
-#file(GLOB UTILSLIB_HEADER_FILES "include/utils/*.h")
-#install(FILES ${UTILSLIB_HEADER_FILES} DESTINATION include/bfldutils)
-
-string(TOUPPER ${CMAKE_BUILD_TYPE} BUILD_TYPE_UPPER)
 
 # Should we build tests?
 option(BUILD_TESTING "Build tests for bfld" OFF)
@@ -72,44 +46,27 @@ endif ()
 
 
 # Create shared library of the linker code
-add_library(linkerlib SHARED
-    src/linker/strpool.c
+add_library(libbfld SHARED
+    src/arena.c
+    src/htable.c
 )
-#add_library(linkerlib SHARED 
-#    src/linker/strpool.c
-#    src/utils/deque.c
-#    src/utils/table.c
-#    src/utils/rbtree.c
-#    src/linker/mfile.c 
-#    src/linker/registry.c
-#    src/linker/linker.c
-#    src/linker/objectfile.c
-#    src/linker/archive.c
-#    src/linker/archives.c
-#    src/linker/section.c
-#    src/linker/sections.c
-#    src/linker/symbol.c
-#    src/linker/symbols.c
-#    src/linker/globals.c
-#    #src/linker/layout.c
-#    src/linker/posixcompat.c
-#    src/linker/groups.c
-#)
-target_include_directories(linkerlib PUBLIC include)  # also includes "include/utils"
-target_include_directories(linkerlib PRIVATE include/utils)
-target_compile_options(linkerlib PRIVATE -Wall -Wextra -pedantic)
-set_target_properties(linkerlib PROPERTIES OUTPUT_NAME bfld)
+target_include_directories(libbfld PUBLIC include) 
+target_compile_options(libbfld PRIVATE -Wall -Wextra -pedantic)
+#target_compile_options(libbfld PRIVATE $<$<CONFIG:Release>:-O3 -march=native -flto>)
+#target_link_options(libbfld PRIVATE $<$<CONFIG:Release>:-O3 -march=native -flto>)
+set_target_properties(libbfld PROPERTIES OUTPUT_NAME bfld)
 
 
 # Make an executable linker
 
 # TODO: at some point we want to register loaders/frontends with dlsym/dlopen and determine loaders/frontends with command line arguments (then point default loader based on architecture using if (macos/unix)
 
-add_executable(bfld src/main.c src/commandline.c)
-add_subdirectory(src/frontends)
-add_subdirectory(src/targets)
+#add_executable(bfld src/main.c src/commandline.c)
+#add_subdirectory(src/frontends)
+#add_subdirectory(src/targets)
 
 #target_compile_definitions(bfld PUBLIC DEFAULT_BFVM="$<TARGET_FILE:bfvm>")
-target_compile_definitions(bfld PUBLIC DEFAULT_BFVM="NOFILE")
-target_compile_options(bfld PRIVATE -Wall -Wextra -pedantic)
-target_link_libraries(bfld PRIVATE linkerlib)
+
+#target_compile_definitions(bfld PUBLIC DEFAULT_BFVM="NOFILE")
+#target_compile_options(bfld PRIVATE -Wall -Wextra -pedantic)
+#target_link_libraries(bfld PRIVATE linkerlib)
