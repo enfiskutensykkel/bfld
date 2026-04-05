@@ -165,7 +165,8 @@ void arena_diagnose(const struct arena_list *arenas)
     fprintf(stderr, "Total utilization: %.3f%%\n", ((double) total_used / (double) total_size) * 100.0);
 
     fprintf(stderr, "----------------------------\n");
-    if (count <= 64) {
+#if 0
+    if (count <= 16) {
         curr = atomic_load(&arenas->head);
         size_t n = 0;
         while (curr != NULL) {
@@ -178,6 +179,7 @@ void arena_diagnose(const struct arena_list *arenas)
 
         fprintf(stderr, "----------------------------\n");
     }
+#endif
 }
 
 
@@ -256,12 +258,6 @@ void test_stress2()
     htable_free(&symbols);
     
     arena_list_free(&arenas);
-}
-
-int main()
-{
-    test_stress2();
-    return 0;
 }
 
 
@@ -367,44 +363,44 @@ void test_stress()
 }
 
 
-//int main()
-//{
-//    strings = malloc((NUM_SYMBOLS + 5) * 32);
-//    assert(strings != NULL);
-//
-//    offsets = malloc(sizeof(size_t) * (NUM_SYMBOLS + 5));
-//
-//    char *ptr = strings;
-//    offsets[0] = ptr - strings;
-//    ptr = stpcpy(ptr, "malloc");
-//    ptr++;
-//    offsets[1] = ptr - strings;
-//    ptr = stpcpy(ptr, "free");
-//    ptr++;
-//    offsets[2] = ptr - strings;
-//    ptr = stpcpy(ptr, "main");
-//    ptr++;
-//    offsets[3] = ptr - strings;
-//    ptr = stpcpy(ptr, "printf");
-//    ptr++;
-//    offsets[4] = ptr - strings;
-//    ptr = stpcpy(ptr, "init");
-//    ptr++;
-//
-//    for (int i = 0; i < NUM_SYMBOLS; ++i) {
-//        char buf[32];
-//        snprintf(buf, sizeof(buf), "sym%d", i);
-//        buf[31] = '\0';
-//
-//        offsets[5 + i] = ptr - strings;
-//        ptr = stpcpy(ptr, buf);
-//        ptr++;
-//    }
-//
-//    //test_stress();
-//    test_stress2();
-//
-//    free(strings);
-//    free(offsets);
-//    return 0;
-//}
+int main()
+{
+    strings = malloc((NUM_SYMBOLS + 5) * 32);
+    assert(strings != NULL);
+
+    offsets = malloc(sizeof(size_t) * (NUM_SYMBOLS + 5));
+
+    char *ptr = strings;
+    offsets[0] = ptr - strings;
+    ptr = stpcpy(ptr, "malloc");
+    ptr++;
+    offsets[1] = ptr - strings;
+    ptr = stpcpy(ptr, "free");
+    ptr++;
+    offsets[2] = ptr - strings;
+    ptr = stpcpy(ptr, "main");
+    ptr++;
+    offsets[3] = ptr - strings;
+    ptr = stpcpy(ptr, "printf");
+    ptr++;
+    offsets[4] = ptr - strings;
+    ptr = stpcpy(ptr, "init");
+    ptr++;
+
+    for (int i = 0; i < NUM_SYMBOLS; ++i) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "sym%d", i);
+        buf[31] = '\0';
+
+        offsets[5 + i] = ptr - strings;
+        ptr = stpcpy(ptr, buf);
+        ptr++;
+    }
+
+    test_stress();
+    test_stress2();
+
+    free(strings);
+    free(offsets);
+    return 0;
+}
