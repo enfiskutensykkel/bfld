@@ -19,7 +19,6 @@ struct objectfile;
 struct objectfile_reader;
 struct archive;
 struct archive_reader;
-struct strpool;
 
 
 /* 
@@ -29,7 +28,6 @@ struct linkerctx
 {
     const char *name;               // output file name
     int refcnt;                     // reference counter
-    struct strpool *strings;        // global string table
     struct archives archives;       // archive symbol index
     struct globals globals;         // global symbols
     struct sections sections;       // worklist of input sections
@@ -55,6 +53,19 @@ struct linkerctx
     struct section *init;
     struct section *fini;
 };
+
+
+/*
+ * Intern a string on the linker context.
+ */
+static inline
+const char * linker_intern_string(struct linkerctx *ctx, const char *string)
+{
+    //size_t length = 
+    //htable_put(
+    return NULL;
+}
+
 
 
 /*

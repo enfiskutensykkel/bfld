@@ -27,21 +27,21 @@ file(GLOB_RECURSE BFLD_HEADER_FILES "include/*.h")
 
 # Compile a utility library for (maybe useful for other projects)?
 add_library(utilslib SHARED EXCLUDE_FROM_ALL 
-    src/utils/rbtree.c 
-    src/utils/deque.c 
-    src/utils/table.c 
+    #src/utils/rbtree.c 
+    #src/utils/deque.c 
+    #src/utils/table.c 
     src/utils/arena.c
     src/utils/htable.c
 )
 target_sources(utilslib INTERFACE 
+    #include/utils/rht.h
+    #include/utils/list.h 
+    #include/utils/rbtree.h 
+    #include/utils/deque.h 
+    #include/utils/table.h 
     include/utils/spinlock.h 
-    include/utils/list.h 
-    include/utils/rbtree.h 
-    include/utils/deque.h 
-    include/utils/table.h 
     include/utils/hash.h 
     include/utils/arena.h 
-    include/utils/rht.h
     include/utils/htable.h
 )
 target_include_directories(utilslib PUBLIC include/utils)

@@ -53,8 +53,6 @@ void print_time(struct timespec *start, struct timespec *end)
 
 const char * intern_string(struct htable *string_table, const char *string, size_t length)
 {
-    static _Thread_local struct arena *cache = NULL;
-
     uint64_t hash = hashfn(string, length);
 
     const char *interned = htable_get(string_table, hash, string, length);
