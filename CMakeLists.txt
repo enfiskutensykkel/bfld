@@ -110,23 +110,30 @@ endif ()
 
 # Create shared library of the linker code
 add_library(libbfld SHARED
-    src/arena.c
-    src/htable.c
-    src/mfile.c
-    src/linker.c
+     src/arena.c
+     src/htable.c
+     src/mfile.c
+     src/linker.c
 )
-target_include_directories(libbfld PUBLIC include) 
+target_include_directories(libbfld PUBLIC src) 
 target_compile_options(libbfld PRIVATE -Wall -Wextra -pedantic)
 set_target_properties(libbfld PROPERTIES OUTPUT_NAME bfld)
 
 
 # Make an executable linker
+add_executable(bfld
+    src/arena.c
+    src/htable.c
+    src/mfile.c
+    src/linker.c
+    src/main.c
+)
+target_include_directories(bfld PRIVATE src)
+target_compile_options(bfld PRIVATE -Wall -Wextra -pedantic)
+set_target_properties(bfld PROPERTIES OUTPUT_NAME bfld)
 
 # TODO: at some point we want to register loaders/frontends with dlsym/dlopen and determine loaders/frontends with command line arguments (then point default loader based on architecture using if (macos/unix)
 
-add_executable(bfld src/main.c)
 #add_subdirectory(src/frontends)
 #add_subdirectory(src/targets)
 
-target_link_libraries(bfld PRIVATE libbfld)
-target_compile_options(bfld PRIVATE -Wall -Wextra -pedantic)

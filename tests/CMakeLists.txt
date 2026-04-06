@@ -37,6 +37,7 @@ macro(add_test_executable target_name)
 
     if(BUILD_TESTING)
         add_executable(${target_name} ${ARG_FILES})
+        #target_include_directories(${target_name} PRIVATE ${CMAKE_SOURCE_DIR}/src)
         set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${ARG_OUTPUT_NAME})
         add_test(NAME ${target_name} COMMAND ${ARG_COMMAND})
     else()
