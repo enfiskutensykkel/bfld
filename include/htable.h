@@ -34,7 +34,6 @@ struct htable
     _Atomic(struct htable_node*) *slots;
     size_t capacity;
     atomic_size_t size;
-    struct rwlock lock;
 };
 
 
