@@ -4,16 +4,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <sys/mman.h>
-
-
-#if defined(HAS_VALGRIND) && !defined(NDEBUG)
-#include <valgrind/memcheck.h>
-#else
-#define VALGRIND_MALLOCLIKE_BLOCK(addr, size, redzone_bytes, is_zeroed) (void) 0
-#define VALGRIND_FREELIKE_BLOCK(addr, redzone_bytes) (void) 0
-#define VALGRIND_MAKE_MEM_NOACCESS(addr, len) (void) 0
-#define VALGRIND_MAKE_MEM_UNDEFINED(addr, len) (void) 0
-#endif
+#include "valgrind.h"
 
 
 void htable_init(struct htable *ht, size_t capacity)

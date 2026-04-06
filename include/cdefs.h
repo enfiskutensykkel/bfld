@@ -93,18 +93,6 @@ extern "C" {
 #endif
 
 
-#if defined(__cplusplus)
-#include <atomic>
-
-#define _Atomic(T) std::atomic<T>
-
-using std::memory_order_relaxed;
-using std::memory_order_release;
-using std::memory_order_acquire;
-
-#endif
-
-
 /*
  * Define some convenience macros.
  */
@@ -174,6 +162,22 @@ using std::memory_order_acquire;
 
 
 /*
+ * Thread local definitions.
+ */
+#if defined(HAS_C11_THREADS) || \
+    (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L) \
+    || (defined(__has_include) && __has_include(<threads.h>))
+
+#include <threads.h>
+
+#elif defined(__GNUC__) || defined(__clang__)
+
+#define _Thread_local __thread
+
+#endif
+
+
+/*
  * Thread yield macro.
  */
 #if (defined(__GNUC__) || defined(__clang__)) && (defined(__x86_64__) || defined(__i386__))
@@ -194,9 +198,29 @@ using std::memory_order_acquire;
 #include <sched.h>
 #define thread_pause() sched_yield()
 
+#else
+#define thread_pause() (void) 0
+
 #endif
 
 #ifdef __cplusplus
 }
 #endif
+
+
+#if defined(__cplusplus)
+#include <atomic>
+
+#define _Atomic(T) std::atomic<T>
+//#define _Thread_local thread_local
+
+using std::memory_order_relaxed;
+using std::memory_order_release;
+using std::memory_order_acquire;
+using std::memory_order_acq_rel;
+using std::memory_order_seq_cst;
+
+#endif
+
+
 #endif

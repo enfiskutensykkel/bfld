@@ -224,7 +224,7 @@ void * stress_worker(void *arg)
         sym->value = thread_id;
 
         uint64_t hash = hashfn(name_buf, len);
-        struct htable_node *node = htable_put(data->symbol_table, hash, name, len, &sym->hnode);
+        struct htable_node *node = htable_insert(data->symbol_table, hash, name, len, &sym->hnode);
         assert(node == &sym->hnode);
     }
 
@@ -289,7 +289,7 @@ void * worker(void *arg)
 
         uint64_t hash = hashfn(name, length);
 
-        if (htable_get(data->symbol_table, hash, name, length) != NULL) {
+        if (htable_lookup(data->symbol_table, hash, name, length) != NULL) {
             data->already++;
             continue;
         }
@@ -299,7 +299,7 @@ void * worker(void *arg)
         sym->name = name;
         sym->value = thread_id;
 
-        struct htable_node *node = htable_put(data->symbol_table, hash, sym->name, length, &sym->hnode);
+        struct htable_node *node = htable_insert(data->symbol_table, hash, sym->name, length, &sym->hnode);
         struct symbol *inserted = htable_entry(node, struct symbol, hnode);
         if (inserted == sym) {
             data->count++;
@@ -361,7 +361,7 @@ void test_stress()
         size_t len = strlen(name) + 1;
         uint64_t hash = hashfn(name, len);
 
-        const struct htable_node *node = htable_get(&symbol_table, hash, name, len);
+        const struct htable_node *node = htable_lookup(&symbol_table, hash, name, len);
         if (node == NULL) {
             continue;
         }

@@ -106,8 +106,8 @@ void htable_free(struct htable *ht);
  * in the table, or NULL otherwise.
  */
 static inline
-struct htable_node * htable_get(const struct htable *ht, uint64_t hash,
-                                const void *key, size_t size)
+struct htable_node * htable_lookup(const struct htable *ht, uint64_t hash,
+                                   const void *key, size_t size)
 {
 
     _Atomic(struct htable_node*) *slots = ht->slots;
@@ -136,21 +136,21 @@ struct htable_node * htable_get(const struct htable *ht, uint64_t hash,
  * node is returned. If an entry with the same key already exists in
  * the table, the already inserted node is returned.
  *
- * In effect, this is the same as a get-or-put function, as the node
- * is inserted if the key is not already found in the hash table.
+ * In effect, this is the same as a lookup-or-insert function, as the 
+ * node is inserted if the key is not already found in the hash table.
  *
  * Note that the pointers to key value must be stable and point
  * to memory with a lifetime that is guaranteed to be at least
  * as long as the lifetime of the hash table.
  */
 static inline
-struct htable_node * htable_put(struct htable *ht, uint64_t hash,
-                                const void *key, size_t size,
-                                struct htable_node *node)
+struct htable_node * htable_insert(struct htable *ht, uint64_t hash,
+                                   const void *key, size_t size,
+                                   struct htable_node *node)
 {
     if (unlikely(htable_size(ht) >= ht->capacity - (ht->capacity >> 4))) {
         // Table is more than ~90% full don't try to insert anything
-        return htable_get(ht, hash, key, size);
+        return htable_lookup(ht, hash, key, size);
     }
 
     size_t idx = hash & (ht->capacity - 1);
@@ -182,16 +182,16 @@ struct htable_node * htable_put(struct htable *ht, uint64_t hash,
 
 
 /*
- * A variant of htable_put() that returns true if the
+ * A variant of htable_insert() that returns true if the
  * key didn't already exist in the hash table, and the
  * node was inserted.
  */
 static inline
-bool htable_put_check(struct htable *ht, uint64_t hash,
-                      const void *key, size_t key_size,
-                      struct htable_node *node)
+bool htable_insert_check(struct htable *ht, uint64_t hash,
+                         const void *key, size_t key_size,
+                         struct htable_node *node)
 {
-    return htable_put(ht, hash, key, key_size, node) == node;
+    return htable_insert(ht, hash, key, key_size, node) == node;
 }
 
 

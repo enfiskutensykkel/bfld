@@ -6,7 +6,7 @@ include(CheckIncludeFile)
 include(CheckCSourceCompiles)
 
 set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_C_EXTENSIONS ON)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 # Do some feature tests
@@ -46,7 +46,6 @@ if (HAVE_BUILTIN_ATOMICS)
     add_compile_definitions(HAS_BUILTIN_ATOMICS)
     message(STATUS "Detected compiler built-in atomics")
 endif ()
-
 
 check_c_source_compiles("
 #include <sys/mman.h>
@@ -113,11 +112,11 @@ endif ()
 add_library(libbfld SHARED
     src/arena.c
     src/htable.c
+    src/mfile.c
+    src/linker.c
 )
 target_include_directories(libbfld PUBLIC include) 
 target_compile_options(libbfld PRIVATE -Wall -Wextra -pedantic)
-#target_compile_options(libbfld PRIVATE $<$<CONFIG:Release>:-O3 -march=native -flto>)
-#target_link_options(libbfld PRIVATE $<$<CONFIG:Release>:-O3 -march=native -flto>)
 set_target_properties(libbfld PROPERTIES OUTPUT_NAME bfld)
 
 
@@ -125,12 +124,9 @@ set_target_properties(libbfld PROPERTIES OUTPUT_NAME bfld)
 
 # TODO: at some point we want to register loaders/frontends with dlsym/dlopen and determine loaders/frontends with command line arguments (then point default loader based on architecture using if (macos/unix)
 
-#add_executable(bfld src/main.c src/commandline.c)
+add_executable(bfld src/main.c)
 #add_subdirectory(src/frontends)
 #add_subdirectory(src/targets)
 
-#target_compile_definitions(bfld PUBLIC DEFAULT_BFVM="$<TARGET_FILE:bfvm>")
-
-#target_compile_definitions(bfld PUBLIC DEFAULT_BFVM="NOFILE")
-#target_compile_options(bfld PRIVATE -Wall -Wextra -pedantic)
-#target_link_libraries(bfld PRIVATE linkerlib)
+target_link_libraries(bfld PRIVATE libbfld)
+target_compile_options(bfld PRIVATE -Wall -Wextra -pedantic)

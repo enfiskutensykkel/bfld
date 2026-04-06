@@ -9,13 +9,7 @@ extern "C" {
 #include <stdint.h>
 #include <string.h>
 #include "align.h"
-
-#if defined(HAS_VALGRIND) && !defined(NDEBUG)
-#include <valgrind/memcheck.h>
-#else
-#define VALGRIND_MAKE_MEM_UNDEFINED(addr, len) (void) 0
-#endif
-
+#include "valgrind.h"
 
 /*
  * Default arena size

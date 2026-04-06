@@ -1,6 +1,7 @@
 #include "cdefs.h"
 #include "arena.h"
 #include "align.h"
+#include "valgrind.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/mman.h>
@@ -15,16 +16,6 @@
 #if defined(__APPLE__)
 #include <sys/sysctl.h>
 #endif
-#endif
-
-
-#if defined(HAS_VALGRIND) && !defined(NDEBUG)
-#include <valgrind/memcheck.h>
-#else
-#define VALGRIND_MALLOCLIKE_BLOCK(addr, size, redzone_bytes, is_zeroed) (void) 0
-#define VALGRIND_FREELIKE_BLOCK(addr, redzone_bytes) (void) 0
-#define VALGRIND_MAKE_MEM_NOACCESS(addr, len) (void) 0
-#define VALGRIND_MAKE_MEM_UNDEFINED(addr, len) (void) 0
 #endif
 
 
