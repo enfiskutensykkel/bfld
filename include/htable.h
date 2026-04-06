@@ -4,13 +4,11 @@
 extern "C" {
 #endif
 
+#include "cdefs.h"
 #include <stddef.h>
 #include <stdbool.h>
 #include <string.h>
-#include <stdlib.h>
 #include "align.h"
-#include "cdefs.h"
-#include "spinlock.h"
 
 
 struct htable_node;

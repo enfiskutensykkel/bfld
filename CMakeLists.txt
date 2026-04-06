@@ -40,11 +40,7 @@ if (HAVE_C11_ATOMICS)
 endif ()
 
 check_c_source_compiles("
-int main() {
-  volatile int *p = 0;
-  __atomic_store_n(&p, 42, __ATOMIC_SEQ_CST);
-  return 0;
-}
+int main() { volatile int *p = 0; __atomic_store_n(&p, 42, __ATOMIC_SEQ_CST); return 0; }
 " HAVE_BUILTIN_ATOMICS)
 if (HAVE_BUILTIN_ATOMICS)
     add_compile_definitions(HAS_BUILTIN_ATOMICS)
