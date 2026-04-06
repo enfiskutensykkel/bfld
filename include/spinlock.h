@@ -6,18 +6,7 @@ extern "C" {
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdatomic.h>
 #include "cdefs.h"
-
-
-#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
-#include <threads.h>
-#elif defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
-#include <sched.h>
-#define thrd_yield() sched_yield()
-#else
-#define thrd_yield() (void)
-#endif
 
 
 /*
@@ -28,7 +17,7 @@ extern "C" {
  */
 struct spinlock
 {
-    atomic_uint_fast32_t value;
+    _Atomic(uint32_t) value;
 };
 
 
@@ -51,19 +40,13 @@ void spinlock_init(struct spinlock *lock)
 static inline
 void spinlock_lock(struct spinlock *lock)
 {
-    uint_fast32_t expected = 0;
+    uint32_t expected = 0;
 
     while (!atomic_compare_exchange_weak_explicit(&lock->value, &expected, 1,
                                                   memory_order_acquire,
                                                   memory_order_relaxed)) {
         expected = 0;
-#if defined(__x86_64__) || defined(__i386__)
-        __asm__ __volatile__("pause");
-#elif defined(__aarch64__)
-        __asm__ __volatile__("yield");
-#else
-        thrd_yield();
-#endif
+        thread_pause();
     }
 }
 
@@ -78,7 +61,7 @@ bool spinlock_try_lock(struct spinlock *lock)
         return false;
     }
 
-    uint_fast32_t expected = 0;
+    uint32_t expected = 0;
     return atomic_compare_exchange_strong_explicit(&lock->value, &expected, 1,
                                                    memory_order_acquire,
                                                    memory_order_relaxed);
@@ -104,11 +87,11 @@ void spinlock_unlock(struct spinlock *lock)
 struct rwlock
 {
     /*
-     * Bit  0-15: Number of active readers  (mask 0x0000ffffUL)
-     * Bit 16-30: Number of waiting writers (mask 0x7fff0000UL)
-     * Bit    31: Writer active             (mask 0x80000000UL)
+     * Bit  0-15: Number of active readers  (mask 0x0000ffff)
+     * Bit 16-30: Number of waiting writers (mask 0x7fff0000)
+     * Bit    31: Writer active             (mask 0x80000000)
      */
-    uint32_t _Atomic value;
+    _Atomic(uint32_t) value;
 };
 
 
@@ -140,19 +123,13 @@ void rwlock_biased_read_lock(struct rwlock *lock)
     uint32_t expected = atomic_load_explicit(&lock->value, memory_order_acquire);
 
     for (;;) {
-        if (unlikely(expected & 0x80000000UL)) {
-#if defined(__x86_64__) || defined(__i386__)
-            __asm__ __volatile__("pause");
-#elif defined(__aarch64__)
-            __asm__ __volatile__("yield");
-#else
-            thrd_yield();
-#endif
+        if (unlikely(expected & UINT32_C(0x80000000))) {
+            thread_pause();
             expected = atomic_load_explicit(&lock->value, memory_order_acquire);
             continue;
         }
 
-        uint32_t next = (expected & 0x0000ffffUL) + 1;
+        uint32_t next = (expected & UINT32_C(0x0000ffff)) + 1;
         if (atomic_compare_exchange_weak_explicit(&lock->value, &expected, next,
                                                   memory_order_acquire,
                                                   memory_order_relaxed)) {
@@ -171,19 +148,13 @@ void rwlock_read_lock(struct rwlock *lock)
     uint32_t expected = atomic_load_explicit(&lock->value, memory_order_acquire);
 
     for (;;) {
-        if (unlikely(expected & 0xffff0000UL)) {
-#if defined(__x86_64__) || defined(__i386__)
-            __asm__ __volatile__("pause");
-#elif defined(__aarch64__)
-            __asm__ __volatile__("yield");
-#else
-            thrd_yield();
-#endif
+        if (unlikely(expected & UINT32_C(0xffff0000))) {
+            thread_pause();
             expected = atomic_load_explicit(&lock->value, memory_order_acquire);
             continue;
         }
 
-        uint32_t next = (expected & 0x0000ffffUL) + 1;
+        uint32_t next = (expected & UINT32_C(0x0000ffff)) + 1;
         if (atomic_compare_exchange_weak_explicit(&lock->value, &expected, next,
                                                   memory_order_acquire,
                                                   memory_order_relaxed)) {
@@ -212,19 +183,13 @@ void rwlock_write_lock(struct rwlock *lock)
     uint32_t expected = atomic_load_explicit(&lock->value, memory_order_acquire);
 
     for (;;) {
-        if (likely(expected & 0x8000ffffUL)) {
-#if defined(__x86_64__) || defined(__i386__)
-            __asm__ __volatile__("pause");
-#elif defined(__aarch64__)
-            __asm__ __volatile__("yield");
-#else
-            thrd_yield();
-#endif
+        if (likely(expected & UINT32_C(0x8000ffff))) {
+            thread_pause();
             expected = atomic_load_explicit(&lock->value, memory_order_acquire);
             continue;
         }
 
-        uint32_t value = expected | 0x80000000;
+        uint32_t value = expected | UINT32_C(0x80000000);
         if (atomic_compare_exchange_weak_explicit(&lock->value, &expected, value,
                                                   memory_order_acquire,
                                                   memory_order_relaxed)) {
@@ -246,30 +211,24 @@ void rwlock_biased_write_lock(struct rwlock *lock)
     uint32_t expected = 0;
 
     // Try to take writer lock directly
-    if (atomic_compare_exchange_strong_explicit(&lock->value, &expected, 0x80000000UL,
+    if (atomic_compare_exchange_strong_explicit(&lock->value, &expected, UINT32_C(0x80000000),
                                                 memory_order_acquire,
                                                 memory_order_relaxed)) {
         return;
     }
 
     // We have to wait for our turn, signal that we are waiting
-    atomic_fetch_add_explicit(&lock->value, 0x00010000UL, memory_order_release);
+    atomic_fetch_add_explicit(&lock->value, UINT32_C(0x00010000), memory_order_release);
     expected = atomic_load_explicit(&lock->value, memory_order_acquire);
 
     for (;;) {
-        if (likely(expected & 0x8000ffffUL)) {
-#if defined(__x86_64__) || defined(__i386__)
-            __asm__ __volatile__("pause");
-#elif defined(__aarch64__)
-            __asm__ __volatile__("yield");
-#else
-            thrd_yield();
-#endif
+        if (likely(expected & UINT32_C(0x8000ffff))) {
+            thread_pause();
             expected = atomic_load_explicit(&lock->value, memory_order_acquire);
             continue;
         }
 
-        uint32_t next = (expected - 0x00010000UL) | 0x80000000UL;
+        uint32_t next = (expected - UINT32_C(0x00010000)) | UINT32_C(0x80000000);
         if (atomic_compare_exchange_weak_explicit(&lock->value, &expected, next,
                                                   memory_order_acquire,
                                                   memory_order_relaxed)) {
@@ -285,7 +244,7 @@ void rwlock_biased_write_lock(struct rwlock *lock)
 static inline
 void rwlock_write_unlock(struct rwlock *lock)
 {
-    atomic_fetch_and_explicit(&lock->value, ~0x80000000UL, memory_order_release);
+    atomic_fetch_and_explicit(&lock->value, ~UINT32_C(0x80000000), memory_order_release);
 }
 
 

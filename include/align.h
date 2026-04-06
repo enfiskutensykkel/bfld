@@ -4,6 +4,7 @@
 extern "C" {
 #endif
 
+#include "cdefs.h"
 #include <stdint.h>
 
 

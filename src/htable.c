@@ -36,9 +36,11 @@ void htable_init(struct htable *ht, size_t capacity)
         return;
     }
 
+#ifdef HAS_MADVISE
     madvise(slotmem, size, MADV_HUGEPAGE);
     madvise(slotmem, size, MADV_RANDOM);
     madvise(slotmem, size, MADV_WILLNEED);
+#endif
 
 #ifndef NDEBUG
     VALGRIND_MALLOCLIKE_BLOCK(slotmem, size, 0, 1);
@@ -57,7 +59,6 @@ void htable_free(struct htable *ht)
     size_t size = ht->capacity * sizeof(struct htable_node);
 
 #ifndef NDEBUG
-    madvise(ht->slots, size, MADV_DONTNEED);
     VALGRIND_FREELIKE_BLOCK(ht->slots, 0);
 #endif
 

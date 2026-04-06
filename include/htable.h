@@ -6,7 +6,6 @@ extern "C" {
 
 #include <stddef.h>
 #include <stdbool.h>
-#include <stdatomic.h>
 #include <string.h>
 #include <stdlib.h>
 #include "align.h"

@@ -4,13 +4,11 @@
 extern "C" {
 #endif
 
+#include "cdefs.h"
 #include <stddef.h>
 #include <stdint.h>
-#include <stdalign.h>
-#include <stdatomic.h>
 #include <string.h>
 #include "align.h"
-#include "cdefs.h"
 
 #if defined(HAS_VALGRIND) && !defined(NDEBUG)
 #include <valgrind/memcheck.h>
@@ -39,10 +37,10 @@ extern "C" {
  */
 struct arena
 {
-    size_t _Atomic used;            // number of bytes currently used
+    _Atomic(size_t) used;           // number of bytes currently used
     size_t size;                    // total size of the memory region
     uint8_t *data;                  // pointer to the actual memory
-    struct arena * _Atomic next;    // pointer to the next memory region
+    _Atomic(struct arena*) next;    // pointer to the next memory region
 };
 
 
@@ -52,7 +50,7 @@ struct arena
  */
 struct arena_list
 {
-    struct arena * _Atomic head;
+    _Atomic(struct arena *) head;
 };
 
 

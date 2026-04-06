@@ -3,13 +3,87 @@ project(bfld)
 
 find_package(Threads REQUIRED)
 include(CheckIncludeFile)
+include(CheckCSourceCompiles)
 
 set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_EXTENSIONS ON)
+set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-# Check if valgrind headers exist
+# Do some feature tests
 check_include_file("valgrind/memcheck.h" HAVE_VALGRIND_MEMCHECK_H)
+if (HAVE_VALGRIND_MEMCHECK_H)
+    add_compile_definitions(HAS_VALGRIND)
+    message(STATUS "Detected valgrind headers")
+endif ()
+
+check_include_file("immintrin.h" HAVE_INTEL_INTRINSICS_H)
+if (HAVE_INTEL_INTRINSICS_H)
+    add_compile_definitions(HAS_INTEL_INTRINSICS)
+    message(STATUS "Detected Intel intrinsics headers")
+endif ()
+
+check_c_source_compiles("
+#include <threads.h>
+int main() { thrd_yield(); return 0; }
+" HAVE_C11_THREADS)
+if (HAVE_C11_THREADS)
+    add_compile_definitions(HAS_C11_THREADS)
+endif ()
+
+check_c_source_compiles("
+#include <stdatomic.h>
+int main() { _Atomic int i = 0; return 0; }
+" HAVE_C11_ATOMICS)
+if (HAVE_C11_ATOMICS)
+    add_compile_definitions(HAS_C11_ATOMICS)
+    message(STATUS "Detected C11 atomics")
+endif ()
+
+check_c_source_compiles("
+int main() {
+  volatile int *p = 0;
+  __atomic_store_n(&p, 42, __ATOMIC_SEQ_CST);
+  return 0;
+}
+" HAVE_BUILTIN_ATOMICS)
+if (HAVE_BUILTIN_ATOMICS)
+    add_compile_definitions(HAS_BUILTIN_ATOMICS)
+    message(STATUS "Detected compiler built-in atomics")
+endif ()
+
+
+check_c_source_compiles("
+#include <sys/mman.h>
+int main() { void *p = NULL; madvise(p, 0, MADV_HUGEPAGE); return 0; }
+" HAVE_MADVISE)
+if (HAVE_MADVISE)
+    add_compile_definitions(HAS_MADVISE)
+endif ()
+
+check_c_source_compiles("
+#include <stdlib.h>
+int main() { aligned_alloc(64, 64); return 0; }
+" HAVE_ALIGNED_ALLOC)
+if (HAVE_ALIGNED_ALLOC)
+    add_compile_definitions(HAS_ALIGNED_ALLOC)
+endif ()
+
+check_c_source_compiles("
+#include <stdlib.h>
+int main() { void *p = NULL; posix_memalign(&p, 64, 64); return 0; }
+" HAVE_POSIX_MEMALIGN)
+if (HAVE_POSIX_MEMALIGN)
+    add_compile_definitions(HAS_POSIX_MEMALIGN)
+endif ()
+
+check_c_source_compiles("
+#include <sched.h>
+int main() { sched_yield(); return 0;
+" HAVE_SCHED_YIELD)
+if (HAVE_SCHED_YIELD)
+    add_compile_definitions(HAS_SCHED_YIELD)
+endif ()
+
 
 # Add compile and linker definitions for TSan profiling
 add_compile_options("$<$<CONFIG:TSan>:-fsanitize=thread;-g;-O1>")
@@ -20,12 +94,6 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 string(TOUPPER ${CMAKE_BUILD_TYPE} BUILD_TYPE_UPPER)
-
-# Indicate that valgrind headers were found
-if (HAVE_VALGRIND_MEMCHECK_H)
-    add_compile_definitions(HAS_VALGRIND)
-    message(STATUS "Detected valgrind headers")
-endif ()
 
 
 # Should we build tests?

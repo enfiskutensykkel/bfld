@@ -1,11 +1,12 @@
+#include "cdefs.h"
 #include "arena.h"
 #include "align.h"
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <sys/mman.h>
 #include <signal.h>
 #include <assert.h>
+#include <stdlib.h>
 
 #if defined(_WIN32) || defined(_WIN64)
 #include <windows.h>
@@ -77,7 +78,16 @@ struct arena * arena_list_add(struct arena_list *list, size_t size, size_t align
 
     size_t cacheline = get_cache_line_size();
 
-    struct arena *arena = aligned_alloc(cacheline, align_to(sizeof(struct arena), cacheline));
+    struct arena *arena = NULL;
+#if HAS_ALIGNED_ALLOC
+    arena = aligned_alloc(cacheline, align_to(sizeof(struct arena), cacheline));
+#elif HAS_POSIX_MEMALIGN
+    if (posix_memalign((void**) &arena, cacheline, align_to(sizeof(struct arena), cacheline)) != 0) {
+        arena = NULL;
+    }
+#else
+    arena = malloc(align_to(sizeof(struct arena), cacheline));
+#endif
     if (arena == NULL) {
         return NULL;
     }
@@ -89,8 +99,10 @@ struct arena * arena_list_add(struct arena_list *list, size_t size, size_t align
         return NULL;
     }
 
+#ifdef HAS_MADVISE
     madvise(memory, size, MADV_HUGEPAGE);
     madvise(memory, size, MADV_SEQUENTIAL);
+#endif
 
 #ifndef NDEBUG
     VALGRIND_MALLOCLIKE_BLOCK(memory, size, 0, 1);
@@ -138,7 +150,9 @@ void arena_list_free(struct arena_list *list)
 
 #ifndef NDEBUG
         mprotect(head->data, head->size, PROT_NONE);
+#ifdef HAS_MADVISE
         madvise(head->data, head->size, MADV_DONTNEED);
+#endif
         VALGRIND_FREELIKE_BLOCK(head->data, 0);
 #endif
 
