@@ -180,17 +180,19 @@ extern "C" {
 /*
  * Thread yield macro.
  */
-#if (defined(__GNUC__) || defined(__clang__)) && (defined(__x86_64__) || defined(__i386__))
+#if defined(HAS_INLINE_ASM_PAUSE) || ((defined(__GNUC__) || defined(__clang__)) && (defined(__x86_64__) || defined(__i386__)))
 #define thread_pause()  __asm__ __volatile__("pause")
 
-#elif (defined(__GNUC__) || defined(__clang__)) && defined(__aarch64__)
+#elif defined(HAS_INLINE_ASM_YIELD) || ((defined(__GNUC__) || defined(__clang__)) && defined(__aarch64__))
 #define thread_pause() __asm__ __volatile__("yield")
 
-#elif defined(HAS_INTEL_INTRINSICS)
+#elif defined(HAS_INTEL_INTRINSICS_PAUSE)
 #include <immintrin.h>
 #define thread_pause()  _mm_pause()
 
-#elif HAS_C11_THREADS
+#elif defined(HAS_C11_THREADS) || \
+    (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L) \
+    || (defined(__has_include) && __has_include(<threads.h>))
 #include <threads.h>
 #define thread_pause() thrd_yield()
 

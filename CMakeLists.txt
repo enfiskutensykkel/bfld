@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.16...3.30)
 project(bfld)
 
+set(THREADS_PERFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 include(CheckIncludeFile)
 include(CheckCSourceCompiles)
@@ -9,17 +10,56 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_EXTENSIONS ON)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+
+# Atomics is required for bfld to work
+check_c_source_compiles("
+#include <stdatomic.h>
+int main() { _Atomic int i = 0; return 0; }
+" HAVE_C11_ATOMICS)
+if (HAVE_C11_ATOMICS)
+    add_compile_definitions(HAS_C11_ATOMICS)
+    message(STATUS "Compiler supports C11 atomic operations")
+endif ()
+
+check_c_source_compiles("
+int main() { volatile int *p = 0; __atomic_store_n(&p, 42, __ATOMIC_SEQ_CST); return 0; }
+" HAVE_BUILTIN_ATOMICS)
+if (HAVE_BUILTIN_ATOMICS)
+    add_compile_definitions(HAS_BUILTIN_ATOMICS)
+    message(STATUS "Compiler supports built-in atomic operations")
+endif ()
+
+if (NOT HAVE_BUILTIN_ATOMICS AND NOT HAVE_C11_ATOMICS)
+    message(FATAL_ERROR "Compiler does not support C11 atomic operations")
+endif ()
+
 # Do some feature tests
+check_c_source_compiles("
+int main() { __asm__ __volatile__ (\"pause\"); return 0; }
+" HAVE_INLINE_ASM_PAUSE)
+if (HAVE_INLINE_ASM_PAUSE)
+    add_compile_definitions(HAS_ASM_PAUSE)
+endif ()
+
+check_c_source_compiles("
+int main() { __asm__ __volatile__ (\"yield\"); return 0; }
+" HAVE_INLINE_ASM_YIELD)
+if (HAVE_INLINE_ASM_YIELD)
+    add_compile_definitions(HAS_ASM_YIELD)
+endif ()
+
+check_c_source_compiles("
+#include <immintrin.h>
+int main() { _mm_pause(); return 0; }
+" HAVE_INTEL_INTRINSICS_PAUSE)
+if (HAVE_INTEL_INTRINSICS_PAUSE)
+    add_compile_definitions(HAS_INTEL_INTRINSICS_PAUSE)
+endif ()
+
 check_include_file("valgrind/memcheck.h" HAVE_VALGRIND_MEMCHECK_H)
 if (HAVE_VALGRIND_MEMCHECK_H)
     add_compile_definitions(HAS_VALGRIND)
-    message(STATUS "Detected valgrind headers")
-endif ()
-
-check_include_file("immintrin.h" HAVE_INTEL_INTRINSICS_H)
-if (HAVE_INTEL_INTRINSICS_H)
-    add_compile_definitions(HAS_INTEL_INTRINSICS)
-    message(STATUS "Detected Intel intrinsics headers")
+    message(STATUS "Detected valgrind memcheck header")
 endif ()
 
 check_c_source_compiles("
@@ -31,25 +71,8 @@ if (HAVE_C11_THREADS)
 endif ()
 
 check_c_source_compiles("
-#include <stdatomic.h>
-int main() { _Atomic int i = 0; return 0; }
-" HAVE_C11_ATOMICS)
-if (HAVE_C11_ATOMICS)
-    add_compile_definitions(HAS_C11_ATOMICS)
-    message(STATUS "Detected C11 atomics")
-endif ()
-
-check_c_source_compiles("
-int main() { volatile int *p = 0; __atomic_store_n(&p, 42, __ATOMIC_SEQ_CST); return 0; }
-" HAVE_BUILTIN_ATOMICS)
-if (HAVE_BUILTIN_ATOMICS)
-    add_compile_definitions(HAS_BUILTIN_ATOMICS)
-    message(STATUS "Detected compiler built-in atomics")
-endif ()
-
-check_c_source_compiles("
 #include <sys/mman.h>
-int main() { void *p = NULL; madvise(p, 0, MADV_HUGEPAGE); return 0; }
+int main() { void *p = NULL; madvise(&p, 0, MADV_HUGEPAGE); return 0; }
 " HAVE_MADVISE)
 if (HAVE_MADVISE)
     add_compile_definitions(HAS_MADVISE)
@@ -72,8 +95,9 @@ if (HAVE_POSIX_MEMALIGN)
 endif ()
 
 check_c_source_compiles("
+#include <unistd.h>
 #include <sched.h>
-int main() { sched_yield(); return 0;
+int main() { sched_yield(); return 0; }
 " HAVE_SCHED_YIELD)
 if (HAVE_SCHED_YIELD)
     add_compile_definitions(HAS_SCHED_YIELD)
@@ -114,6 +138,8 @@ add_library(libbfld SHARED
      src/htable.c
      src/mfile.c
      src/linker.c
+     src/sysconf.c
+     src/ftruncate.c
 )
 target_include_directories(libbfld PUBLIC src) 
 target_compile_options(libbfld PRIVATE -Wall -Wextra -pedantic)
@@ -127,6 +153,8 @@ add_executable(bfld
     src/mfile.c
     src/linker.c
     src/main.c
+    src/sysconf.c
+    src/ftruncate.c
 )
 target_include_directories(bfld PRIVATE src)
 target_compile_options(bfld PRIVATE -Wall -Wextra -pedantic)

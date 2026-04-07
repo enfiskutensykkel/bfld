@@ -9,48 +9,24 @@
 #include <assert.h>
 #include <stdlib.h>
 
-#if defined(_WIN32) || defined(_WIN64)
-#include <windows.h>
-#elif defined(__linux__) || defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__))
-#include <unistd.h>
-#if defined(__APPLE__)
-#include <sys/sysctl.h>
-#endif
-#endif
+/*
+ * Helper function go get the system page size at runtime.
+ */
+extern size_t get_page_size(void);
+
+/*
+ * Helper function to get the cache line size at runtime.
+ */
+extern size_t get_cache_line_size(void);
 
 
-static size_t get_page_size(void)
-{
-#if defined(_WIN32) || defined(_WIN64)
-    SYSTEM_INFO si;
-    GetSystemInfo(&si);
-    return (size_t) si.dwPageSize;
-#elif defined(_SC_PAGESIZE)
-    return (size_t) sysconf(_SC_PAGESIZE);
-#elif defined(_SC_PAGE_SIZE)
-    return (size_t) sysconf(_SC_PAGE_SIZE);
-#else
-    // Default fallback to 4096
-    return 4096;
-#endif
-}
-
-size_t get_cache_line_size(void)
-{
-#if defined(_SC_LEVEL1_DCACHE_LINESIZE)
-    return (size_t) sysconf(_SC_LEVEL1_DCACHE_LINESIZE);
-#elif defined(__APPLE__)
-    size_t line_size = 0;
-    size_t length = sizeof(line_size);
-    sysctlbyname("hw.cachelinesize", &line_size, &length, NULL, 0);
-    return line_size;
-#elif defined(_WIN32) || defined(_WIN64)
-    // FIXME: use GetLogicalProcessorInformation
-    return 64;
-#else
-    return 64; // default fallback for modern x86_64/ARM
-#endif
-}
+// Not sure if we need the following, but
+//#include <numaif.h>
+// link with -lnuma:
+// int cpu, node;
+// getcpu(&cpu, node);
+// mask = (1UL << node);
+// mbind(memory, size, MPOL_PREFERRED, &mask, sizeof(mask) * 8, 0)
 
 
 struct arena * arena_list_add(struct arena_list *list, size_t size, size_t align)
@@ -83,7 +59,9 @@ struct arena * arena_list_add(struct arena_list *list, size_t size, size_t align
         return NULL;
     }
 
+    // FIXME: use MAP_HUGE_TLB and MAP_HUGE_2MB ?
     int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
+
     void *memory = mmap(NULL, size, PROT_READ | PROT_WRITE, flags, -1, 0);
     if (memory == MAP_FAILED) {
         free(arena);
@@ -124,14 +102,6 @@ struct arena * arena_list_add(struct arena_list *list, size_t size, size_t align
 }
 
 
-// Not sure if we need the following, but
-//#include <numaif.h>
-// link with -lnuma:
-// int cpu, node;
-// getcpu(&cpu, node);
-// mask = (1UL << node);
-// mbind(memory, size, MPOL_PREFERRED, &mask, sizeof(mask) * 8, 0)
-
 void arena_list_free(struct arena_list *list)
 {
     struct arena *head = atomic_exchange_explicit(&list->head, NULL, memory_order_acquire);
@@ -140,10 +110,6 @@ void arena_list_free(struct arena_list *list)
         struct arena *next = atomic_load_explicit(&head->next, memory_order_relaxed);
 
 #ifndef NDEBUG
-        mprotect(head->data, head->size, PROT_NONE);
-#ifdef HAS_MADVISE
-        madvise(head->data, head->size, MADV_DONTNEED);
-#endif
         VALGRIND_FREELIKE_BLOCK(head->data, 0);
 #endif
 

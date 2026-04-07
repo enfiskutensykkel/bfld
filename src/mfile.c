@@ -2,8 +2,8 @@
 #include "mfile.h"
 #include "logging.h"
 #include <stdlib.h>
-#include <unistd.h>
 #include <fcntl.h>
+#include <unistd.h>
 #include <errno.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -12,71 +12,7 @@
 #include <assert.h>
 
 
-#if (defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L) \
-    || defined(_BSD_SOURCE) || (defined(_XOPEN_SOURCE) && _XOPEN_SOURCE >= 500)
-/* We have ftruncate() */
-#elif (defined(_WIN32) || defined(_WIN64))
-#include <io.h>
-int ftruncate(int fd, off_t length)
-{
-    return _chsize(fd, length); // FIXME: is it chsize (without underscore)?
-}
-
-#elif defined(F_CHSIZE)
-int ftruncate(int fd, off_t length)
-{
-    return fcntl(fd, F_CHSIZE, length);
-}
-
-#elif defined(F_FREESP)
-int ftruncate(int fd, off_t length)
-{
-    struct flock fl;
-    struct stat stat;
-
-    if (fstat (fd, &stat) < 0) {
-        return -1;
-    }
-
-    if (stat.st_size < length) {
-        // We need to extend the file length
-        if (lseek (fd, (length - 1), SEEK_SET) < 0) {
-            return -1;
-        }
-
-        // Write a NUL-byte to the end
-        if (write (fd, "", 1) != 1) {
-            return -1;
-        }
-
-    } else {
-        // We need to truncate the length
-        // This relies on the undocumented F_FREESP argument to fcntl,
-        // allowing the file to be truncated so that it ends at fl.l_start
-        // Shamelessly stolen from the gold linker source code, ftruncate.c
-
-        fl.l_whence = 0;
-        fl.l_len = 0;
-        fl.l_start = length;
-        fl.l_type = F_WRLCK;	/* write lock on file space */
-
-        if (fcntl (fd, F_FREESP, &fl) < 0) {
-            return -1
-        }
-    }
-
-    return 0;
-}
-#else
-int ftruncate(int fd, off_t length)
-{
-    (void) fd;
-    (void) length;
-
-    errno = EIO;
-    return -1;
-}
-#endif
+extern int ftruncate(int fd, off_t length);
 
 
 int mfile_open(struct mfile **file, const char *pathname)
@@ -121,7 +57,8 @@ int mfile_open(struct mfile **file, const char *pathname)
     }
 
     // Memory-map the file
-    void *p = mmap(NULL, s.st_size, PROT_READ, MAP_SHARED | MAP_POPULATE, fd, 0);
+    int flags = MAP_SHARED | MAP_POPULATE;
+    void *p = mmap(NULL, s.st_size, PROT_READ, flags, fd, 0);
     if (p == MAP_FAILED) {
         //int status = errno;
         close(fd);
