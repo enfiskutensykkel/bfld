@@ -16,35 +16,54 @@ extern "C" {
  */
 struct mfile
 {
-    _Atomic(uint32_t) refcnt;   // reference counter
+    _Atomic(uint32_t) refcnt;   // Reference counter
+    struct mfile *parent;       // parent file pointer
     char *name;                 // filename used when opening the file
     int fd;                     // the underlying file descriptor used to open the file
     size_t size;                // total size of the file in memory
-    const uint8_t *data;        // memory-mapped pointer to the start of file contents
+    uint8_t *data;              // memory-mapped pointer to the start of file contents
 };
 
 
 /*
- * Open a file as read-only and memory map its content.
+ * Open input file as memory map its content.
  */
-int mfile_open(struct mfile **file, const char *pathname);
+struct mfile * mfile_open(const char *pathname);
 
 
 /*
  * Take a reference to the memory mapped file.
- * Increases the reference counter.
  */
 struct mfile * mfile_get(struct mfile *file);
 
 
 /*
- * Release reference to the memory mapped file.
- * Decreasse the reference counter.
- *
- * When the reference count is 0, the mapped memory is unmapped
- * and the file descriptor is closed.
+ * Release the memory mapped file reference.
  */
 void mfile_put(struct mfile *file);
+
+
+/*
+ * Get the offset of the file from the start of the parent file.
+ */
+static inline
+size_t mfile_offset(const struct mfile *file)
+{
+    if (file->parent != NULL) {
+        return (file->data - file->parent->data) + mfile_offset(file->parent);
+    }
+    return 0;
+}
+
+
+/*
+ * Get the filename of the memory mapped file.
+ */
+static inline
+const char * mfile_name(const struct mfile *file)
+{
+    return file->name;
+}
 
 
 #ifdef __cplusplus

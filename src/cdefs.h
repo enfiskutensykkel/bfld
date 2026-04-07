@@ -161,6 +161,23 @@ extern "C" {
 #endif
 
 
+#if defined(HAS_C23_ALIGNAS) \
+    || (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L && (defined(__GNUC__) || defined(__clang__))) \
+    || (defined(__has_include) && __has_include(<stdalign.h>))
+#include <stdalign.h>
+
+#elif defined(__GNUC__) || defined(__clang__)
+
+#define alignas(x) __attribute__((aligned(x)))
+
+#else
+
+#define alignas(x)
+
+#endif
+
+
+
 /*
  * Thread local definitions.
  */

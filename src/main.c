@@ -6,10 +6,8 @@
 
 static bool load_file(const char *pathname)
 {
-    struct mfile *file = NULL;
-
-    int status = mfile_open(&file, pathname);
-    if (status != 0) {
+    struct mfile *file = mfile_open(pathname);
+    if (file == NULL) {
         return false;
     }
 

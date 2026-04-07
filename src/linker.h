@@ -4,8 +4,17 @@
 extern "C" {
 #endif
 
+#include "cdefs.h"
+#include <stddef.h>
 
-struct linkerctx;
+
+struct mfile;
+
+
+struct linkerctx
+{
+    struct mfile **files;
+};
 
 #ifdef __cplusplus
 }

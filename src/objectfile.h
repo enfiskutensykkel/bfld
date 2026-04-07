@@ -8,6 +8,7 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 
+struct mfile;
 
 /*
  * Object file descriptor.
@@ -21,6 +22,8 @@ struct objectfile
     size_t nsections;
     size_t nsymbols;
 };
+
+
 
 
 #ifdef __cplusplus

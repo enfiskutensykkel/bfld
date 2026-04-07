@@ -70,9 +70,20 @@ if (HAVE_C11_THREADS)
     add_compile_definitions(HAS_C11_THREADS)
 endif ()
 
+
 check_c_source_compiles("
+#include <stdalign.h>
+struct test { alignas(64) int value; };
+int main() { return 0; }
+" HAVE_C23_ALIGNAS)
+if (HAVE_C23_ALIGNAS)
+    add_compile_definitions(HAS_C23_ALIGNAS)
+endif ()
+
+check_c_source_compiles("
+#include <stdlib.h>
 #include <sys/mman.h>
-int main() { void *p = NULL; madvise(&p, 0, MADV_HUGEPAGE); return 0; }
+int main() { void *p = NULL; madvise(p, 64, MADV_HUGEPAGE); return 0; }
 " HAVE_MADVISE)
 if (HAVE_MADVISE)
     add_compile_definitions(HAS_MADVISE)

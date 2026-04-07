@@ -4,7 +4,6 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <sys/mman.h>
-#include "valgrind.h"
 
 
 void htable_init(struct htable *ht, size_t capacity)
@@ -21,7 +20,6 @@ void htable_init(struct htable *ht, size_t capacity)
     size_t size = real_cap * sizeof(struct htable_node);
 
     int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
-
     void *slotmem = mmap(NULL, size, PROT_READ | PROT_WRITE, flags, -1, 0);
     if (slotmem == MAP_FAILED) {
         return;
@@ -31,11 +29,6 @@ void htable_init(struct htable *ht, size_t capacity)
     madvise(slotmem, size, MADV_HUGEPAGE);
     madvise(slotmem, size, MADV_RANDOM);
     madvise(slotmem, size, MADV_WILLNEED);
-#endif
-
-#ifndef NDEBUG
-    VALGRIND_MALLOCLIKE_BLOCK(slotmem, size, 0, 1);
-    VALGRIND_MAKE_MEM_DEFINED(slotmem, size);
 #endif
 
     ht->slots = slotmem;
@@ -48,10 +41,6 @@ void htable_free(struct htable *ht)
     atomic_store_explicit(&ht->size, 0, memory_order_relaxed);
 
     size_t size = ht->capacity * sizeof(struct htable_node);
-
-#ifndef NDEBUG
-    VALGRIND_FREELIKE_BLOCK(ht->slots, 0);
-#endif
 
     munmap(ht->slots, size);
 

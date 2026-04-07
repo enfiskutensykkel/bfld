@@ -15,92 +15,65 @@
 extern int ftruncate(int fd, off_t length);
 
 
-int mfile_open(struct mfile **file, const char *pathname)
+struct mfile * mfile_open(const char *pathname)
 {
-    *file = NULL;
-
     log_ctx_new(pathname);
 
     int fd = open(pathname, O_RDONLY);
     if (fd == -1) {
         log_error("Unable to open file");
         log_ctx_pop();
-        switch (errno) {
-            case EACCES:
-            case EPERM:
-            case ENOENT:
-            case EISDIR:
-                return errno;
-
-            default:
-                return EBADF;
-        }
+        return NULL;
     }
 
     // Get the file size so that the entire file can be memory-mapped
     struct stat s;
     if (fstat(fd, &s) == -1) {
-        int status = errno;
         close(fd);
         log_error("Unable to check file size");
         log_ctx_pop();
-        switch (status) {
-            case EACCES:
-            case EPERM:
-            case ENOENT:
-            case EISDIR:
-                return status;
-
-            default:
-                return EBADF;
-        }
+        return NULL;
     }
 
     // Memory-map the file
-    int flags = MAP_SHARED | MAP_POPULATE;
-    void *p = mmap(NULL, s.st_size, PROT_READ, flags, fd, 0);
+    // Uses MAP_PRIVATE for copy-on-write
+    void *p = mmap(NULL, s.st_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
     if (p == MAP_FAILED) {
-        //int status = errno;
         close(fd);
         log_error("Unable to memory-map file");
         log_ctx_pop();
-        return EBADF;
+        return NULL;
     }
-
-#ifdef HAS_MADVISE
-    madvise(p, st.st_size, MADV_RANDOM);
-#endif
 
     log_trace("File opened");
 
     // Create file handle
-    struct mfile *f = malloc(sizeof(struct mfile));
-    if (f == NULL) {
+    struct mfile *file = malloc(sizeof(struct mfile));
+    if (file == NULL) {
         munmap(p, s.st_size);
         close(fd);
         log_ctx_pop();
-        return ENOMEM;
+        return NULL;
     }
 
-    f->name = malloc(strlen(pathname) + 1);
-    if (f->name == NULL) {
-        free(f);
+    file->name = malloc(strlen(pathname) + 1);
+    if (file->name == NULL) {
+        free(file);
         munmap(p, s.st_size);
         close(fd);
         log_ctx_pop();
-        return ENOMEM;
+        return NULL;
     }
-    strcpy(f->name, pathname);
+    strcpy(file->name, pathname);
 
-    atomic_init(&f->refcnt, 1);
-    f->fd = fd;
-    f->size = s.st_size;
-    f->data = p;
-
-    *file = f;
+    file->parent = NULL;
+    atomic_init(&file->refcnt, 1);
+    file->fd = fd;
+    file->size = s.st_size;
+    file->data = p;
 
     log_ctx_pop();
-    return 0;
+    return file;
 }
 
 
@@ -121,8 +94,12 @@ void mfile_put(struct mfile *file)
     if (atomic_fetch_sub_explicit(&file->refcnt, 1, memory_order_acq_rel) == 1) {
         log_ctx_new(file->name);
 
-        munmap((void*) file->data, file->size);
-        close(file->fd);
+        if (file->parent == NULL) {
+            munmap((void*) file->data, file->size);
+            close(file->fd);
+        } else {
+            mfile_put(file->parent);
+        }
         log_trace("File closed");
 
         log_ctx_pop();
