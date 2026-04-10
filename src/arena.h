@@ -9,10 +9,11 @@ extern "C" {
 #include "valgrind.h"
 #include <stddef.h>
 #include <stdbool.h>
-#include <string.h>
 
 
 #define ARENA_DEFAULT_CAPACITY (2ULL << 20)
+
+#define ARENA_MAX_CAPACITY (8ULL << 20)
 
 
 /*
@@ -179,8 +180,7 @@ void arena_list_move(struct arena_list *new_list, struct arena_list *old_list)
 {
     struct arena *head, *tail, *next;
 
-    head = atomic_exchange_explicit(&list->head, NULL, memory_order_acq_rel);
-    
+    head = atomic_exchange_explicit(&old_list->head, NULL, memory_order_acq_rel);
     if (head == NULL) {
         return;
     }
@@ -322,13 +322,13 @@ void * arena_alloc_local(struct arena *arena, size_t size, size_t alignment)
         return NULL;
     }
 
-    uintptr_t base = (uintptr_t) arena->data;
+    uintptr_t base = (uintptr_t) arena->base;
     size_t used = atomic_load_explicit(&arena->used, memory_order_relaxed);
 
-    uintptr_t addr = align_to(base + used, align);
+    uintptr_t addr = align_to(base + used, alignment);
     size_t offset = (size_t) (addr - base);
 
-    if (unlikely(size > SIZE_MAX - offset) || unlikely(offset + size > arena->size)) {
+    if (unlikely(size > SIZE_MAX - offset) || unlikely(offset + size > arena->capacity)) {
         return NULL;
     }
 
@@ -339,49 +339,108 @@ void * arena_alloc_local(struct arena *arena, size_t size, size_t alignment)
 
 
 /*
- * 
+ * Alloate a memory block of (at least) the specified size and create
+ * new arenas if necessary.
  */
 static inline
-void * arena_alloc_local_growable(struct arena_list *list,
-                                  size_t size, 
-                                  size_t alignment)
+void * arena_dynamic_alloc(struct arena_list *list,
+                           struct arena **current,
+                           size_t size, 
+                           size_t alignment,
+                           size_t capacity)
 {
     void *ptr;
-    struct arena *head = atomic_load_explicit(&pool->current, memory_order_acquire);
-    size_t capacity;
-    
+    struct arena *head = *current;
+    size_t aligned;
+
+    // Try to reserve block in the current arena
     if (likely(head != NULL)) {
-        capacity = head->capacity;
-    } else {
-        capacity = ARENA_DEFAULT_CAPACITY;
-    }
 
-    if (unlikely(align_to(size, alignment) > capacity)) {
-        // The specified size is larger than the default arena size
-        capacity = size;
-
-    } else {
-        // Try to reserve block in the current arena
         ptr = arena_alloc(head, size, alignment);
         if (likely(ptr != NULL)) {
             return ptr;
         }
 
-        arean_list_add(&pool->list, head);
+        // We could not fit the block into the current arena
+        arena_list_add(list, head);
+    } 
+
+    aligned = align_to(size, alignment);
+    if (aligned > capacity) {
+        // The specified size is larger than the default capacity
+        capacity = aligned;
     }
 
-    // We could not fit the block into the current arena (or current arena is NULL)
-    // Allocate a new arena with the same size as the previous arena
+    // Allocate a new arena
     head = arena_create(capacity);
     if (unlikely(head == NULL)) {
         *current = NULL;
         return NULL;
     }
 
-    // We can use thread-local variant here as the arena is not added to the list yet
+    // We can use thread-local variant here as the arena is new 
+    // and contention is impossible
     ptr = arena_alloc_local(head, size, alignment);
     *current = head;
     return ptr;
+}
+
+
+/*
+ * The same as arena_dynamic_alloc, except that instead
+ * by adding arenas with a fixed capacity, capacity
+ * grows by a factor of two until they become ARENA_MAX_CAPACITY.
+ */
+static inline
+void * arena_dynamic_alloc_grow(struct arena_list *list,
+                                struct arena **current,
+                                size_t size,
+                                size_t alignment)
+{
+    void *ptr;
+    struct arena *head = *current;
+    size_t capacity;
+    size_t aligned;
+
+    if (likely(head != NULL)) {
+        ptr = arena_alloc(head, size, alignment);
+        if (likely(ptr != NULL)) {
+            return ptr;
+        }
+
+        if (unlikely(head->capacity > SIZE_MAX - head->capacity)
+                || head->capacity > ARENA_MAX_CAPACITY - head->capacity) {
+            capacity = ARENA_MAX_CAPACITY;
+        } else {
+            capacity = head->capacity << 1;
+        }
+        arena_list_add(list, head);
+    }
+
+    aligned = align_to(size, alignment);
+    if (aligned > capacity) {
+        capacity = aligned;
+    }
+
+    head = arena_create(capacity);
+    if (unlikely(head == NULL)) {
+        *current = NULL;
+        return NULL;
+    }
+
+    ptr = arena_alloc_local(head, size, alignment);
+    *current = head;
+    return ptr;
+}
+
+
+static inline
+void arena_dynamic_alloc_done(struct arena_list *list, struct arena **current)
+{
+    if (*current != NULL) {
+        arena_list_add(list, *current);
+        *current = NULL;
+    }
 }
 
 

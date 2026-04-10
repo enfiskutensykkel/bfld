@@ -9,7 +9,7 @@
 #include "arena.h"
 
 #define NUM_THREADS 32
-#define NUM_ALLOCS 1000000
+#define NUM_ALLOCS 10000000
 
 
 void print_time(const struct timespec *start, const struct timespec *end)
@@ -29,15 +29,11 @@ struct timespec get_time(void)
 
 void test_local_arena(void)
 {
-    struct shared_arena arena;
-
-    shared_arena_init(&arena);
-    shared_arena_reserve(&arena, NUM_ALLOCS * sizeof(int));
-
+    struct arena *arena = arena_create(NUM_ALLOCS * sizeof(int));
     struct timespec start = get_time();
 
     for (int i = 0; i < NUM_ALLOCS; ++i) {
-        int *v = shared_arena_alloc(&arena, sizeof(int), sizeof(int));
+        int *v = arena_alloc(arena, sizeof(int), sizeof(int));
         assert(v != NULL);
         *v = i;
     }
@@ -45,11 +41,35 @@ void test_local_arena(void)
     struct timespec end = get_time();
     print_time(&start, &end);
 
-    shared_arena_free(&arena);
+    arena_destroy(arena);
 }
 
 
-void test_single_threaded_realloc(void)
+void test_dynamic_alloc(void)
+{
+    struct arena_list list = {0};
+    struct arena *arena = NULL;
+    struct timespec start = get_time();
+    
+    for (int i = 0; i < NUM_ALLOCS; ++i) {
+        int *v = arena_dynamic_alloc(&list, &arena,
+                                     sizeof(int), sizeof(int),
+                                     4096);
+        assert(v != NULL);
+        *v = i;
+    }
+
+    arena_dynamic_alloc_done(&list, &arena);
+
+    struct timespec end = get_time();
+    print_time(&start, &end);
+
+    arena_list_clear(&list);
+}
+
+
+
+void test_realloc(void)
 {
     struct timespec start = get_time();
 
@@ -64,16 +84,17 @@ void test_single_threaded_realloc(void)
         array = a;
     }
 
-    free(array);
-
     struct timespec end = get_time();
     print_time(&start, &end);
+
+    free(array);
 }
 
 
 int main(void)
 {
     test_local_arena();
-    test_single_threaded_realloc();
+    test_realloc();
+    test_dynamic_alloc();
     return 0;
 }
