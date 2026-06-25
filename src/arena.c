@@ -40,7 +40,8 @@ extern size_t get_cache_line_size(void);
 
 struct arena * arena_create(size_t capacity)
 {
-    size_t page = get_page_size();
+    //size_t page = get_page_size();
+    size_t page = 2ULL << 20;
     size_t cacheline = get_cache_line_size();
 
     size_t size = align_to(capacity, page);
@@ -70,7 +71,7 @@ struct arena * arena_create(size_t capacity)
 
 #if HAS_MADVISE
     madvise(memory, size, MADV_HUGEPAGE);
-    madvise(memory, size, MADV_RANDOM);
+    madvise(memory, size, MADV_SEQUENTIAL);
 #endif
 
     VALGRIND_MALLOCLIKE_BLOCK(memory, size, 0, 1);
@@ -87,7 +88,7 @@ struct arena * arena_create(size_t capacity)
 
 void arena_destroy(struct arena *arena)
 {
-    VALGRIND_FREELIKE_BLOCK(arena->base, arena->capacity);
+    VALGRIND_FREELIKE_BLOCK(arena->base, 0);
     munmap(arena->base, arena->capacity);
     free(arena);
 }

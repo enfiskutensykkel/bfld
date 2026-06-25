@@ -9,7 +9,7 @@
 #include "arena.h"
 
 #define NUM_THREADS 32
-#define NUM_ALLOCS 10000000
+#define NUM_ALLOCS 100000000
 
 
 void print_time(const struct timespec *start, const struct timespec *end)
@@ -33,7 +33,7 @@ void test_local_arena(void)
     struct timespec start = get_time();
 
     for (int i = 0; i < NUM_ALLOCS; ++i) {
-        int *v = arena_alloc(arena, sizeof(int), sizeof(int));
+        int *v = arena_alloc_local(arena, sizeof(int), sizeof(int));
         assert(v != NULL);
         *v = i;
     }
@@ -93,8 +93,9 @@ void test_realloc(void)
 
 int main(void)
 {
+    fprintf(stderr, "NUM_ALLOCS %d\n", NUM_ALLOCS);
     test_local_arena();
-    test_realloc();
     test_dynamic_alloc();
+    test_realloc();
     return 0;
 }

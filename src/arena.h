@@ -356,7 +356,7 @@ void * arena_dynamic_alloc(struct arena_list *list,
     // Try to reserve block in the current arena
     if (likely(head != NULL)) {
 
-        ptr = arena_alloc(head, size, alignment);
+        ptr = arena_alloc_local(head, size, alignment);
         if (likely(ptr != NULL)) {
             return ptr;
         }
@@ -378,8 +378,6 @@ void * arena_dynamic_alloc(struct arena_list *list,
         return NULL;
     }
 
-    // We can use thread-local variant here as the arena is new 
-    // and contention is impossible
     ptr = arena_alloc_local(head, size, alignment);
     *current = head;
     return ptr;
@@ -403,7 +401,7 @@ void * arena_dynamic_alloc_grow(struct arena_list *list,
     size_t aligned;
 
     if (likely(head != NULL)) {
-        ptr = arena_alloc(head, size, alignment);
+        ptr = arena_alloc_local(head, size, alignment);
         if (likely(ptr != NULL)) {
             return ptr;
         }
